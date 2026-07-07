@@ -17,6 +17,7 @@ import Workflow from "./pages/Workflow";
 import CorcCalculator from "./pages/CorcCalculator";
 import Assets from "./pages/Assets";
 import TestingPlot from "./pages/TestingPlot";
+import TreeDetail from "./pages/TreeDetail";
 import Users from "./pages/Users";
 import AuditTrail from "./pages/AuditTrail";
 import Settings from "./pages/Settings";
@@ -54,6 +55,7 @@ const App = () => (
             <Route path="/assets" element={<Assets />} />
             <Route path="/cctv" element={<Suspense fallback={<PageFallback />}><Cctv /></Suspense>} />
             <Route path="/testing-plot" element={<TestingPlot />} />
+            <Route path="/testing-plot/:id" element={<TreeDetail />} />
             <Route path="/users" element={<Users />} />
             <Route path="/reports" element={<Suspense fallback={<PageFallback />}><Reports /></Suspense>} />
             <Route path="/audit-trail" element={<AuditTrail />} />

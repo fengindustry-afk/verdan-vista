@@ -1,11 +1,32 @@
 import { BentoCard } from "@/components/BentoCard";
 import { useUsers } from "@/hooks/useCollection";
-import { parseRole, roleDisplayName, roleDescription, UserRole } from "@/lib/rbac";
-import { Loader2, ShieldCheck } from "lucide-react";
+import { parseRole, roleDisplayName, roleDescription, hasPermission, Permission, UserRole } from "@/lib/rbac";
+import { Loader2, ShieldCheck, CheckCircle2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useMemo } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import type { UserProfile } from "@/lib/types";
+import { useMemo, useState } from "react";
+
+// Human-readable permission labels for the detail view.
+const PERMISSION_LABELS: [Permission, string][] = [
+  [Permission.ViewDashboard, "View dashboard"],
+  [Permission.ViewFeedstock, "View feedstock"],
+  [Permission.AddFeedstock, "Add feedstock"],
+  [Permission.EditFeedstock, "Edit feedstock"],
+  [Permission.DeleteFeedstock, "Delete feedstock"],
+  [Permission.VerifyFeedstock, "Verify feedstock"],
+  [Permission.ViewLocations, "View locations"],
+  [Permission.AddLocations, "Add locations"],
+  [Permission.DeleteLocations, "Delete locations"],
+  [Permission.ExportData, "Export data"],
+  [Permission.ViewUsers, "View users"],
+  [Permission.EditUsers, "Edit users"],
+  [Permission.DeleteUsers, "Delete users"],
+  [Permission.AssignRoles, "Assign roles"],
+  [Permission.ManageSettings, "Manage settings"],
+];
 
 const roleBadge: Record<UserRole, string> = {
   [UserRole.Viewer]: "bg-muted text-muted-foreground border-border",
@@ -16,6 +37,7 @@ const roleBadge: Record<UserRole, string> = {
 
 export default function Users() {
   const { data: users = [], isLoading } = useUsers();
+  const [selected, setSelected] = useState<UserProfile | null>(null);
 
   const counts = useMemo(() => {
     const c: Record<number, number> = {};
@@ -72,7 +94,8 @@ export default function Users() {
                     .join("")
                     .toUpperCase();
                   return (
-                    <TableRow key={u.id}>
+                    <TableRow key={u.id} onClick={() => setSelected(u)} className="cursor-pointer">
+
                       <TableCell>
                         <div className="flex items-center gap-2.5">
                           <Avatar className="h-8 w-8">
@@ -104,6 +127,60 @@ export default function Users() {
           </BentoCard>
         </>
       )}
+
+      {/* User detail */}
+      <Dialog open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
+        <DialogContent>
+          {selected && (() => {
+            const role = parseRole(selected.Role);
+            return (
+              <>
+                <DialogHeader>
+                  <DialogTitle>{selected.FullName || selected.Email}</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3">
+                    <Avatar className="h-12 w-12">
+                      <AvatarFallback className="bg-primary/15 text-primary">
+                        {(selected.FullName || selected.Email || "?").split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div>
+                      <Badge variant="outline" className={`text-[10px] border ${roleBadge[role]}`}>{roleDisplayName[role]}</Badge>
+                      <p className="text-[11px] text-muted-foreground mt-1">{roleDescription[role]}</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <Field k="Email" v={selected.Email} />
+                    <Field k="Employee ID" v={selected.EmployeeId} />
+                    <Field k="Job title" v={selected.JobTitle} />
+                    <Field k="Department" v={selected.Department} />
+                    <Field k="Company" v={selected.CompanyName} />
+                    <Field k="Phone" v={selected.PhoneNumber} />
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold text-foreground mb-2">Permissions</p>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {PERMISSION_LABELS.filter(([p]) => hasPermission(role, p)).map(([p, label]) => (
+                        <span key={p} className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                          <CheckCircle2 className="h-3 w-3 text-primary" /> {label}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
+
+const Field = ({ k, v }: { k: string; v?: string }) => (
+  <div>
+    <p className="text-muted-foreground">{k}</p>
+    <p className="text-foreground">{v || "—"}</p>
+  </div>
+);

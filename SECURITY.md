@@ -38,7 +38,7 @@ the delivery edge.
 | **MIME sniffing** | `X-Content-Type-Options: nosniff`. |
 | **Protocol downgrade / MITM** | `Strict-Transport-Security` (2y, preload) + CSP `upgrade-insecure-requests`. |
 | **Referrer / cross-origin leakage** | `Referrer-Policy: no-referrer`; `Cross-Origin-Opener-Policy: same-origin`. |
-| **Device API abuse** | `Permissions-Policy` denies geolocation, mic, camera, payment, USB, FLoC. |
+| **Device API abuse** | `Permissions-Policy` scopes geolocation + camera to `self` (needed for GPS/photo capture) and denies mic, payment, USB, FLoC entirely; cross-origin frames get nothing. |
 | **Malformed / oversized input** | `zod` schemas validate + bound every write form (`newBatchSchema`, `corcInputSchema`). |
 | **Brute-force login** | Supabase Auth built-in rate limits on the auth endpoints. |
 | **Vulnerable dependencies** | `npm audit` (prod, high-gate) + `npm audit signatures` + Dependency Review on PRs; client-shipped `xlsx` pinned to the patched SheetJS build. |

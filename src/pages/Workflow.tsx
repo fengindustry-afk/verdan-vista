@@ -2,8 +2,10 @@ import { BentoCard } from "@/components/BentoCard";
 import { useFeedstock } from "@/hooks/useCollection";
 import { corcMetrics, CUSTODY_STAGES, OPERATIONS_STAGE_COUNT } from "@/lib/feedstock";
 import { fmt } from "@/lib/format";
-import { Truck, Settings2, Flame, FlaskConical, Warehouse, Sprout, Trees, Loader2 } from "lucide-react";
-import { useMemo } from "react";
+import { Truck, Settings2, Flame, FlaskConical, Warehouse, Sprout, Trees, Loader2, ChevronRight } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Link } from "react-router-dom";
+import { useMemo, useState } from "react";
 
 const STAGE_META: Record<string, { icon: typeof Truck; desc: string }> = {
   "Feedstock Collection": { icon: Truck, desc: "Biomass gathered from source" },
@@ -17,6 +19,12 @@ const STAGE_META: Record<string, { icon: typeof Truck; desc: string }> = {
 
 export default function Workflow() {
   const { data: feedstock = [], isLoading } = useFeedstock();
+  const [openStage, setOpenStage] = useState<string | null>(null);
+
+  const stageBatches = useMemo(
+    () => (openStage ? feedstock.filter((f) => f.CurrentStage === openStage) : []),
+    [openStage, feedstock]
+  );
 
   const stages = useMemo(
     () =>
@@ -51,17 +59,21 @@ export default function Workflow() {
                   .map((s, i) => {
                     const Icon = STAGE_META[s.stage].icon;
                     return (
-                      <BentoCard key={s.stage} delay={i * 0.05}>
-                        <div className="flex items-start justify-between">
-                          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
-                            <Icon className="h-4 w-4 text-primary" />
+                      <button key={s.stage} onClick={() => s.count > 0 && setOpenStage(s.stage)} className="text-left" disabled={s.count === 0}>
+                        <BentoCard delay={i * 0.05} className={`h-full group ${s.count > 0 ? "cursor-pointer" : "opacity-70"}`}>
+                          <div className="flex items-start justify-between">
+                            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
+                              <Icon className="h-4 w-4 text-primary" />
+                            </div>
+                            <span className="text-2xl font-bold text-foreground">{s.count}</span>
                           </div>
-                          <span className="text-2xl font-bold text-foreground">{s.count}</span>
-                        </div>
-                        <p className="text-sm font-semibold text-foreground mt-3">{s.stage}</p>
-                        <p className="text-[11px] text-muted-foreground mt-0.5">{STAGE_META[s.stage].desc}</p>
-                        <p className="text-[11px] text-primary mt-2">{fmt(s.corc, 2)} CORC in stage</p>
-                      </BentoCard>
+                          <p className="text-sm font-semibold text-foreground mt-3 flex items-center gap-1 group-hover:text-primary transition-colors">
+                            {s.stage} {s.count > 0 && <ChevronRight className="h-3.5 w-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />}
+                          </p>
+                          <p className="text-[11px] text-muted-foreground mt-0.5">{STAGE_META[s.stage].desc}</p>
+                          <p className="text-[11px] text-primary mt-2">{fmt(s.corc, 2)} CORC in stage</p>
+                        </BentoCard>
+                      </button>
                     );
                   })}
               </div>
@@ -69,6 +81,37 @@ export default function Workflow() {
           ))}
         </>
       )}
+
+      {/* Stage drill-down: batches currently in the stage */}
+      <Dialog open={!!openStage} onOpenChange={(o) => !o && setOpenStage(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{openStage} · {stageBatches.length} batch{stageBatches.length === 1 ? "" : "es"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 max-h-96 overflow-auto">
+            {stageBatches.map((f) => {
+              const m = corcMetrics(f);
+              return (
+                <Link
+                  key={f.id}
+                  to={`/feedstock/${encodeURIComponent(f.id)}`}
+                  onClick={() => setOpenStage(null)}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-border/50 px-3 py-2 hover:bg-muted/50 transition-colors"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm text-foreground truncate">{f.Title}</p>
+                    <p className="text-[11px] text-muted-foreground truncate">{f.Type} · {f.Supplier} · {f.Amount}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-sm font-semibold text-primary">{fmt(m.netCorc, 2)}</p>
+                    <p className="text-[10px] text-muted-foreground">CORC</p>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

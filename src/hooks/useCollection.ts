@@ -8,6 +8,7 @@ import type {
   UserProfile,
   Tree,
   TreeReading,
+  TreeScan,
   BiomassData,
 } from "@/lib/types";
 
@@ -28,6 +29,7 @@ export const usePhotos = () => useCollection<GeotaggedPhoto>(Collections.photos)
 export const useUsers = () => useCollection<UserProfile>(Collections.users);
 export const useTrees = () => useCollection<Tree>(Collections.trees);
 export const useReadings = () => useCollection<TreeReading>(Collections.readings);
+export const useScans = () => useCollection<TreeScan>(Collections.scans);
 export const useBiomass = () => useCollection<BiomassData>(Collections.esaBiomass);
 export const useGroundTruth = () => useCollection<BiomassData>(Collections.groundTruth);
 

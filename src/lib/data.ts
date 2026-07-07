@@ -25,6 +25,13 @@ function memSet(key: string, value: unknown) {
   mem.set(key, { value, expires: Date.now() + TTL });
 }
 
+const warned = new Set<string>();
+function warnOnce(key: string, msg: string) {
+  if (warned.has(key)) return;
+  warned.add(key);
+  console.warn(msg);
+}
+
 /** Merge the row's primary key into its jsonb payload. */
 function hydrate<T extends Doc>(row: { id: string; data: unknown }): T {
   const data = (row.data ?? {}) as Record<string, unknown>;
@@ -48,6 +55,12 @@ export async function getCollection<T extends Doc>(
     .order("updated_at", { ascending: false });
 
   if (error) {
+    // A not-yet-created table is an expected "feature not set up" state, not an
+    // error — return empty quietly (warn once) instead of spamming the console.
+    if (error.code === "PGRST205" || /find the table/i.test(error.message)) {
+      warnOnce(collection, `[data] table "${collection}" not found — treating as empty.`);
+      return [];
+    }
     console.error(`[data] getCollection(${collection}) failed:`, error.message);
     return memGet<T[]>(key) ?? [];
   }

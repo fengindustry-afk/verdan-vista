@@ -3,6 +3,7 @@ import { useTrees, useReadings } from "@/hooks/useCollection";
 import { TreePine, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useMemo } from "react";
+import { Link } from "react-router-dom";
 import { BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip } from "recharts";
 
 export default function TestingPlot() {
@@ -74,19 +75,21 @@ export default function TestingPlot() {
               </h2>
               <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 {groupTrees.map((t, i) => (
-                  <BentoCard key={t.id} delay={i * 0.03}>
-                    <div className="flex items-start justify-between mb-1">
-                      <h3 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
-                        <TreePine className="h-3.5 w-3.5 text-primary" /> {t.TreeCode}
-                      </h3>
-                      <Badge variant="outline" className="text-[10px]">{readingsByTree.get(t.id) ?? 0} readings</Badge>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground">{t.Species}</p>
-                    <p className="text-[11px] text-muted-foreground mt-1">{t.PlotName} · {t.CropAge}</p>
-                    {t.Treatment && t.Treatment !== "None" && (
-                      <p className="text-[11px] text-cyan-400 mt-1">Treatment: {t.Treatment}</p>
-                    )}
-                  </BentoCard>
+                  <Link key={t.id} to={`/testing-plot/${encodeURIComponent(t.id)}`}>
+                    <BentoCard delay={i * 0.03} className="h-full cursor-pointer group">
+                      <div className="flex items-start justify-between mb-1">
+                        <h3 className="text-sm font-semibold text-foreground flex items-center gap-1.5 group-hover:text-primary transition-colors">
+                          <TreePine className="h-3.5 w-3.5 text-primary" /> {t.TreeCode}
+                        </h3>
+                        <Badge variant="outline" className="text-[10px]">{readingsByTree.get(t.id) ?? 0} readings</Badge>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">{t.Species}</p>
+                      <p className="text-[11px] text-muted-foreground mt-1">{t.PlotName} · {t.CropAge}</p>
+                      {t.Treatment && t.Treatment !== "None" && (
+                        <p className="text-[11px] text-cyan-400 mt-1">Treatment: {t.Treatment}</p>
+                      )}
+                    </BentoCard>
+                  </Link>
                 ))}
               </div>
             </div>

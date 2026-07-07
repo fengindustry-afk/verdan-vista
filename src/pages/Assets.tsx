@@ -1,19 +1,44 @@
 import { BentoCard } from "@/components/BentoCard";
 import { useLocations, usePhotos } from "@/hooks/useCollection";
-import { MapPin, Camera, Satellite, Loader2 } from "lucide-react";
+import { MapPin, Camera, Satellite, Loader2, ExternalLink } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AddLocationDialog } from "@/components/capture/AddLocationDialog";
+import { CapturePhotoDialog } from "@/components/capture/CapturePhotoDialog";
+import { StoredImage } from "@/components/StoredImage";
+import { Buckets } from "@/lib/storage";
+import { useAuth } from "@/lib/auth";
+import { hasPermission, Permission } from "@/lib/rbac";
+import type { LocationData, GeotaggedPhoto } from "@/lib/types";
+import { useState } from "react";
 
 export default function Assets() {
   const { data: locations = [], isLoading: locLoading } = useLocations();
   const { data: photos = [], isLoading: photoLoading } = usePhotos();
+  const { role } = useAuth();
+  const canAdd = hasPermission(role, Permission.AddLocations);
+
+  const [loc, setLoc] = useState<LocationData | null>(null);
+  const [photo, setPhoto] = useState<GeotaggedPhoto | null>(null);
+
+  const mapsHref = (lat?: string, lng?: string) =>
+    lat && lng ? `https://www.google.com/maps?q=${lat},${lng}` : undefined;
 
   return (
     <div className="relative p-6 lg:p-8 space-y-6">
       <div className="glow-orb w-72 h-72 -top-36 -right-20 animate-pulse-glow" />
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Asset Management</h1>
-        <p className="text-sm text-muted-foreground mt-1">GPS-tracked sites, geotagged evidence &amp; ESA biomass fusion</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Asset Management</h1>
+          <p className="text-sm text-muted-foreground mt-1">GPS-tracked sites, geotagged evidence &amp; ESA biomass fusion</p>
+        </div>
+        {canAdd && (
+          <div className="flex gap-2">
+            <AddLocationDialog />
+            <CapturePhotoDialog />
+          </div>
+        )}
       </div>
 
       <Tabs defaultValue="locations">
@@ -27,30 +52,29 @@ export default function Assets() {
             <Loading />
           ) : (
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {locations.map((loc, i) => (
-                <BentoCard key={loc.id} delay={i * 0.05}>
-                  <div className="flex items-start justify-between mb-2">
-                    <h3 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
-                      <MapPin className="h-3.5 w-3.5 text-primary" /> {loc.Name || loc.id}
-                    </h3>
-                    {loc.SiteType && <Badge variant="outline" className="text-[10px]">{loc.SiteType}</Badge>}
-                  </div>
-                  <p className="text-xs text-muted-foreground font-mono">
-                    {loc.Latitude}, {loc.Longitude}
-                  </p>
-                  <div className="mt-2 space-y-1 text-[11px] text-muted-foreground">
-                    {loc.Accuracy && <p>Accuracy: {loc.Accuracy}</p>}
-                    {loc.Altitude && <p>Altitude: {loc.Altitude}</p>}
-                    {loc.Timestamp && <p>Recorded: {loc.Timestamp}</p>}
-                  </div>
-                  {loc.BiomassDataSource && loc.BiomassDataSource !== "NONE" && (
-                    <div className="mt-3 pt-3 border-t border-border/50 flex items-center gap-1.5 text-[11px] text-cyan-400">
-                      <Satellite className="h-3 w-3" /> Biomass: {loc.FusedBiomass || loc.SatelliteBiomass} ({loc.BiomassQuality})
+              {locations.map((l, i) => (
+                <button key={l.id} onClick={() => setLoc(l)} className="text-left">
+                  <BentoCard delay={i * 0.05} className="h-full cursor-pointer group">
+                    <div className="flex items-start justify-between mb-2">
+                      <h3 className="text-sm font-semibold text-foreground flex items-center gap-1.5 group-hover:text-primary transition-colors">
+                        <MapPin className="h-3.5 w-3.5 text-primary" /> {l.Name || l.id}
+                      </h3>
+                      {l.SiteType && <Badge variant="outline" className="text-[10px]">{l.SiteType}</Badge>}
                     </div>
-                  )}
-                </BentoCard>
+                    <p className="text-xs text-muted-foreground font-mono">{l.Latitude}, {l.Longitude}</p>
+                    <div className="mt-2 space-y-1 text-[11px] text-muted-foreground">
+                      {l.Accuracy && <p>Accuracy: {l.Accuracy}</p>}
+                      {l.Timestamp && <p>Recorded: {l.Timestamp}</p>}
+                    </div>
+                    {l.BiomassDataSource && l.BiomassDataSource !== "NONE" && (
+                      <div className="mt-3 pt-3 border-t border-border/50 flex items-center gap-1.5 text-[11px] text-cyan-400">
+                        <Satellite className="h-3 w-3" /> Biomass: {l.FusedBiomass || l.SatelliteBiomass} ({l.BiomassQuality})
+                      </div>
+                    )}
+                  </BentoCard>
+                </button>
               ))}
-              {locations.length === 0 && <Empty label="No locations recorded." />}
+              {locations.length === 0 && <Empty label="No locations yet. Use Add Location to capture one." />}
             </div>
           )}
         </TabsContent>
@@ -61,28 +85,90 @@ export default function Assets() {
           ) : (
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {photos.map((p, i) => (
-                <BentoCard key={p.id} delay={i * 0.05}>
-                  <div className="flex items-start gap-2 mb-2">
-                    <Camera className="h-4 w-4 text-primary mt-0.5" />
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-foreground truncate">{p.Description || p.FileName || "Photo"}</p>
-                      <p className="text-[11px] text-muted-foreground font-mono">{p.Latitude}, {p.Longitude}</p>
+                <button key={p.id} onClick={() => setPhoto(p)} className="text-left">
+                  <BentoCard delay={i * 0.05} className="h-full cursor-pointer group p-0 overflow-hidden">
+                    <StoredImage bucket={Buckets.photos} stored={p.PhotoUrl} alt={p.Description} className="w-full h-32 object-cover" />
+                    <div className="p-4">
+                      <p className="text-sm font-medium text-foreground truncate group-hover:text-primary transition-colors">
+                        {p.Description || p.FileName || "Photo"}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground font-mono mt-0.5">{p.Latitude}, {p.Longitude}</p>
+                      {p.CarbonCreditPurpose && <Badge variant="outline" className="text-[10px] mt-2">{p.CarbonCreditPurpose}</Badge>}
                     </div>
-                  </div>
-                  {p.CarbonCreditPurpose && (
-                    <Badge variant="outline" className="text-[10px]">{p.CarbonCreditPurpose}</Badge>
-                  )}
-                  {p.Timestamp && <p className="text-[11px] text-muted-foreground mt-2">{p.Timestamp}</p>}
-                </BentoCard>
+                  </BentoCard>
+                </button>
               ))}
-              {photos.length === 0 && <Empty label="No geotagged photos yet." />}
+              {photos.length === 0 && <Empty label="No geotagged photos yet. Use Capture Photo to add one." />}
             </div>
           )}
         </TabsContent>
       </Tabs>
+
+      {/* Location detail */}
+      <Dialog open={!!loc} onOpenChange={(o) => !o && setLoc(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><MapPin className="h-4 w-4 text-primary" /> {loc?.Name || loc?.id}</DialogTitle>
+          </DialogHeader>
+          {loc && (
+            <div className="space-y-2 text-sm">
+              <Row k="Coordinates" v={`${loc.Latitude}, ${loc.Longitude}`} mono />
+              {loc.SiteType && <Row k="Site type" v={loc.SiteType} />}
+              {loc.Accuracy && <Row k="Accuracy" v={loc.Accuracy} />}
+              {loc.Altitude && <Row k="Altitude" v={loc.Altitude} />}
+              {loc.Timestamp && <Row k="Recorded" v={loc.Timestamp} />}
+              {loc.CapturedBy && <Row k="Captured by" v={loc.CapturedBy} />}
+              {loc.Notes && <Row k="Notes" v={loc.Notes} />}
+              {loc.BiomassDataSource && loc.BiomassDataSource !== "NONE" && (
+                <Row k="Biomass" v={`${loc.FusedBiomass || loc.SatelliteBiomass} (${loc.BiomassQuality})`} />
+              )}
+              {mapsHref(loc.Latitude, loc.Longitude) && (
+                <a href={mapsHref(loc.Latitude, loc.Longitude)} target="_blank" rel="noreferrer"
+                   className="inline-flex items-center gap-1.5 text-primary text-xs mt-2 hover:underline">
+                  Open in Google Maps <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Photo detail */}
+      <Dialog open={!!photo} onOpenChange={(o) => !o && setPhoto(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Camera className="h-4 w-4 text-primary" /> {photo?.Description || "Photo"}</DialogTitle>
+          </DialogHeader>
+          {photo && (
+            <div className="space-y-3">
+              <StoredImage bucket={Buckets.photos} stored={photo.PhotoUrl} alt={photo.Description} className="w-full rounded-lg max-h-72 object-cover" />
+              <div className="space-y-2 text-sm">
+                <Row k="Coordinates" v={`${photo.Latitude}, ${photo.Longitude}`} mono />
+                {photo.Accuracy && <Row k="Accuracy" v={photo.Accuracy} />}
+                {photo.Timestamp && <Row k="Captured" v={photo.Timestamp} />}
+                {photo.CapturedBy && <Row k="By" v={photo.CapturedBy} />}
+                {photo.CarbonCreditPurpose && <Row k="Purpose" v={photo.CarbonCreditPurpose} />}
+                {mapsHref(photo.Latitude, photo.Longitude) && (
+                  <a href={mapsHref(photo.Latitude, photo.Longitude)} target="_blank" rel="noreferrer"
+                     className="inline-flex items-center gap-1.5 text-primary text-xs hover:underline">
+                    Open in Google Maps <ExternalLink className="h-3 w-3" />
+                  </a>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
+
+const Row = ({ k, v, mono }: { k: string; v: string; mono?: boolean }) => (
+  <div className="flex items-center justify-between gap-4">
+    <span className="text-muted-foreground text-xs">{k}</span>
+    <span className={`text-foreground text-xs ${mono ? "font-mono" : ""}`}>{v}</span>
+  </div>
+);
 
 const Loading = () => (
   <div className="flex items-center gap-2 text-muted-foreground text-sm py-20 justify-center">
