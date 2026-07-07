@@ -1,0 +1,14 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="favLeaf" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0%" stop-color="#1c5e2a" />
+      <stop offset="52%" stop-color="#4a9d38" />
+      <stop offset="100%" stop-color="#9ed561" />
+    </linearGradient>
+    <mask id="favBolt">
+      <rect width="100" height="100" fill="white" />
+      <path d="M64 29 L45 56 L57 56 L47 77 L73 47 L60 47 Z" fill="black" />
+    </mask>
+  </defs>
+  <path d="M62 11 C91 25 97 66 57 93 C29 74 25 39 62 11 Z" fill="url(#favLeaf)" mask="url(#favBolt)" />
+</svg>
