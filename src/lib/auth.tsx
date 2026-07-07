@@ -19,6 +19,8 @@ import { parseRole, UserRole } from "./rbac";
 interface AuthState {
   user: UserProfile | null;
   role: UserRole;
+  /** True while the persisted Supabase session is being restored on load. */
+  initializing: boolean;
   signIn: (email: string, password: string) => Promise<UserProfile>;
   signUp: (email: string, password: string, fullName: string) => Promise<void>;
   demoLogin: (email: string) => Promise<UserProfile>;
@@ -87,21 +89,35 @@ async function resolveProfile(email: string, authId: string): Promise<UserProfil
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<UserProfile | null>(() => loadStoredUser());
+  const cached = loadStoredUser();
+  const [user, setUser] = useState<UserProfile | null>(cached);
   const [loading, setLoading] = useState(false);
+  // We only need to wait on session restore when there's no cached user AND a
+  // backend is configured — otherwise we already know the auth state up front.
+  const [initializing, setInitializing] = useState(!cached && isSupabaseConfigured);
 
-  // Restore a real Supabase session on load (demo sessions are already restored
-  // synchronously from localStorage above).
+  // Restore a real Supabase session on load from the persisted JWT (supabase-js
+  // keeps it in localStorage and auto-refreshes it), so a user who was logged in
+  // last time stays logged in without re-authenticating.
   useEffect(() => {
     if (!isSupabaseConfigured) return;
-    supabase.auth.getSession().then(async ({ data }) => {
-      const s = data.session;
-      if (s?.user?.email && !localStorage.getItem(STORAGE_KEY)) {
-        const profile = await resolveProfile(s.user.email, s.user.id);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(profile));
-        setUser(profile);
-      }
-    });
+    let active = true;
+    supabase.auth
+      .getSession()
+      .then(async ({ data }) => {
+        const s = data.session;
+        if (active && s?.user?.email && !localStorage.getItem(STORAGE_KEY)) {
+          const profile = await resolveProfile(s.user.email, s.user.id);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(profile));
+          if (active) setUser(profile);
+        }
+      })
+      .finally(() => {
+        if (active) setInitializing(false);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   const signIn = async (email: string, password: string) => {
@@ -160,7 +176,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, role: parseRole(user?.Role), signIn, signUp, demoLogin, logout, loading }}>
+    <AuthContext.Provider value={{ user, role: parseRole(user?.Role), initializing, signIn, signUp, demoLogin, logout, loading }}>
       {children}
     </AuthContext.Provider>
   );

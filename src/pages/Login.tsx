@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
-import { hasOnboarded } from "./Onboarding";
+import { hasOnboarded, markOnboarded } from "./Onboarding";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -22,8 +23,18 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
-  // First-time visitors see the onboarding walkthrough before signing in.
-  if (!hasOnboarded()) return <Navigate to="/onboarding" replace />;
+  // Optional one-time prompt (not a forced gate): only for first-time visitors
+  // on this browser who aren't signed in. Dismissing or taking it marks it seen.
+  const [tourOpen, setTourOpen] = useState(() => !hasOnboarded());
+  const dismissTour = () => {
+    markOnboarded();
+    setTourOpen(false);
+  };
+  const takeTour = () => {
+    markOnboarded();
+    setTourOpen(false);
+    navigate("/onboarding");
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,6 +53,7 @@ export default function Login() {
         return;
       }
       const profile = await signIn(email, password);
+      markOnboarded(); // a signed-in user is never a first-timer
       toast.success(`Welcome, ${profile.FullName}`);
       navigate("/");
     } catch (err) {
@@ -53,6 +65,7 @@ export default function Login() {
     setError("");
     try {
       const profile = await demoLogin(demoEmail);
+      markOnboarded();
       toast.success(`Signed in as ${profile.FullName}`);
       navigate("/");
     } catch {
@@ -62,6 +75,33 @@ export default function Login() {
 
   return (
     <div className="relative min-h-screen flex items-center justify-center bg-background overflow-hidden p-6">
+      {/* Optional one-time "take a tour?" prompt */}
+      <Dialog open={tourOpen} onOpenChange={(o) => { if (!o) dismissTour(); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>New to Esterra?</DialogTitle>
+            <DialogDescription>
+              Take a quick 3-step tour of how waste becomes verified carbon credits.
+              You can always skip and jump straight in.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <button
+              onClick={dismissTour}
+              className="rounded-lg border border-border px-4 py-2 text-sm text-muted-foreground hover:bg-muted transition-colors"
+            >
+              Maybe later
+            </button>
+            <button
+              onClick={takeTour}
+              className="rounded-lg bg-primary text-primary-foreground px-4 py-2 text-sm font-semibold hover:bg-primary/90 transition-colors"
+            >
+              Take the tour
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <div className="glow-orb w-[32rem] h-[32rem] -top-40 -right-40 animate-pulse-glow" />
       <div className="glow-orb w-96 h-96 bottom-0 -left-40 animate-pulse-glow" style={{ animationDelay: "1.5s" }} />
 

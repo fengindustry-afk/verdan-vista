@@ -25,9 +25,14 @@ const slides = [
   },
 ];
 
-/** Marks onboarding complete so it isn't shown again. */
+/** True once the user has seen (or dismissed) onboarding on this browser. */
 export function hasOnboarded() {
   return localStorage.getItem(ONBOARDING_KEY) === "true";
+}
+
+/** Marks onboarding as seen so the one-time prompt isn't shown again. */
+export function markOnboarded() {
+  localStorage.setItem(ONBOARDING_KEY, "true");
 }
 
 export default function Onboarding() {
