@@ -1,0 +1,145 @@
+import { useState } from "react";
+import { Navigate, useNavigate } from "react-router-dom";
+import { useAuth } from "@/lib/auth";
+import { hasOnboarded } from "./Onboarding";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Leaf, Loader2 } from "lucide-react";
+import { toast } from "sonner";
+
+// Demo logins set a local session but no real Supabase JWT, so under RLS they
+// show empty data. Show the demo shortcuts only in dev, or when a deployment
+// explicitly opts in via VITE_ENABLE_DEMO=true (e.g. a staging/demo site).
+const SHOW_DEMO =
+  import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === "true";
+
+export default function Login() {
+  const { signIn, signUp, demoLogin, loading } = useAuth();
+  const navigate = useNavigate();
+  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+
+  // First-time visitors see the onboarding walkthrough before signing in.
+  if (!hasOnboarded()) return <Navigate to="/onboarding" replace />;
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    if (!email || !password) {
+      setError("Please enter both email and password.");
+      return;
+    }
+    try {
+      if (mode === "signup") {
+        if (!fullName) return setError("Please enter your name.");
+        if (password.length < 6) return setError("Password must be at least 6 characters.");
+        await signUp(email, password, fullName);
+        toast.success("Account created — check your inbox to confirm your email.");
+        setMode("signin");
+        return;
+      }
+      const profile = await signIn(email, password);
+      toast.success(`Welcome, ${profile.FullName}`);
+      navigate("/");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Authentication failed.");
+    }
+  };
+
+  const demo = async (demoEmail: string) => {
+    setError("");
+    try {
+      const profile = await demoLogin(demoEmail);
+      toast.success(`Signed in as ${profile.FullName}`);
+      navigate("/");
+    } catch {
+      setError("Demo login failed.");
+    }
+  };
+
+  return (
+    <div className="relative min-h-screen flex items-center justify-center bg-background overflow-hidden p-6">
+      <div className="glow-orb w-[32rem] h-[32rem] -top-40 -right-40 animate-pulse-glow" />
+      <div className="glow-orb w-96 h-96 bottom-0 -left-40 animate-pulse-glow" style={{ animationDelay: "1.5s" }} />
+
+      <div className="relative w-full max-w-sm glass-card-glow p-8">
+        <div className="flex items-center gap-2.5 mb-6">
+          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/15">
+            <Leaf className="h-6 w-6 text-primary" />
+          </div>
+          <div>
+            <p className="text-base font-bold tracking-tight text-foreground">
+              Carbon<span className="text-gradient">Tracker</span>
+            </p>
+            <p className="text-[11px] text-muted-foreground">Carbon Credit Flow Manager</p>
+          </div>
+        </div>
+
+        <h1 className="text-lg font-semibold text-foreground mb-1">
+          {mode === "signin" ? "Sign in" : "Create account"}
+        </h1>
+        <p className="text-xs text-muted-foreground mb-5">
+          {mode === "signin" ? "Access your carbon credit dashboard" : "Register a new CarbonTracker account"}
+        </p>
+
+        <form onSubmit={submit} className="space-y-4">
+          {mode === "signup" && (
+            <div>
+              <Label className="text-xs">Full name</Label>
+              <Input value={fullName} placeholder="Jane Doe" onChange={(e) => setFullName(e.target.value)} className="mt-1" />
+            </div>
+          )}
+          <div>
+            <Label className="text-xs">Email</Label>
+            <Input type="email" value={email} placeholder="you@company.com" onChange={(e) => setEmail(e.target.value)} className="mt-1" />
+          </div>
+          <div>
+            <Label className="text-xs">Password</Label>
+            <Input type="password" value={password} placeholder="••••••••" onChange={(e) => setPassword(e.target.value)} className="mt-1" />
+          </div>
+          {error && <p className="text-xs text-destructive">{error}</p>}
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-primary text-primary-foreground px-4 py-2.5 text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-60"
+          >
+            {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+            {mode === "signin" ? "Sign in" : "Create account"}
+          </button>
+        </form>
+
+        <button
+          onClick={() => { setMode(mode === "signin" ? "signup" : "signin"); setError(""); }}
+          className="mt-3 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+        >
+          {mode === "signin" ? "No account? Create one" : "Already have an account? Sign in"}
+        </button>
+
+        {SHOW_DEMO && (
+        <div className="mt-5 pt-5 border-t border-border/50">
+          <p className="text-[11px] text-muted-foreground mb-2">Quick demo access (no password)</p>
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { label: "Admin", email: "demo.admin@carbontracker.app" },
+              { label: "Operator", email: "operator@carbontracker.app" },
+              { label: "Viewer", email: "viewer@carbontracker.app" },
+            ].map((d) => (
+              <button
+                key={d.label}
+                onClick={() => demo(d.email)}
+                disabled={loading}
+                className="rounded-lg border border-border bg-muted/50 px-2 py-1.5 text-[11px] text-foreground hover:bg-muted transition-colors disabled:opacity-60"
+              >
+                {d.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        )}
+      </div>
+    </div>
+  );
+}

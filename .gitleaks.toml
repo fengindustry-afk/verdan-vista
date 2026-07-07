@@ -1,0 +1,18 @@
+# gitleaks config — extends the default ruleset, with allowlists for values that
+# are public by design so they don't produce false positives.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Public, non-secret values"
+# The Supabase project URL/ref is public (it appears in every client request and
+# in the CSP connect-src). It is not a secret.
+regexes = [
+  '''gwtxrtrnkoynxhacgidg\.supabase\.co''',
+  '''gwtxrtrnkoynxhacgidg''',
+]
+# The anon public key lives only in the git-ignored .env; the example file holds
+# placeholders. Ignore the env example just in case.
+paths = [
+  '''\.env\.example''',
+]
