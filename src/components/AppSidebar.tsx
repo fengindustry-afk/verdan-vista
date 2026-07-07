@@ -1,4 +1,4 @@
-import { LayoutDashboard, Package, Workflow, Calculator, MapPin, Video, TreePine, ShieldCheck, Shield, FileText, Settings, Leaf } from "lucide-react";
+import { LayoutDashboard, Package, Workflow, Calculator, MapPin, Video, TreePine, ShieldCheck, Shield, FileText, Settings } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
 import {
@@ -35,12 +35,10 @@ export function AppSidebar() {
     <Sidebar collapsible="icon" className="border-r border-border/50">
       <SidebarContent className="pt-4">
         <div className="flex items-center gap-2.5 px-4 pb-6">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/15">
-            <Leaf className="h-5 w-5 text-primary" />
-          </div>
+          <img src="/esterra-mark.svg" alt="Esterra" className="h-8 w-8 shrink-0" />
           {!collapsed && (
-            <span className="text-sm font-bold tracking-tight text-foreground">
-              Carbon<span className="text-gradient">Tracker</span>
+            <span className="text-sm font-light tracking-[0.28em] text-foreground">
+              EST<span className="text-primary">E</span>RRA
             </span>
           )}
         </div>

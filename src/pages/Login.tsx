@@ -4,7 +4,7 @@ import { useAuth } from "@/lib/auth";
 import { hasOnboarded } from "./Onboarding";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Leaf, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 // Demo logins set a local session but no real Supabase JWT, so under RLS they
@@ -66,15 +66,15 @@ export default function Login() {
       <div className="glow-orb w-96 h-96 bottom-0 -left-40 animate-pulse-glow" style={{ animationDelay: "1.5s" }} />
 
       <div className="relative w-full max-w-sm glass-card-glow p-8">
-        <div className="flex items-center gap-2.5 mb-6">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/15">
-            <Leaf className="h-6 w-6 text-primary" />
-          </div>
+        <div className="flex items-center gap-3 mb-6">
+          <img src="/esterra-mark.svg" alt="Esterra" className="h-11 w-11 shrink-0" />
           <div>
-            <p className="text-base font-bold tracking-tight text-foreground">
-              Carbon<span className="text-gradient">Tracker</span>
+            <p className="text-lg font-light tracking-[0.28em] text-foreground">
+              EST<span className="text-primary">E</span>RRA
             </p>
-            <p className="text-[11px] text-muted-foreground">Carbon Credit Flow Manager</p>
+            <p className="text-[10px] uppercase tracking-[0.15em] text-primary/80">
+              Rooted in earth. Designed for tomorrow.
+            </p>
           </div>
         </div>
 
