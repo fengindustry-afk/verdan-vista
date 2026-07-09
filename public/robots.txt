@@ -1,14 +1,5 @@
-User-agent: Googlebot
-Allow: /
-
-User-agent: Bingbot
-Allow: /
-
-User-agent: Twitterbot
-Allow: /
-
-User-agent: facebookexternalhit
-Allow: /
-
+# Private app — keep the whole site out of search engines.
+# Note: this prevents indexing, not access. The link is not secret; anyone
+# who has the URL can still open it. Real protection is the login gate.
 User-agent: *
-Allow: /
+Disallow: /

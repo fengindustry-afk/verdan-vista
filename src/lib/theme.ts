@@ -97,8 +97,8 @@ export const THEME_SETS: ThemeSet[] = [
   },
 ];
 
-export const DEFAULT_SET = "verdant";
-export const DEFAULT_MODE: ThemeMode = "dark";
+export const DEFAULT_SET = "esterra";
+export const DEFAULT_MODE: ThemeMode = "light";
 const SET_KEY = "theme_set";
 const MODE_KEY = "theme_mode";
 
