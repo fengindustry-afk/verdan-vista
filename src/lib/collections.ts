@@ -20,6 +20,8 @@ export const Collections = {
   costBudgets: "cost_budgets",
   costCategories: "cost_categories",
   workProcess: "work_process_entries",
+  editHistory: "edit_history",
+  receipts: "receipts",
 } as const;
 
 export type CollectionName = (typeof Collections)[keyof typeof Collections];

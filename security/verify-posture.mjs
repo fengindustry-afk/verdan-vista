@@ -79,6 +79,48 @@ async function checkDataTier() {
   );
 }
 
+async function checkEditHistory() {
+  if (!URL_BASE || !ANON) return;
+  const rest = `${URL_BASE.replace(/\/$/, "")}/rest/v1`;
+  const headers = { apikey: ANON, Authorization: `Bearer ${ANON}` };
+
+  // The edit_history log is authenticated-only read + append-only INSERT, with
+  // NO update/delete policy so rows are immutable (see security/create-edit-history.sql).
+  // With just the anon key we can assert the two anon-facing controls; the
+  // authenticated immutability (no UPDATE/DELETE) can't be probed without a JWT.
+
+  // Anon read: SELECT is authenticated-only, so anon must get an empty array
+  // (rows filtered) or 401/403 — never actual history rows.
+  const read = await fetch(`${rest}/edit_history?select=id&limit=1`, { headers });
+  let rows = [];
+  if (read.status === 200) rows = await read.json().catch(() => []);
+  const readDenied = read.status === 401 || read.status === 403 ||
+    (read.status === 200 && Array.isArray(rows) && rows.length === 0);
+  record(
+    "edit_history anon read denied",
+    readDenied,
+    `HTTP ${read.status}${rows.length ? ` — LOG IS ANON-READABLE (${rows.length}+ rows)` : ""}`
+  );
+
+  // Anon append must be denied (401/403). A 201 means the immutable log is
+  // anon-writable — and because there's no delete policy we likely CAN'T clean
+  // up the probe row via the API, so flag it loudly (best-effort delete anyway).
+  const probeId = `POSTURE-PROBE-${Date.now()}`;
+  const write = await fetch(`${rest}/edit_history`, {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json", Prefer: "return=minimal" },
+    body: JSON.stringify({ id: probeId, data: { probe: true } }),
+  });
+  if (write.status === 201) {
+    await fetch(`${rest}/edit_history?id=eq.${probeId}`, { method: "DELETE", headers }).catch(() => {});
+  }
+  record(
+    "edit_history anon append denied",
+    write.status === 401 || write.status === 403,
+    `HTTP ${write.status}${write.status === 201 ? " — ANON CAN APPEND (immutable log breached; probe cleanup best-effort)" : ""}`
+  );
+}
+
 async function checkStorage() {
   if (!URL_BASE || !ANON) return;
   const base = URL_BASE.replace(/\/$/, "");
@@ -121,13 +163,53 @@ async function checkHeaders() {
   }
 }
 
+async function checkEdgeMiddleware() {
+  if (!SITE) {
+    console.log("  (skip middleware checks — pass --site <deployed-url> to enable)");
+    return;
+  }
+  const base = SITE.replace(/\/$/, "");
+
+  // Decoy path: BLOCKED_PATHS in middleware.ts should 403 an exploit-scanner
+  // probe (CrowdSec decoy analog). A 200/404 means the middleware isn't live.
+  const decoy = await fetch(`${base}/.env`, { redirect: "manual" });
+  record(
+    "decoy path blocked (403)",
+    decoy.status === 403,
+    `HTTP ${decoy.status}${decoy.status !== 403 ? " — middleware not enforcing (deploy pending?)" : ""}`
+  );
+
+  // Scanner user agent: BLOCKED_AGENTS should 403 a known bad UA on a live path.
+  const ua = await fetch(base, {
+    headers: { "user-agent": "sqlmap/1.7" },
+    redirect: "manual",
+  });
+  record(
+    "scanner user-agent blocked (403)",
+    ua.status === 403,
+    `HTTP ${ua.status}${ua.status !== 403 ? " — UA filter not enforcing" : ""}`
+  );
+
+  // Disallowed method: ALLOWED_METHODS should reject a DELETE with 405.
+  const method = await fetch(base, { method: "DELETE", redirect: "manual" });
+  record(
+    "disallowed method blocked (405)",
+    method.status === 405,
+    `HTTP ${method.status}${method.status !== 405 ? " — method allowlist not enforcing" : ""}`
+  );
+}
+
 console.log("\n🔐 CarbonTracker security posture\n");
 console.log("Data tier:");
 await checkDataTier();
+console.log("Edit history (immutable log):");
+await checkEditHistory();
 console.log("Storage:");
 await checkStorage();
 console.log("Edge headers:");
 await checkHeaders();
+console.log("Edge middleware:");
+await checkEdgeMiddleware();
 
 const failed = results.filter((r) => !r.pass);
 console.log(`\n${results.length - failed.length}/${results.length} checks passed.`);

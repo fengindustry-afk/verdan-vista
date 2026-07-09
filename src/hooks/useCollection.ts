@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getCollection, upsertDocument, deleteDocument } from "@/lib/data";
 import { Collections } from "@/lib/collections";
+import { recordEdit, getHistory, type HistoryEntry } from "@/lib/history";
 import type {
   Feedstock,
   LocationData,
@@ -13,6 +14,7 @@ import type {
   CostEntry,
   CostBudget,
   CostCategory,
+  Receipt,
 } from "@/lib/types";
 import type { WorkProcessEntry } from "@/lib/workProcess";
 import { WORK_PROCESS_SEED } from "@/lib/workProcessSeed";
@@ -41,6 +43,7 @@ export const useGroundTruth = () => useCollection<BiomassData>(Collections.groun
 export const useCostEntries = () => useCollection<CostEntry>(Collections.costEntries);
 export const useCostBudgets = () => useCollection<CostBudget>(Collections.costBudgets);
 export const useCostCategories = () => useCollection<CostCategory>(Collections.costCategories);
+export const useReceipts = () => useCollection<Receipt>(Collections.receipts);
 
 /**
  * Work-process entries from the shared Supabase collection, falling back to the
@@ -64,23 +67,83 @@ export function useCategoryNames(): string[] {
   return categories.length > 0 ? categories.map((c) => c.Name) : [...DefaultCostCategories];
 }
 
-/** Generic upsert + delete mutations for a collection, invalidating its query. */
+/** Look up a document's current cached payload (its "before" snapshot for the log). */
+function cachedBefore<T extends { id: string }>(
+  qc: ReturnType<typeof useQueryClient>,
+  collection: (typeof Collections)[keyof typeof Collections],
+  id: string
+): Record<string, unknown> | undefined {
+  const rows = qc.getQueryData<T[]>([collection]);
+  return rows?.find((d) => d.id === id) as Record<string, unknown> | undefined;
+}
+
+/**
+ * Generic upsert + delete mutations for a collection, invalidating its query.
+ * Every write also appends an immutable entry to the edit-history log (unless
+ * disabled), diffing against the currently cached document.
+ */
 export function useUpsert<T extends { id: string }>(
-  collection: (typeof Collections)[keyof typeof Collections]
+  collection: (typeof Collections)[keyof typeof Collections],
+  opts: { history?: boolean } = {}
 ) {
   const qc = useQueryClient();
+  const track = opts.history !== false;
   return useMutation({
-    mutationFn: (doc: T) => upsertDocument<T>(collection, doc),
+    mutationFn: async (doc: T) => {
+      const before = track ? cachedBefore<T>(qc, collection, doc.id) : undefined;
+      const saved = await upsertDocument<T>(collection, doc);
+      if (track) {
+        void recordEdit({
+          collection,
+          documentId: saved.id,
+          before,
+          after: saved as unknown as Record<string, unknown>,
+        });
+      }
+      return saved;
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: [collection] }),
   });
 }
 
 export function useDelete(
-  collection: (typeof Collections)[keyof typeof Collections]
+  collection: (typeof Collections)[keyof typeof Collections],
+  opts: { history?: boolean } = {}
 ) {
   const qc = useQueryClient();
+  const track = opts.history !== false;
   return useMutation({
-    mutationFn: (id: string) => deleteDocument(collection, id),
+    mutationFn: async (id: string) => {
+      const before = track ? cachedBefore(qc, collection, id) : undefined;
+      await deleteDocument(collection, id);
+      if (track) void recordEdit({ collection, documentId: id, before, after: undefined });
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: [collection] }),
+  });
+}
+
+/**
+ * The immutable edit-history log. Optionally scoped to a single document or a
+ * set of document ids (e.g. all readings/scans of one tree) within a collection.
+ */
+export function useHistory(filter?: {
+  collection?: (typeof Collections)[keyof typeof Collections];
+  documentId?: string;
+  documentIds?: string[];
+}) {
+  return useQuery({
+    queryKey: [Collections.editHistory],
+    queryFn: getHistory,
+    staleTime: 30_000,
+    select: (rows: HistoryEntry[]) => {
+      if (!filter) return rows;
+      const ids = filter.documentIds ? new Set(filter.documentIds) : null;
+      return rows.filter(
+        (r) =>
+          (!filter.collection || r.Collection === filter.collection) &&
+          (!filter.documentId || r.DocumentId === filter.documentId) &&
+          (!ids || ids.has(r.DocumentId))
+      );
+    },
   });
 }

@@ -2,12 +2,16 @@ import { BentoCard } from "@/components/BentoCard";
 import { useFeedstock, useWorkProcessEntries } from "@/hooks/useCollection";
 import { corcMetrics, CUSTODY_STAGES, OPERATIONS_STAGE_COUNT } from "@/lib/feedstock";
 import { fmt } from "@/lib/format";
-import { Truck, Settings2, Flame, FlaskConical, Warehouse, Sprout, Trees, Loader2, ChevronRight, ChevronDown } from "lucide-react";
+import { Truck, Settings2, Flame, FlaskConical, Warehouse, Sprout, Trees, Loader2, ChevronRight, ChevronDown, Search, X } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
 import { Link } from "react-router-dom";
 import { useMemo, useState } from "react";
-import { phases, type WorkflowStageDef } from "@/lib/workProcess";
+import {
+  phases, stageByKey, entryTitle, entrySubtitle, formatEntryTimestamp,
+  type WorkflowStageDef, type WorkProcessEntry,
+} from "@/lib/workProcess";
 import { WorkProcessStageDialog } from "@/components/WorkProcessStageDialog";
 
 const STAGE_META: Record<string, { icon: typeof Truck; desc: string }> = {
@@ -49,13 +53,35 @@ export default function Workflow() {
 function WorkProcessHub() {
   const { data: entries = [], isLoading } = useWorkProcessEntries();
   const [openStage, setOpenStage] = useState<WorkflowStageDef | null>(null);
+  const [openEntry, setOpenEntry] = useState<WorkProcessEntry | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [query, setQuery] = useState("");
 
   const countByStage = useMemo(() => {
     const m: Record<string, number> = {};
     for (const e of entries) m[e.StageKey] = (m[e.StageKey] ?? 0) + 1;
     return m;
   }, [entries]);
+
+  // Full-text search across every entry: stage title, and all field values.
+  const results = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    return entries
+      .filter((e) => {
+        if (e.StageTitle?.toLowerCase().includes(q)) return true;
+        return Object.values(e.Values ?? {}).some((v) => v?.toLowerCase().includes(q));
+      })
+      .sort((a, b) => (a.Timestamp < b.Timestamp ? 1 : -1))
+      .slice(0, 50);
+  }, [entries, query]);
+
+  const openResult = (entry: WorkProcessEntry) => {
+    const stage = stageByKey(entry.StageKey);
+    if (!stage) return;
+    setOpenEntry(entry);
+    setOpenStage(stage);
+  };
 
   if (isLoading) {
     return (
@@ -90,7 +116,54 @@ function WorkProcessHub() {
 
   return (
     <>
-      {phases().map((phase) => (
+      {/* Search across every logged work-process entry. */}
+      <div className="relative max-w-md">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search entries by batch ID, value, or stage…"
+          className="pl-9 pr-9"
+        />
+        {query && (
+          <button
+            onClick={() => setQuery("")}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            aria-label="Clear search"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+
+      {query.trim() ? (
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">
+            {results.length} match{results.length === 1 ? "" : "es"} for “{query.trim()}”
+          </p>
+          {results.map((e) => {
+            const stage = stageByKey(e.StageKey);
+            return (
+              <button
+                key={e.id}
+                onClick={() => openResult(e)}
+                className="w-full text-left rounded-xl border border-border/50 bg-card/40 px-4 py-3 hover:bg-muted/40 transition-colors"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-foreground truncate">{entryTitle(e)}</p>
+                  <span className="text-[10px] text-muted-foreground shrink-0">{formatEntryTimestamp(e.Timestamp)}</span>
+                </div>
+                <p className="text-[11px] text-primary mt-0.5">{stage?.Title ?? e.StageTitle}</p>
+                <p className="text-[11px] text-muted-foreground truncate">{entrySubtitle(e)}</p>
+              </button>
+            );
+          })}
+          {results.length === 0 && (
+            <p className="text-sm text-muted-foreground py-8 text-center">No entries match your search.</p>
+          )}
+        </div>
+      ) : (
+        phases().map((phase) => (
         <div key={phase.Name} className="space-y-3">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{phase.Name} Phase</h2>
           {phase.Groups.map((group, gi) => {
@@ -128,9 +201,20 @@ function WorkProcessHub() {
             );
           })}
         </div>
-      ))}
+        ))
+      )}
 
-      <WorkProcessStageDialog stage={openStage} open={!!openStage} onOpenChange={(o) => !o && setOpenStage(null)} />
+      <WorkProcessStageDialog
+        stage={openStage}
+        open={!!openStage}
+        initialEntry={openEntry}
+        onOpenChange={(o) => {
+          if (!o) {
+            setOpenStage(null);
+            setOpenEntry(null);
+          }
+        }}
+      />
     </>
   );
 }

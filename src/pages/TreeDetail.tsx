@@ -15,6 +15,8 @@ import { LineChart, Line, ResponsiveContainer, XAxis, YAxis, Tooltip } from "rec
 import { Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { TreeReading, TreeScan } from "@/lib/types";
+import { HistoryButton } from "@/components/HistoryLog";
+import { Collections } from "@/lib/collections";
 
 export default function TreeDetail() {
   const { id } = useParams();
@@ -91,14 +93,20 @@ export default function TreeDetail() {
         <BentoCard>
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-foreground">Readings ({treeReadings.length})</h3>
-            {canEdit && (
-              <button
-                onClick={() => setAddingReading(true)}
-                className="inline-flex items-center gap-1 rounded-md border border-primary/40 text-primary px-2 py-1 text-xs font-medium hover:bg-primary/10 transition-colors"
-              >
-                <Plus className="h-3 w-3" /> Add
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              <HistoryButton
+                title="Readings history"
+                filter={{ collection: Collections.readings, documentIds: treeReadings.map((r) => r.id) }}
+              />
+              {canEdit && (
+                <button
+                  onClick={() => setAddingReading(true)}
+                  className="inline-flex items-center gap-1 rounded-md border border-primary/40 text-primary px-2 py-1 text-xs font-medium hover:bg-primary/10 transition-colors"
+                >
+                  <Plus className="h-3 w-3" /> Add
+                </button>
+              )}
+            </div>
           </div>
           <div className="space-y-2 max-h-72 overflow-auto">
             {treeReadings.length === 0 && <p className="text-xs text-muted-foreground">No readings recorded.{canEdit && " Tap Add to record one."}</p>}
@@ -120,7 +128,13 @@ export default function TreeDetail() {
         </BentoCard>
 
         <BentoCard>
-          <h3 className="text-sm font-semibold text-foreground mb-3">Scans ({treeScans.length})</h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-foreground">Scans ({treeScans.length})</h3>
+            <HistoryButton
+              title="Scans history"
+              filter={{ collection: Collections.scans, documentIds: treeScans.map((s) => s.id) }}
+            />
+          </div>
           {treeScans.length === 0 ? (
             <p className="text-xs text-muted-foreground">No scans yet.{canCapture && " Use Capture Scan above."}</p>
           ) : (

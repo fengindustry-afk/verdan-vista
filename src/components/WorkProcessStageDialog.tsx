@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -13,6 +13,7 @@ import {
   type WorkflowStageDef, type WorkProcessEntry, type FormField,
   stageFields, entryTitle, entrySubtitle, prettify, formatEntryTimestamp,
 } from "@/lib/workProcess";
+import { HistoryButton } from "@/components/HistoryLog";
 import { toast } from "sonner";
 
 type Mode =
@@ -28,10 +29,13 @@ export function WorkProcessStageDialog({
   stage,
   open,
   onOpenChange,
+  initialEntry,
 }: {
   stage: WorkflowStageDef | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** When provided, the dialog opens straight to this entry's detail view. */
+  initialEntry?: WorkProcessEntry | null;
 }) {
   const { data: entries = [] } = useWorkProcessEntries();
   const upsert = useUpsert<WorkProcessEntry>(Collections.workProcess);
@@ -39,6 +43,11 @@ export function WorkProcessStageDialog({
   const canWrite = hasPermission(role, Permission.AddFeedstock);
   const [mode, setMode] = useState<Mode>({ view: "list" });
   const [values, setValues] = useState<Record<string, string>>({});
+
+  // Jump straight to a specific entry's detail when asked (e.g. from search).
+  useEffect(() => {
+    if (open && initialEntry) setMode({ view: "detail", entry: initialEntry });
+  }, [open, initialEntry]);
 
   const stageEntries = useMemo(
     () =>
@@ -192,9 +201,15 @@ export function WorkProcessStageDialog({
                   <span className="text-sm text-foreground text-right break-words">{mode.entry.Values[f.Key]}</span>
                 </div>
               ))}
-            <p className="text-[11px] text-muted-foreground pt-2">
-              Recorded by {mode.entry.CapturedBy} · {formatEntryTimestamp(mode.entry.Timestamp)}
-            </p>
+            <div className="flex items-center justify-between pt-2">
+              <p className="text-[11px] text-muted-foreground">
+                Recorded by {mode.entry.CapturedBy} · {formatEntryTimestamp(mode.entry.Timestamp)}
+              </p>
+              <HistoryButton
+                title="Entry history"
+                filter={{ collection: Collections.workProcess, documentId: mode.entry.id }}
+              />
+            </div>
           </div>
         )}
       </DialogContent>

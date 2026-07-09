@@ -1,4 +1,4 @@
-import { LayoutDashboard, Package, Workflow, Calculator, MapPin, Video, TreePine, Wallet, ShieldCheck, Shield, FileText, Settings, type LucideIcon } from "lucide-react";
+import { LayoutDashboard, Package, Workflow, Calculator, MapPin, Video, TreePine, Wallet, ReceiptText, ShieldCheck, Shield, FileText, Settings, type LucideIcon } from "lucide-react";
 import { Permission } from "./rbac";
 
 /**
@@ -25,6 +25,7 @@ export const navItems: NavItem[] = [
   { title: "CCTV", url: "/cctv", icon: Video, permission: Permission.ViewLocations },
   { title: "Testing Plot", url: "/testing-plot", icon: TreePine, permission: Permission.ViewLocations },
   { title: "Cost Tracker", url: "/cost-tracker", icon: Wallet, permission: Permission.ViewCosts },
+  { title: "Receipts", url: "/receipts", icon: ReceiptText, permission: Permission.ViewCosts },
   { title: "Users", url: "/users", icon: ShieldCheck, permission: Permission.ViewUsers },
   { title: "Reports", url: "/reports", icon: FileText, permission: Permission.ViewDashboard },
   { title: "Audit Trail", url: "/audit-trail", icon: Shield, permission: Permission.ViewUsers },
@@ -46,6 +47,7 @@ export const routePermissions: Record<string, Permission> = {
   "/testing-plot": Permission.ViewLocations,
   "/testing-plot/:id": Permission.ViewLocations,
   "/cost-tracker": Permission.ViewCosts,
+  "/receipts": Permission.ViewCosts,
   "/users": Permission.ViewUsers,
   "/reports": Permission.ViewDashboard,
   "/audit-trail": Permission.ViewUsers,

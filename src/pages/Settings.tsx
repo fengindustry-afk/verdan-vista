@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useTheme } from "@/lib/theme-context";
 import { THEME_SETS, swatches } from "@/lib/theme";
-import { onConnectivityChange, onOfflineSync, pendingSyncCount } from "@/lib/data";
+import { isEffectivelyOffline, onConnectivityChange, onOfflineSync, pendingSyncCount } from "@/lib/data";
 import { useAuth } from "@/lib/auth";
 import { hasPermission, Permission } from "@/lib/rbac";
 
@@ -15,18 +15,18 @@ export default function Settings() {
   const { data: feedstock = [] } = useFeedstock();
   const { role } = useAuth();
   const canExport = hasPermission(role, Permission.ExportData);
-  const [online, setOnline] = useState(() => navigator.onLine);
+  const [online, setOnline] = useState(() => !isEffectivelyOffline());
   const [pending, setPending] = useState(() => pendingSyncCount());
   const { setId, mode, setThemeSet, toggleMode } = useTheme();
 
   // Reflect live connectivity and any queued writes waiting to sync.
   useEffect(() => {
-    const refresh = () => {
-      setOnline(navigator.onLine);
+    setOnline(!isEffectivelyOffline());
+    setPending(pendingSyncCount());
+    const unsubConnectivity = onConnectivityChange((isOnline) => {
+      setOnline(isOnline);
       setPending(pendingSyncCount());
-    };
-    refresh();
-    const unsubConnectivity = onConnectivityChange(refresh);
+    });
     const unsubSync = onOfflineSync(() => setPending(pendingSyncCount()));
     return () => {
       unsubConnectivity();

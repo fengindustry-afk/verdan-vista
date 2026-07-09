@@ -1,0 +1,262 @@
+import { useRef, useState } from "react";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Camera, Loader2, ScanText, Plus, ChevronDown } from "lucide-react";
+import { useUpsert, useCategoryNames } from "@/hooks/useCollection";
+import { Collections } from "@/lib/collections";
+import type { Receipt } from "@/lib/types";
+import { compressReceiptImage, formatBytes } from "@/lib/receiptImage";
+import { runOcr } from "@/lib/ocr";
+import { parseReceipt, computeRetentionUntil } from "@/lib/receipts";
+import { uploadImage, Buckets } from "@/lib/storage";
+import { useAuth } from "@/lib/auth";
+import { toast } from "sonner";
+
+type Step = "capture" | "processing" | "review";
+
+const emptyForm = {
+  Merchant: "", MerchantTin: "", ReceiptNo: "", Date: "", Category: "",
+  Subtotal: "", TaxType: "None", TaxRate: "", TaxAmount: "", Total: "",
+  PaymentMethod: "", Notes: "",
+};
+type Form = typeof emptyForm;
+
+function num(v: string): number | null {
+  if (v.trim() === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+export function CaptureReceiptDialog() {
+  const { user } = useAuth();
+  const upsert = useUpsert<Receipt>(Collections.receipts);
+  const categoryNames = useCategoryNames();
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const [open, setOpen] = useState(false);
+  const [step, setStep] = useState<Step>("capture");
+  const [preview, setPreview] = useState("");
+  const [compressed, setCompressed] = useState<Awaited<ReturnType<typeof compressReceiptImage>> | null>(null);
+  const [ocrPct, setOcrPct] = useState(0);
+  const [rawText, setRawText] = useState("");
+  const [showRaw, setShowRaw] = useState(false);
+  const [form, setForm] = useState<Form>(emptyForm);
+  const [saving, setSaving] = useState(false);
+
+  const reset = () => {
+    setStep("capture"); setPreview(""); setCompressed(null); setOcrPct(0);
+    setRawText(""); setShowRaw(false); setForm(emptyForm); setSaving(false);
+  };
+
+  const set = (k: keyof Form, v: string) => setForm((f) => ({ ...f, [k]: v }));
+
+  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setStep("processing");
+    setOcrPct(0);
+    try {
+      const c = await compressReceiptImage(file);
+      setCompressed(c);
+      setPreview(URL.createObjectURL(c.blob));
+
+      // OCR is best-effort: if the engine/CDN is unavailable, the user can still
+      // fill the form manually and keep the (already-retained) image.
+      try {
+        const { text } = await runOcr(c.blob, setOcrPct);
+        setRawText(text);
+        const parsed = parseReceipt(text);
+        setForm((f) => ({
+          ...f,
+          Merchant: parsed.Merchant ?? "",
+          MerchantTin: parsed.MerchantTin ?? "",
+          ReceiptNo: parsed.ReceiptNo ?? "",
+          Date: parsed.Date ?? "",
+          Subtotal: parsed.Subtotal != null ? String(parsed.Subtotal) : "",
+          TaxType: parsed.TaxType ?? "None",
+          TaxRate: parsed.TaxRate != null ? String(parsed.TaxRate) : "",
+          TaxAmount: parsed.TaxAmount != null ? String(parsed.TaxAmount) : "",
+          Total: parsed.Total != null ? String(parsed.Total) : "",
+        }));
+      } catch (err) {
+        console.warn("[receipts] OCR failed:", err);
+        toast.warning("Couldn't read the text automatically — fill the fields in manually.");
+      }
+    } finally {
+      setStep("review");
+    }
+  };
+
+  const save = async () => {
+    if (!compressed) return;
+    setSaving(true);
+    try {
+      const id = `rcpt_${Date.now().toString(36)}`;
+      const ext = compressed.mime === "image/webp" ? "webp" : "jpg";
+      const stored = await uploadImage(Buckets.receipts, `${id}.${ext}`, compressed.blob);
+      const capturedAt = new Date().toISOString();
+      const doc: Receipt = {
+        id,
+        Merchant: form.Merchant.trim(),
+        MerchantTin: form.MerchantTin.trim(),
+        ReceiptNo: form.ReceiptNo.trim(),
+        Date: form.Date,
+        Currency: "MYR",
+        Category: form.Category.trim(),
+        Subtotal: num(form.Subtotal),
+        TaxType: form.TaxType,
+        TaxRate: num(form.TaxRate),
+        TaxAmount: num(form.TaxAmount),
+        Total: num(form.Total),
+        PaymentMethod: form.PaymentMethod.trim(),
+        Notes: form.Notes.trim(),
+        RawText: rawText,
+        ImageUrl: stored.path ?? "",
+        ImageBase64: stored.dataUrl ? stored.dataUrl.split(",")[1] ?? "" : "",
+        ImageMime: compressed.mime,
+        ImageBytes: compressed.bytes,
+        Status: "confirmed",
+        CapturedBy: user?.FullName || user?.Email || "User",
+        CapturedAt: capturedAt,
+        RetentionUntil: computeRetentionUntil(form.Date, capturedAt),
+      };
+      await upsert.mutateAsync(doc);
+      toast.success("Receipt saved & retained");
+      setOpen(false);
+      reset();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) reset(); }}>
+      <DialogTrigger asChild>
+        <button className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-4 py-2 text-sm font-semibold hover:bg-primary/90 transition-colors">
+          <Camera className="h-4 w-4" /> Scan Receipt
+        </button>
+      </DialogTrigger>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Scan Receipt</DialogTitle>
+        </DialogHeader>
+
+        <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={onFile} className="hidden" />
+
+        {step === "capture" && (
+          <button
+            onClick={() => fileRef.current?.click()}
+            className="w-full inline-flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border py-12 text-sm text-muted-foreground hover:bg-muted/40 transition-colors"
+          >
+            <Camera className="h-7 w-7 text-primary" />
+            Tap to photograph or upload a receipt
+            <span className="text-[11px]">Compressed to grayscale WebP · text read on-device</span>
+          </button>
+        )}
+
+        {step === "processing" && (
+          <div className="flex flex-col items-center gap-3 py-12 text-sm text-muted-foreground">
+            <ScanText className="h-7 w-7 text-primary animate-pulse" />
+            {ocrPct > 0 ? `Reading text… ${ocrPct}%` : "Compressing image…"}
+            <div className="h-1.5 w-48 rounded-full bg-muted overflow-hidden">
+              <div className="h-full bg-primary transition-all" style={{ width: `${Math.max(8, ocrPct)}%` }} />
+            </div>
+          </div>
+        )}
+
+        {step === "review" && (
+          <div className="space-y-4 max-h-[65vh] overflow-auto py-1">
+            {preview && (
+              <div className="relative">
+                <img src={preview} alt="receipt" className="w-full rounded-lg max-h-52 object-contain bg-muted" />
+                <div className="absolute bottom-2 right-2 flex gap-2">
+                  {compressed && (
+                    <span className="rounded-lg bg-background/80 backdrop-blur px-2 py-1 text-[10px] border border-border text-muted-foreground">
+                      {formatBytes(compressed.bytes)} · {compressed.mime.split("/")[1].toUpperCase()}
+                    </span>
+                  )}
+                  <button onClick={() => fileRef.current?.click()} className="rounded-lg bg-background/80 backdrop-blur px-2.5 py-1 text-xs border border-border">Retake</button>
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2">
+                <Label className="text-xs">Merchant</Label>
+                <Input value={form.Merchant} onChange={(e) => set("Merchant", e.target.value)} placeholder="e.g. 99 Speedmart" className="mt-1" />
+              </div>
+              <div>
+                <Label className="text-xs">Date</Label>
+                <Input type="date" value={form.Date} onChange={(e) => set("Date", e.target.value)} className="mt-1" />
+              </div>
+              <div>
+                <Label className="text-xs">Receipt No.</Label>
+                <Input value={form.ReceiptNo} onChange={(e) => set("ReceiptNo", e.target.value)} className="mt-1" />
+              </div>
+              <div>
+                <Label className="text-xs">Category</Label>
+                <select value={form.Category} onChange={(e) => set("Category", e.target.value)} className="mt-1 w-full rounded-lg bg-muted border border-border px-3 py-2 text-sm text-foreground">
+                  <option value="">—</option>
+                  {categoryNames.map((c) => <option key={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <Label className="text-xs">Payment</Label>
+                <Input value={form.PaymentMethod} onChange={(e) => set("PaymentMethod", e.target.value)} placeholder="Cash / Card" className="mt-1" />
+              </div>
+              <div>
+                <Label className="text-xs">Subtotal (MYR)</Label>
+                <Input type="number" step="0.01" value={form.Subtotal} onChange={(e) => set("Subtotal", e.target.value)} className="mt-1" />
+              </div>
+              <div>
+                <Label className="text-xs">Tax type</Label>
+                <select value={form.TaxType} onChange={(e) => set("TaxType", e.target.value)} className="mt-1 w-full rounded-lg bg-muted border border-border px-3 py-2 text-sm text-foreground">
+                  {["None", "SST", "GST"].map((t) => <option key={t}>{t}</option>)}
+                </select>
+              </div>
+              <div>
+                <Label className="text-xs">Tax rate (%)</Label>
+                <Input type="number" step="0.1" value={form.TaxRate} onChange={(e) => set("TaxRate", e.target.value)} className="mt-1" />
+              </div>
+              <div>
+                <Label className="text-xs">Tax amount (MYR)</Label>
+                <Input type="number" step="0.01" value={form.TaxAmount} onChange={(e) => set("TaxAmount", e.target.value)} className="mt-1" />
+              </div>
+              <div className="col-span-2">
+                <Label className="text-xs">Total (MYR)</Label>
+                <Input type="number" step="0.01" value={form.Total} onChange={(e) => set("Total", e.target.value)} className="mt-1 font-semibold" />
+              </div>
+              <div className="col-span-2">
+                <Label className="text-xs">Notes</Label>
+                <Input value={form.Notes} onChange={(e) => set("Notes", e.target.value)} placeholder="Optional" className="mt-1" />
+              </div>
+            </div>
+
+            {rawText && (
+              <div>
+                <button onClick={() => setShowRaw((s) => !s)} className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground">
+                  <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showRaw ? "rotate-180" : ""}`} /> Raw OCR text (retained for audit)
+                </button>
+                {showRaw && (
+                  <pre className="mt-2 max-h-40 overflow-auto rounded-lg bg-muted/50 border border-border p-3 text-[11px] whitespace-pre-wrap text-muted-foreground">{rawText}</pre>
+                )}
+              </div>
+            )}
+
+            <button
+              onClick={save}
+              disabled={saving || !compressed}
+              className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-primary text-primary-foreground px-4 py-2 text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-60"
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+              Save receipt
+            </button>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}

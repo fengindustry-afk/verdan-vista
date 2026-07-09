@@ -1,4 +1,5 @@
 import { supabase, isSupabaseConfigured } from "./supabase";
+import { isEffectivelyOffline } from "./data";
 
 /**
  * Image storage for captured photos/scans. Primary path uploads to a private
@@ -11,6 +12,7 @@ import { supabase, isSupabaseConfigured } from "./supabase";
 export const Buckets = {
   photos: "geotagged-photos",
   scans: "tree-scans",
+  receipts: "receipts",
 } as const;
 
 export interface StoredImage {
@@ -34,7 +36,8 @@ export async function uploadImage(
   path: string,
   blob: Blob
 ): Promise<StoredImage> {
-  if (isSupabaseConfigured) {
+  // Offline: skip the upload attempt and keep the image inline so capture still works.
+  if (isSupabaseConfigured && !isEffectivelyOffline()) {
     const { error } = await supabase.storage.from(bucket).upload(path, blob, {
       upsert: true,
       contentType: blob.type || "image/jpeg",
@@ -54,7 +57,7 @@ export async function resolveImageUrl(
   if (!stored) return null;
   // Already a usable URL (inline data URL, or a legacy absolute URL).
   if (stored.startsWith("data:") || stored.startsWith("http")) return stored;
-  if (!isSupabaseConfigured) return null;
+  if (!isSupabaseConfigured || isEffectivelyOffline()) return null;
   const { data, error } = await supabase.storage.from(bucket).createSignedUrl(stored, expiresIn);
   if (error) {
     console.warn(`[storage] sign ${bucket}/${stored} failed:`, error.message);

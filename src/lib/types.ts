@@ -163,6 +163,49 @@ export interface CostCategory {
   Name: string;
 }
 
+/**
+ * A digitised paper receipt/invoice for Malaysian tax-audit retention (LHDN
+ * requires business records be kept 7 years). Structured fields are extracted
+ * from the captured image via OCR, then confirmed by a human. The compressed
+ * image itself is retained as the primary evidence.
+ */
+export interface Receipt {
+  id: string;
+  /** Vendor / merchant name. */
+  Merchant?: string;
+  /** Merchant tax identification / SST registration number, if printed. */
+  MerchantTin?: string;
+  /** Receipt / invoice number. */
+  ReceiptNo?: string;
+  /** Transaction date, ISO `YYYY-MM-DD`. */
+  Date?: string;
+  Currency?: string;
+  Category?: string;
+  Subtotal?: number | null;
+  /** "SST" | "GST" | "None" — the indirect-tax regime shown on the receipt. */
+  TaxType?: string;
+  TaxRate?: number | null;
+  TaxAmount?: number | null;
+  Total?: number | null;
+  PaymentMethod?: string;
+  Notes?: string;
+  /** Full OCR text, retained verbatim for audit search & re-parsing. */
+  RawText?: string;
+  /** Object path in the `receipts` Storage bucket (preferred). */
+  ImageUrl?: string;
+  /** Inline base64 fallback when Storage is unavailable (no `data:` prefix). */
+  ImageBase64?: string;
+  ImageMime?: string;
+  /** Stored image size in bytes, for storage-usage reporting. */
+  ImageBytes?: number;
+  /** "review" (fields need confirming) | "confirmed". */
+  Status?: string;
+  CapturedBy?: string;
+  CapturedAt?: string;
+  /** ISO date until which this record must be retained (7-year rule). */
+  RetentionUntil?: string;
+}
+
 export interface UserProfile {
   id: string;
   FullName: string;

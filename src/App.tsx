@@ -28,9 +28,10 @@ import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 
 // Code-split the routes that pull heavy libraries so they load on demand:
-// Reports → xlsx + jspdf, CCTV → hls.js.
+// Reports → xlsx + jspdf, CCTV → hls.js, Receipts → tesseract.js OCR.
 const Reports = lazy(() => import("./pages/Reports"));
 const Cctv = lazy(() => import("./pages/Cctv"));
+const Receipts = lazy(() => import("./pages/Receipts"));
 
 const PageFallback = () => (
   <div className="flex items-center gap-2 text-muted-foreground text-sm py-20 justify-center">
@@ -38,7 +39,16 @@ const PageFallback = () => (
   </div>
 );
 
-const queryClient = new QueryClient();
+// networkMode "always" is essential: by default React Query pauses queries and
+// mutations whenever navigator.onLine is false, which would leave every page stuck
+// loading (and awaited writes hanging) while offline. Our data layer already serves
+// from cache and queues writes when offline, so queries must always run their fn.
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: { networkMode: "always" },
+    mutations: { networkMode: "always" },
+  },
+});
 
 /**
  * Watches connectivity: notifies the user when the connection drops or returns,
@@ -102,6 +112,7 @@ const App = () => (
             <Route path="/testing-plot" element={<TestingPlot />} />
             <Route path="/testing-plot/:id" element={<TreeDetail />} />
             <Route path="/cost-tracker" element={<CostTracker />} />
+            <Route path="/receipts" element={<Suspense fallback={<PageFallback />}><Receipts /></Suspense>} />
             <Route path="/users" element={<Users />} />
             <Route path="/reports" element={<Suspense fallback={<PageFallback />}><Reports /></Suspense>} />
             <Route path="/audit-trail" element={<AuditTrail />} />

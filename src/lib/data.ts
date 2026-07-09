@@ -1,5 +1,5 @@
 import { supabase, isSupabaseConfigured } from "./supabase";
-import type { CollectionName } from "./collections";
+import { Collections, type CollectionName } from "./collections";
 
 /**
  * Document-oriented data access layer, the TypeScript counterpart of the .NET
@@ -13,13 +13,15 @@ import type { CollectionName } from "./collections";
 type Doc = { id: string } & Record<string, unknown>;
 
 /**
- * Whether reads/writes should stay local. Driven purely by the browser's
- * connectivity: when offline we serve from the cache and queue writes rather
- * than hitting (and hanging on) Supabase; when back online we load live data
- * and flush the queue automatically.
+ * Whether reads/writes should stay local. Driven by connectivity: the browser's
+ * own `navigator.onLine` flag plus a heartbeat that catches "connected but the
+ * backend is unreachable" (dead link). When offline we serve from the cache and
+ * queue writes rather than hitting (and hanging on) Supabase; when back online we
+ * load live data and flush the queue automatically.
  */
 export function isEffectivelyOffline(): boolean {
-  return typeof navigator !== "undefined" && navigator.onLine === false;
+  if (typeof navigator !== "undefined" && navigator.onLine === false) return true;
+  return backendReachable === false;
 }
 
 const mem = new Map<string, { value: unknown; expires: number }>();
@@ -124,8 +126,13 @@ export async function getDocument<T extends Doc>(
 
 export async function upsertDocument<T extends Doc>(
   collection: CollectionName,
-  doc: T
+  doc: T,
+  opts: { queueOnError?: boolean } = {}
 ): Promise<T> {
+  // `queueOnError: false` is for best-effort writes (e.g. the edit-history log)
+  // that must never pile up in — and endlessly retry through — the offline queue
+  // if the push fails; the optimistic cache update still happens.
+  const queueOnError = opts.queueOnError !== false;
   const id = doc.id || crypto.randomUUID();
   const record = { ...doc, id };
   const { id: _omit, ...payload } = record;
@@ -137,7 +144,7 @@ export async function upsertDocument<T extends Doc>(
   memSet(key, [record, ...cached.filter((d) => d.id !== id)]);
 
   if (isEffectivelyOffline() || !isSupabaseConfigured) {
-    if (isSupabaseConfigured) enqueueWrite({ type: "upsert", collection, doc: record, queuedAt: Date.now() });
+    if (isSupabaseConfigured && queueOnError) enqueueWrite({ type: "upsert", collection, doc: record, queuedAt: Date.now() });
     return record;
   }
 
@@ -145,9 +152,13 @@ export async function upsertDocument<T extends Doc>(
     .from(collection)
     .upsert({ id, data: payload, updated_at: new Date().toISOString() });
   if (error) {
-    // Push failed (e.g. connection dropped mid-request) — queue it for later sync.
-    console.error(`[data] upsert(${collection}/${id}) failed, queuing:`, error.message);
-    enqueueWrite({ type: "upsert", collection, doc: record, queuedAt: Date.now() });
+    if (queueOnError) {
+      // Push failed (e.g. connection dropped mid-request) — queue it for later sync.
+      console.error(`[data] upsert(${collection}/${id}) failed, queuing:`, error.message);
+      enqueueWrite({ type: "upsert", collection, doc: record, queuedAt: Date.now() });
+    } else {
+      console.warn(`[data] upsert(${collection}/${id}) failed (not queued):`, error.message);
+    }
   }
   return record;
 }
@@ -287,9 +298,11 @@ async function autoSync() {
 }
 
 /*
- * Connectivity notifications — subscribers are told when the browser loses or
- * regains its network connection so the UI can surface a toast and reflect the
- * live status (e.g. the Settings connection card).
+ * Connectivity notifications — subscribers are told when we lose or regain a
+ * usable connection to the backend so the UI can surface a toast and reflect the
+ * live status (e.g. the Settings connection card). Connectivity is derived from
+ * both the browser's `online`/`offline` events and a periodic heartbeat that
+ * catches a "connected but backend unreachable" (dead link) situation.
  */
 
 const connectivityListeners = new Set<(online: boolean) => void>();
@@ -300,22 +313,81 @@ export function onConnectivityChange(listener: (online: boolean) => void): () =>
   return () => connectivityListeners.delete(listener);
 }
 
+/** Last known backend reachability; `null` until the first heartbeat resolves. */
+let backendReachable: boolean | null = null;
+let lastNotifiedOnline = true;
+
+/** Central place to apply a connectivity transition: dedupe, notify, and sync on recovery. */
+function setConnectivity(online: boolean) {
+  backendReachable = online;
+  if (online === lastNotifiedOnline) return;
+  lastNotifiedOnline = online;
+  connectivityListeners.forEach((l) => l(online));
+  if (online) void autoSync();
+}
+
+const HEARTBEAT_TABLE = Collections.feedstock;
+const HEARTBEAT_INTERVAL = 60_000;
+const HEARTBEAT_TIMEOUT = 6_000;
+
+/**
+ * Cheap reachability probe: a HEAD-only request against one table (no rows, no
+ * COUNT — just "did the backend answer"), with a hard timeout so a dead link
+ * resolves quickly instead of hanging. A "table not found" style error still
+ * means the backend answered, so it counts as online.
+ */
+async function checkHeartbeat() {
+  if (!isSupabaseConfigured) return;
+  // The browser already knows it's offline — trust that and skip the probe.
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    setConnectivity(false);
+    return;
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), HEARTBEAT_TIMEOUT);
+  let reachable = false;
+  try {
+    const { error } = await supabase
+      .from(HEARTBEAT_TABLE)
+      .select("id", { head: true })
+      .limit(1)
+      .abortSignal(controller.signal);
+    reachable = !error || error.code === "PGRST205" || /find the table/i.test(error.message);
+  } catch {
+    reachable = false;
+  } finally {
+    clearTimeout(timer);
+  }
+  setConnectivity(reachable);
+  // Retry any queued writes whenever we can reach the backend (no-op if empty).
+  if (reachable) void autoSync();
+}
+
 let initialized = false;
 
 /**
- * Register connectivity listeners: notify subscribers on online/offline
- * transitions and flush the write queue automatically on reconnect. Idempotent.
+ * Register connectivity detection: browser online/offline events plus a periodic
+ * backend heartbeat. Transitions notify subscribers and flush the write queue on
+ * reconnect. The poll is skipped while the tab is hidden (and runs once on
+ * becoming visible again) to avoid needless background requests. Idempotent.
  */
 export function initOfflineAutoSync() {
   if (initialized || typeof window === "undefined") return;
   initialized = true;
   window.addEventListener("online", () => {
-    connectivityListeners.forEach((l) => l(true));
-    void autoSync();
+    // Confirm the backend is actually reachable before declaring us online.
+    void checkHeartbeat();
   });
-  window.addEventListener("offline", () => {
-    connectivityListeners.forEach((l) => l(false));
+  window.addEventListener("offline", () => setConnectivity(false));
+  // Re-probe as soon as the user returns to the tab (it may have been offline while hidden).
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") void checkHeartbeat();
   });
-  // Catch anything already queued from a previous session where we're online now.
-  if (navigator.onLine) void autoSync();
+  // Kick off an immediate probe, then poll only while the tab is visible. Also
+  // flushes any queue left from a previous session once the first probe confirms
+  // we're online.
+  void checkHeartbeat();
+  setInterval(() => {
+    if (document.visibilityState === "visible") void checkHeartbeat();
+  }, HEARTBEAT_INTERVAL);
 }
