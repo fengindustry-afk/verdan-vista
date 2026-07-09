@@ -36,6 +36,9 @@ export enum Permission {
   ViewDashboard = 1 << 15,
   ViewSettings = 1 << 16,
   ManageSettings = 1 << 17,
+  ViewCosts = 1 << 18,
+  AddCosts = 1 << 19,
+  DeleteCosts = 1 << 20,
 }
 
 const P = Permission;
@@ -47,14 +50,15 @@ export function defaultPermissions(role: UserRole): number {
     case UserRole.Operator:
       return (
         P.ViewDashboard | P.ViewSettings | P.ViewFeedstock | P.AddFeedstock |
-        P.EditFeedstock | P.ViewLocations | P.AddLocations
+        P.EditFeedstock | P.ViewLocations | P.AddLocations |
+        P.ViewCosts | P.AddCosts
       );
     case UserRole.Manager:
       return (
         P.ViewDashboard | P.ViewSettings | P.ManageSettings | P.ViewFeedstock |
         P.AddFeedstock | P.EditFeedstock | P.DeleteFeedstock | P.VerifyFeedstock |
         P.ViewLocations | P.AddLocations | P.DeleteLocations | P.ExportData |
-        P.ClearCache | P.ViewUsers
+        P.ClearCache | P.ViewUsers | P.ViewCosts | P.AddCosts | P.DeleteCosts
       );
     case UserRole.Admin:
       return (
@@ -62,7 +66,7 @@ export function defaultPermissions(role: UserRole): number {
         P.AddFeedstock | P.EditFeedstock | P.DeleteFeedstock | P.VerifyFeedstock |
         P.ViewLocations | P.AddLocations | P.DeleteLocations | P.ExportData |
         P.ImportData | P.ClearCache | P.ViewUsers | P.EditUsers | P.DeleteUsers |
-        P.AssignRoles
+        P.AssignRoles | P.ViewCosts | P.AddCosts | P.DeleteCosts
       );
     default:
       return P.None;

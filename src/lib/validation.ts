@@ -67,6 +67,26 @@ export const streamUrlSchema = z
     return u.protocol === "http:" || u.protocol === "https:";
   }, "Must be an http(s) stream URL");
 
+export const DefaultCostCategories = [
+  "Labor", "Equipment", "Materials", "Transport", "Utilities", "Other",
+] as const;
+
+export const categoryNameSchema = safeText(40);
+
+export const newCostEntrySchema = z.object({
+  title: safeText(80),
+  category: categoryNameSchema,
+  amount: z.coerce.number().finite().positive().max(100_000_000),
+  date: safeText(20),
+  note: z.union([z.literal(""), safeText(280)]).transform((v) => (v === "" ? undefined : v)),
+});
+export type NewCostEntryInput = z.infer<typeof newCostEntrySchema>;
+
+export const costBudgetSchema = z.object({
+  category: categoryNameSchema,
+  monthlyLimit: z.coerce.number().finite().min(0).max(100_000_000),
+});
+
 /** Returns a safe URL string or null. */
 export function sanitizeStreamUrl(input: string): string | null {
   const parsed = streamUrlSchema.safeParse(input);

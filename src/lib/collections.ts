@@ -16,6 +16,10 @@ export const Collections = {
   readings: "readings",
   scans: "scans",
   labels: "labels",
+  costEntries: "cost_entries",
+  costBudgets: "cost_budgets",
+  costCategories: "cost_categories",
+  workProcess: "work_process_entries",
 } as const;
 
 export type CollectionName = (typeof Collections)[keyof typeof Collections];

@@ -10,7 +10,13 @@ import type {
   TreeReading,
   TreeScan,
   BiomassData,
+  CostEntry,
+  CostBudget,
+  CostCategory,
 } from "@/lib/types";
+import type { WorkProcessEntry } from "@/lib/workProcess";
+import { WORK_PROCESS_SEED } from "@/lib/workProcessSeed";
+import { DefaultCostCategories } from "@/lib/validation";
 
 /** Generic collection read. */
 function useCollection<T extends { id: string }>(
@@ -32,6 +38,31 @@ export const useReadings = () => useCollection<TreeReading>(Collections.readings
 export const useScans = () => useCollection<TreeScan>(Collections.scans);
 export const useBiomass = () => useCollection<BiomassData>(Collections.esaBiomass);
 export const useGroundTruth = () => useCollection<BiomassData>(Collections.groundTruth);
+export const useCostEntries = () => useCollection<CostEntry>(Collections.costEntries);
+export const useCostBudgets = () => useCollection<CostBudget>(Collections.costBudgets);
+export const useCostCategories = () => useCollection<CostCategory>(Collections.costCategories);
+
+/**
+ * Work-process entries from the shared Supabase collection, falling back to the
+ * bundled demo seed when the table is empty (demo / preview / offline) so the
+ * workflow hub always has data to browse.
+ */
+export function useWorkProcessEntries() {
+  return useQuery({
+    queryKey: [Collections.workProcess],
+    queryFn: async () => {
+      const rows = await getCollection<WorkProcessEntry>(Collections.workProcess);
+      return rows.length > 0 ? rows : WORK_PROCESS_SEED;
+    },
+    staleTime: 60_000,
+  });
+}
+
+/** Category names for the tracker: custom ones if any have been added, else the built-in defaults. */
+export function useCategoryNames(): string[] {
+  const { data: categories = [] } = useCostCategories();
+  return categories.length > 0 ? categories.map((c) => c.Name) : [...DefaultCostCategories];
+}
 
 /** Generic upsert + delete mutations for a collection, invalidating its query. */
 export function useUpsert<T extends { id: string }>(

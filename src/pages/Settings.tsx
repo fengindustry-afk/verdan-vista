@@ -1,22 +1,38 @@
 import { BentoCard } from "@/components/BentoCard";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { useFeedstock } from "@/hooks/useCollection";
 import { corcMetrics } from "@/lib/feedstock";
-import { Database, Download, Wifi, WifiOff } from "lucide-react";
-import { useState } from "react";
+import { Database, Download, Wifi, WifiOff, Palette, Moon, Sun, Check } from "lucide-react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { useTheme } from "@/lib/theme-context";
+import { THEME_SETS, swatches } from "@/lib/theme";
+import { onConnectivityChange, onOfflineSync, pendingSyncCount } from "@/lib/data";
+import { useAuth } from "@/lib/auth";
+import { hasPermission, Permission } from "@/lib/rbac";
 
 export default function Settings() {
   const { data: feedstock = [] } = useFeedstock();
-  const [offline, setOffline] = useState(() => localStorage.getItem("offline_mode") === "true");
+  const { role } = useAuth();
+  const canExport = hasPermission(role, Permission.ExportData);
+  const [online, setOnline] = useState(() => navigator.onLine);
+  const [pending, setPending] = useState(() => pendingSyncCount());
+  const { setId, mode, setThemeSet, toggleMode } = useTheme();
 
-  const toggleOffline = (v: boolean) => {
-    setOffline(v);
-    localStorage.setItem("offline_mode", String(v));
-    toast.success(v ? "Offline mode enabled" : "Offline mode disabled");
-  };
+  // Reflect live connectivity and any queued writes waiting to sync.
+  useEffect(() => {
+    const refresh = () => {
+      setOnline(navigator.onLine);
+      setPending(pendingSyncCount());
+    };
+    refresh();
+    const unsubConnectivity = onConnectivityChange(refresh);
+    const unsubSync = onOfflineSync(() => setPending(pendingSyncCount()));
+    return () => {
+      unsubConnectivity();
+      unsubSync();
+    };
+  }, []);
 
   const exportCsv = () => {
     const headers = ["Id", "Title", "Type", "Supplier", "Amount", "Status", "CurrentStage", "NetCORC", "DurabilityClass"];
@@ -42,8 +58,55 @@ export default function Settings() {
       <div className="glow-orb w-72 h-72 -top-36 right-10 animate-pulse-glow" />
       <div>
         <h1 className="text-2xl font-bold text-foreground">Settings</h1>
-        <p className="text-sm text-muted-foreground mt-1">Connection, data &amp; export</p>
+        <p className="text-sm text-muted-foreground mt-1">Appearance, connection, data &amp; export</p>
       </div>
+
+      <BentoCard>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <Palette className="h-4 w-4 text-primary" /> Appearance
+          </h3>
+          <button
+            onClick={toggleMode}
+            className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted/60 transition-colors"
+          >
+            {mode === "dark" ? <Moon className="h-3.5 w-3.5 text-primary" /> : <Sun className="h-3.5 w-3.5 text-primary" />}
+            {mode === "dark" ? "Dark" : "Light"} mode
+          </button>
+        </div>
+        <p className="text-[11px] text-muted-foreground mb-4">
+          Pick a theme. The Dark/Light toggle flips the shade within the selected theme.
+        </p>
+        <div className="grid sm:grid-cols-2 gap-3">
+          {THEME_SETS.map((set) => {
+            const active = set.id === setId;
+            return (
+              <button
+                key={set.id}
+                onClick={() => setThemeSet(set.id)}
+                className={`text-left rounded-xl border p-3 transition-colors ${
+                  active ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 hover:bg-muted/40"
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-semibold text-foreground">{set.label}</span>
+                  {active && <Check className="h-4 w-4 text-primary" />}
+                </div>
+                <div className="flex gap-1.5 mb-2">
+                  {swatches(set, mode).map((c, i) => (
+                    <span
+                      key={i}
+                      className="h-6 w-6 rounded-full border border-border/60"
+                      style={{ backgroundColor: c }}
+                    />
+                  ))}
+                </div>
+                <p className="text-[11px] text-muted-foreground leading-snug">{set.description}</p>
+              </button>
+            );
+          })}
+        </div>
+      </BentoCard>
 
       <BentoCard>
         <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
@@ -51,40 +114,42 @@ export default function Settings() {
         </h3>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            {isSupabaseConfigured && !offline ? (
-              <><Wifi className="h-4 w-4 text-primary" /> <span className="text-sm text-foreground">Connected to Supabase</span></>
+            {isSupabaseConfigured && online ? (
+              <><Wifi className="h-4 w-4 text-primary" /> <span className="text-sm text-foreground">Online — connected to Supabase</span></>
             ) : (
-              <><WifiOff className="h-4 w-4 text-amber-400" /> <span className="text-sm text-foreground">Cache / demo mode</span></>
+              <><WifiOff className="h-4 w-4 text-amber-400" /> <span className="text-sm text-foreground">
+                {isSupabaseConfigured ? "Offline — showing cached data" : "Cache / demo mode"}
+              </span></>
             )}
           </div>
           <span className="text-[11px] text-muted-foreground font-mono">
             {isSupabaseConfigured ? "gwtxrtrnkoynxhacgidg" : "not configured"}
           </span>
         </div>
-      </BentoCard>
-
-      <BentoCard>
-        <div className="flex items-center justify-between">
-          <div>
-            <Label className="text-sm text-foreground">Offline mode</Label>
-            <p className="text-[11px] text-muted-foreground mt-0.5">Read from local cache only; skip network requests.</p>
-          </div>
-          <Switch checked={offline} onCheckedChange={toggleOffline} />
-        </div>
-      </BentoCard>
-
-      <BentoCard>
-        <h3 className="text-sm font-semibold text-foreground mb-1">Export Data</h3>
-        <p className="text-[11px] text-muted-foreground mb-4">
-          Download all feedstock batches with computed CORCs as CSV (NCMP / audit ready).
+        <p className="text-[11px] text-muted-foreground mt-3">
+          The app automatically uses cached data when you're offline and reloads live data once you reconnect. Any changes made offline are queued and synced automatically.
         </p>
-        <button
-          onClick={exportCsv}
-          className="inline-flex items-center gap-2 rounded-lg bg-primary/15 text-primary px-4 py-2 text-sm font-medium hover:bg-primary/25 transition-colors"
-        >
-          <Download className="h-4 w-4" /> Export CSV ({feedstock.length})
-        </button>
+        {pending > 0 && (
+          <p className="text-[11px] text-amber-400 mt-2">
+            {pending} change{pending === 1 ? "" : "s"} queued — will sync when you're back online.
+          </p>
+        )}
       </BentoCard>
+
+      {canExport && (
+        <BentoCard>
+          <h3 className="text-sm font-semibold text-foreground mb-1">Export Data</h3>
+          <p className="text-[11px] text-muted-foreground mb-4">
+            Download all feedstock batches with computed CORCs as CSV (NCMP / audit ready).
+          </p>
+          <button
+            onClick={exportCsv}
+            className="inline-flex items-center gap-2 rounded-lg bg-primary/15 text-primary px-4 py-2 text-sm font-medium hover:bg-primary/25 transition-colors"
+          >
+            <Download className="h-4 w-4" /> Export CSV ({feedstock.length})
+          </button>
+        </BentoCard>
+      )}
     </div>
   );
 }

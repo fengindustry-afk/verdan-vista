@@ -1,5 +1,6 @@
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
+import { RequirePermission } from "@/components/RequirePermission";
 import { Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
 import { roleDisplayName } from "@/lib/rbac";
@@ -63,7 +64,9 @@ export function AppLayout() {
             )}
           </header>
           <main className="flex-1 overflow-auto">
-            <Outlet />
+            <RequirePermission>
+              <Outlet />
+            </RequirePermission>
           </main>
         </div>
       </div>

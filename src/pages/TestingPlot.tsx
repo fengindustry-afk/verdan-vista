@@ -5,10 +5,15 @@ import { Badge } from "@/components/ui/badge";
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip } from "recharts";
+import { EditTreeDialog } from "@/components/capture/EditTreeDialog";
+import { useAuth } from "@/lib/auth";
+import { hasPermission, Permission } from "@/lib/rbac";
 
 export default function TestingPlot() {
   const { data: trees = [], isLoading } = useTrees();
   const { data: readings = [] } = useReadings();
+  const { role } = useAuth();
+  const canEdit = hasPermission(role, Permission.AddLocations);
 
   const readingsByTree = useMemo(() => {
     const map = new Map<string, number>();
@@ -41,9 +46,12 @@ export default function TestingPlot() {
   return (
     <div className="relative p-6 lg:p-8 space-y-6">
       <div className="glow-orb w-72 h-72 -top-36 right-10 animate-pulse-glow" />
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Testing Plot</h1>
-        <p className="text-sm text-muted-foreground mt-1">Biochar field trial — tree health &amp; growth readings</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Testing Plot</h1>
+          <p className="text-sm text-muted-foreground mt-1">Biochar field trial — tree health &amp; growth readings</p>
+        </div>
+        {canEdit && <EditTreeDialog />}
       </div>
 
       {isLoading ? (
@@ -75,21 +83,36 @@ export default function TestingPlot() {
               </h2>
               <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 {groupTrees.map((t, i) => (
-                  <Link key={t.id} to={`/testing-plot/${encodeURIComponent(t.id)}`}>
-                    <BentoCard delay={i * 0.03} className="h-full cursor-pointer group">
+                  <BentoCard key={t.id} delay={i * 0.03} className="relative h-full cursor-pointer group">
+                    {/* Stretched link sits behind the content so tapping the card
+                        navigates, while the edit control (above it, not a descendant
+                        of the anchor) never leaks its close-click into navigation. */}
+                    <Link
+                      to={`/testing-plot/${encodeURIComponent(t.id)}`}
+                      aria-label={`View ${t.TreeCode}`}
+                      className="absolute inset-0 z-0 rounded-[inherit]"
+                    />
+                    <div className="relative z-10 pointer-events-none">
                       <div className="flex items-start justify-between mb-1">
                         <h3 className="text-sm font-semibold text-foreground flex items-center gap-1.5 group-hover:text-primary transition-colors">
                           <TreePine className="h-3.5 w-3.5 text-primary" /> {t.TreeCode}
                         </h3>
-                        <Badge variant="outline" className="text-[10px]">{readingsByTree.get(t.id) ?? 0} readings</Badge>
+                        <div className="flex items-center gap-1.5">
+                          <Badge variant="outline" className="text-[10px]">{readingsByTree.get(t.id) ?? 0} readings</Badge>
+                          {canEdit && (
+                            <span className="pointer-events-auto">
+                              <EditTreeDialog tree={t} />
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <p className="text-[11px] text-muted-foreground">{t.Species}</p>
                       <p className="text-[11px] text-muted-foreground mt-1">{t.PlotName} · {t.CropAge}</p>
                       {t.Treatment && t.Treatment !== "None" && (
                         <p className="text-[11px] text-cyan-400 mt-1">Treatment: {t.Treatment}</p>
                       )}
-                    </BentoCard>
-                  </Link>
+                    </div>
+                  </BentoCard>
                 ))}
               </div>
             </div>

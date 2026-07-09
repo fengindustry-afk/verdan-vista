@@ -132,6 +132,35 @@ export interface TreeScan {
   Timestamp?: string;
   CapturedBy?: string;
   Notes?: string;
+  /** Automated tree-health assessment from the scan image. */
+  HealthStatus?: string;
+  /** Canopy vigor score 0–100 from the image analysis. */
+  HealthScore?: number | null;
+  /** Human-readable summary of the health assessment. */
+  HealthNote?: string;
+  /** ISO timestamp of when the health analysis last ran. */
+  AnalyzedAt?: string;
+}
+
+export interface CostEntry {
+  id: string;
+  Title: string;
+  Category: string;
+  Amount: number;
+  Date: string;
+  Note?: string;
+  CreatedBy?: string;
+}
+
+export interface CostBudget {
+  id: string;
+  Category: string;
+  MonthlyLimit: number;
+}
+
+export interface CostCategory {
+  id: string;
+  Name: string;
 }
 
 export interface UserProfile {
