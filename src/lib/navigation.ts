@@ -1,4 +1,4 @@
-import { LayoutDashboard, Package, Workflow, Calculator, MapPin, Video, TreePine, Wallet, ReceiptText, ShieldCheck, Shield, FileText, Settings, type LucideIcon } from "lucide-react";
+import { LayoutDashboard, Activity, Package, Workflow, Calculator, MapPin, Video, TreePine, Wallet, ReceiptText, ShieldCheck, Shield, FileText, Settings, type LucideIcon } from "lucide-react";
 import { Permission } from "./rbac";
 
 /**
@@ -18,6 +18,7 @@ export interface NavItem {
 
 export const navItems: NavItem[] = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard, permission: Permission.ViewDashboard },
+  { title: "dMRV Monitor", url: "/dmrv", icon: Activity, permission: Permission.ViewDashboard },
   { title: "Feedstock", url: "/feedstock", icon: Package, permission: Permission.ViewFeedstock },
   { title: "Workflow", url: "/workflow", icon: Workflow, permission: Permission.ViewFeedstock },
   { title: "CORC Calculator", url: "/corc-calculator", icon: Calculator, permission: Permission.ViewDashboard },
@@ -38,6 +39,7 @@ export const navItems: NavItem[] = [
  */
 export const routePermissions: Record<string, Permission> = {
   "/": Permission.ViewDashboard,
+  "/dmrv": Permission.ViewDashboard,
   "/feedstock": Permission.ViewFeedstock,
   "/feedstock/:id": Permission.ViewFeedstock,
   "/workflow": Permission.ViewFeedstock,

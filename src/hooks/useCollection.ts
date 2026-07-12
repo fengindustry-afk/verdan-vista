@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { getCollection, upsertDocument, deleteDocument } from "@/lib/data";
+import { toast } from "sonner";
+import { getCollection, upsertDocument, deleteDocument, WriteNotAuthorizedError } from "@/lib/data";
 import { Collections } from "@/lib/collections";
 import { recordEdit, getHistory, type HistoryEntry } from "@/lib/history";
 import type {
@@ -16,6 +17,7 @@ import type {
   CostCategory,
   Receipt,
 } from "@/lib/types";
+import type { SensorReading } from "@/lib/sensors";
 import type { WorkProcessEntry } from "@/lib/workProcess";
 import { WORK_PROCESS_SEED } from "@/lib/workProcessSeed";
 import { DefaultCostCategories } from "@/lib/validation";
@@ -44,6 +46,7 @@ export const useCostEntries = () => useCollection<CostEntry>(Collections.costEnt
 export const useCostBudgets = () => useCollection<CostBudget>(Collections.costBudgets);
 export const useCostCategories = () => useCollection<CostCategory>(Collections.costCategories);
 export const useReceipts = () => useCollection<Receipt>(Collections.receipts);
+export const useSensorReadings = () => useCollection<SensorReading>(Collections.sensorReadings);
 
 /**
  * Work-process entries from the shared Supabase collection, falling back to the
@@ -84,14 +87,18 @@ function cachedBefore<T extends { id: string }>(
  */
 export function useUpsert<T extends { id: string }>(
   collection: (typeof Collections)[keyof typeof Collections],
-  opts: { history?: boolean } = {}
+  opts: { history?: boolean; surfaceErrors?: boolean } = {}
 ) {
   const qc = useQueryClient();
   const track = opts.history !== false;
   return useMutation({
     mutationFn: async (doc: T) => {
       const before = track ? cachedBefore<T>(qc, collection, doc.id) : undefined;
-      const saved = await upsertDocument<T>(collection, doc);
+      // `surfaceErrors` makes an RLS/auth rejection throw (instead of silently
+      // "succeeding") so the caller can show an honest "not saved" message.
+      const saved = await upsertDocument<T>(collection, doc, {
+        throwOnUnauthorized: opts.surfaceErrors,
+      });
       if (track) {
         void recordEdit({
           collection,
@@ -103,6 +110,14 @@ export function useUpsert<T extends { id: string }>(
       return saved;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: [collection] }),
+    onError: (err) => {
+      if (err instanceof WriteNotAuthorizedError) {
+        toast.error("Not saved — your account can't write to the server.", {
+          description:
+            "You're in demo mode or lack permission. Sign in with an Operator/Manager/Admin account to save.",
+        });
+      }
+    },
   });
 }
 

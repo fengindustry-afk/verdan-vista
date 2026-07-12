@@ -14,6 +14,7 @@ import { RequireAuth } from "@/components/RequireAuth";
 import Login from "./pages/Login";
 import Onboarding from "./pages/Onboarding";
 import Dashboard from "./pages/Dashboard";
+import SensorDashboard from "./pages/SensorDashboard";
 import Feedstock from "./pages/Feedstock";
 import FeedstockDetail from "./pages/FeedstockDetail";
 import Workflow from "./pages/Workflow";
@@ -103,6 +104,7 @@ const App = () => (
           <Route path="/login" element={<Login />} />
           <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
             <Route path="/" element={<Dashboard />} />
+            <Route path="/dmrv" element={<SensorDashboard />} />
             <Route path="/feedstock" element={<Feedstock />} />
             <Route path="/feedstock/:id" element={<FeedstockDetail />} />
             <Route path="/workflow" element={<Workflow />} />
