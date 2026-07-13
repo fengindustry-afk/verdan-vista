@@ -17,3 +17,12 @@ export function fmt(n: number, digits = 0): string {
     maximumFractionDigits: digits,
   });
 }
+
+/** The app's display currency. All monetary values are shown in Malaysian Ringgit. */
+export const CURRENCY_CODE = "MYR";
+export const CURRENCY_SYMBOL = "RM";
+
+/** Format a monetary amount in MYR, e.g. `money(1234.5)` → "RM 1,234.50". */
+export function money(n: number, digits = 2): string {
+  return `${CURRENCY_SYMBOL} ${fmt(n, digits)}`;
+}

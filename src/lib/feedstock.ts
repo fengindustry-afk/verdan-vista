@@ -67,10 +67,11 @@ export interface CorcMetrics {
 }
 
 export function corcMetrics(f: Feedstock): CorcMetrics {
-  const yieldKg = Number((f as Record<string, unknown>).BiocharYieldKg ?? 0);
-  const carbonPct = Number((f as Record<string, unknown>).CarbonContentPct ?? 0);
-  const hcorg = Number((f as Record<string, unknown>).HCorgRatio ?? 0);
-  const lca = Number((f as Record<string, unknown>).LcaEmissionsTco2e ?? 0);
+  const rec = f as unknown as Record<string, unknown>;
+  const yieldKg = Number(rec.BiocharYieldKg ?? 0);
+  const carbonPct = Number(rec.CarbonContentPct ?? 0);
+  const hcorg = Number(rec.HCorgRatio ?? 0);
+  const lca = Number(rec.LcaEmissionsTco2e ?? 0);
 
   const effectiveYieldKg =
     yieldKg > 0 ? yieldKg : parseLeadingNumber(f.Amount) * DEFAULT_YIELD_FRACTION;
@@ -118,7 +119,7 @@ export function corcMetrics(f: Feedstock): CorcMetrics {
 }
 
 export function currentStageIndex(f: Feedstock): number {
-  const stage = (f as Record<string, unknown>).CurrentStage as string | undefined;
+  const stage = (f as unknown as Record<string, unknown>).CurrentStage as string | undefined;
   const i = CUSTODY_STAGES.indexOf((stage ?? "") as CustodyStage);
   return i < 0 ? 0 : i;
 }
@@ -131,7 +132,7 @@ export interface AuditEntry {
 }
 
 export function parseAuditLog(f: Feedstock): AuditEntry[] {
-  const raw = (f as Record<string, unknown>).AuditLog;
+  const raw = (f as unknown as Record<string, unknown>).AuditLog;
   if (!raw || typeof raw !== "string") return [];
   try {
     return JSON.parse(raw) as AuditEntry[];
@@ -147,7 +148,7 @@ export interface CustodyLeg {
 }
 
 export function parseCustodyLog(f: Feedstock): Record<string, CustodyLeg> {
-  const raw = (f as Record<string, unknown>).CustodyLog;
+  const raw = (f as unknown as Record<string, unknown>).CustodyLog;
   if (!raw || typeof raw !== "string") return {};
   try {
     return JSON.parse(raw) as Record<string, CustodyLeg>;

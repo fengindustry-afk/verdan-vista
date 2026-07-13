@@ -167,3 +167,57 @@ export function formatHistoryTimestamp(iso: string): string {
     day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
   });
 }
+
+/**
+ * Restore a single field to a value from history. Fetches the current document,
+ * applies the restore, and upserts it back — creating a new history entry
+ * that shows the "before" (current) and "after" (restored) states.
+ * Returns the restored document on success, or null if not found.
+ */
+export async function restoreField(opts: {
+  collection: CollectionName;
+  documentId: string;
+  field: string;
+  restoredValue: string | null; // The "Before" value from a history entry
+}): Promise<Record<string, unknown> | null> {
+  const { collection, documentId, field, restoredValue } = opts;
+
+  // Fetch the current document.
+  const { getDocument } = await import("./data");
+  const current = await getDocument(collection, documentId);
+  if (!current) return null;
+
+  // Parse the restored value back to its original type (best-effort).
+  let parsedValue: unknown = restoredValue;
+  try {
+    if (restoredValue && restoredValue !== "null") {
+      // Try JSON first (arrays, objects)
+      parsedValue = JSON.parse(restoredValue);
+    } else {
+      parsedValue = null;
+    }
+  } catch {
+    // Not JSON — keep it as a string.
+  }
+
+  // Apply the restore and upsert.
+  const restored = { ...current, [field]: parsedValue };
+  const { upsertDocument } = await import("./data");
+  await upsertDocument(collection, restored);
+
+  return restored;
+}
+
+/**
+ * Get the history entries that modified a specific field of a document.
+ * Useful for showing a "revert to…" menu of past values.
+ */
+export function getFieldHistory(
+  entries: HistoryEntry[],
+  documentId: string,
+  field: string
+): HistoryEntry[] {
+  return entries.filter(
+    (e) => e.DocumentId === documentId && e.Changes.some((c) => c.Field === field)
+  );
+}

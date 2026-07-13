@@ -33,9 +33,9 @@ const MONTHS: Record<string, number> = {
 /** Parse a date in common MY formats to ISO `YYYY-MM-DD`, or null. */
 function parseDate(text: string): string | null {
   // dd/mm/yyyy | dd-mm-yyyy | dd.mm.yyyy (Malaysian day-first order).
-  const dmy = text.match(/\b(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{2,4})\b/);
+  const dmy = text.match(/\b(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})\b/);
   if (dmy) {
-    let [, d, m, y] = dmy;
+    const [, d, m, y] = dmy;
     let yr = Number(y);
     if (yr < 100) yr += 2000;
     const dd = Number(d), mm = Number(m);
@@ -44,7 +44,7 @@ function parseDate(text: string): string | null {
     }
   }
   // yyyy-mm-dd
-  const ymd = text.match(/\b(20\d{2})[/.\-](\d{1,2})[/.\-](\d{1,2})\b/);
+  const ymd = text.match(/\b(20\d{2})[/.-](\d{1,2})[/.-](\d{1,2})\b/);
   if (ymd) {
     const [, y, m, d] = ymd;
     return `${y}-${String(Number(m)).padStart(2, "0")}-${String(Number(d)).padStart(2, "0")}`;
@@ -85,7 +85,7 @@ export function parseReceipt(text: string): Partial<Receipt> {
   // Receipt / invoice number.
   const noLine = lines.find((l) => /(receipt|invoice|bill|ref|resit)\s*(no|#|number|:)/i.test(l));
   if (noLine) {
-    const m = noLine.match(/[:#]\s*([A-Za-z0-9/\-]+)/) ?? noLine.match(/([A-Za-z0-9]{4,})\s*$/);
+    const m = noLine.match(/[:#]\s*([A-Za-z0-9/-]+)/) ?? noLine.match(/([A-Za-z0-9]{4,})\s*$/);
     if (m) out.ReceiptNo = m[1];
   }
 

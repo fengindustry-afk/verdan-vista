@@ -14,6 +14,7 @@ export const Collections = {
   users: "users",
   trees: "trees",
   readings: "readings",
+  soilSamples: "soil_samples",
   scans: "scans",
   labels: "labels",
   costEntries: "cost_entries",

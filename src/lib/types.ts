@@ -122,6 +122,24 @@ export interface TreeReading {
   Note?: string;
 }
 
+/**
+ * A soil-analysis sample for the testing plot — the web counterpart of the
+ * spreadsheet's "Section E · Analisis Tanah". Each record captures one soil
+ * parameter's initial (baseline) and final reading for a treatment group, so
+ * the summary can show the percentage change the same way it does for growth.
+ */
+export interface SoilSample {
+  id: string;
+  /** Treatment group this sample belongs to (e.g. "ESTERRA", "Control"). */
+  TreatmentGroup?: string;
+  /** One of SOIL_PARAMS (pH, EC, Organic Carbon, …). */
+  Parameter: string;
+  InitialReading?: number | null;
+  FinalReading?: number | null;
+  Date?: string;
+  Note?: string;
+}
+
 export interface TreeScan {
   id: string;
   TreeId: string;
