@@ -11,3 +11,6 @@ paddlepaddle>=2.6
 
 # Optional lighter backend — uncomment to use OCR_BACKEND=tesseract instead:
 # pytesseract>=0.3.10   # also: sudo apt-get install tesseract-ocr
+
+# Optional GPU backend — required only for OCR_BACKEND=qwen (talks to Ollama/vLLM):
+# requests>=2.31

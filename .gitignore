@@ -36,3 +36,7 @@ dist-ssr
 /blob-report/
 /playwright/.cache/
 /e2e/.auth/
+
+# Python bytecode caches (ocr-service)
+__pycache__/
+*.pyc

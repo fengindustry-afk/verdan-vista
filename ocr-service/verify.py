@@ -13,6 +13,12 @@ Usage:
     python verify.py                          # localhost:8000, synthetic image
     python verify.py --url http://192.168.1.42:8000
     python verify.py --image /path/to/receipt.jpg
+    python verify.py --qwen-endpoint http://192.168.1.50:11434   # direct backend smoke test
+
+The --qwen-endpoint flag skips the FastAPI service and drives the QwenBackend
+straight against an Ollama/vLLM server, so you can confirm the GPU box is wired
+up before switching OCR_BACKEND=qwen. It needs the `requests` dependency
+(uncomment it in requirements.txt); the default run stays stdlib-only.
 """
 
 from __future__ import annotations
@@ -71,13 +77,70 @@ def _sample_receipt_png() -> bytes:
     return buf.getvalue()
 
 
+def _smoke_qwen(endpoint: str, image_bytes: bytes) -> int:
+    """Drive the QwenBackend directly against an Ollama/vLLM server."""
+    import os
+    import time
+
+    os.environ["QWEN_ENDPOINT"] = endpoint
+    try:
+        from backends.qwen_backend import QwenBackend
+    except ImportError as err:  # requests not installed
+        print(f"[FAIL] qwen backend import failed: {err}")
+        print("  Uncomment `requests` in requirements.txt and `pip install -r requirements.txt`.")
+        return 1
+
+    try:
+        backend = QwenBackend()
+    except RuntimeError as err:
+        print(f"[FAIL] qwen backend config: {err}")
+        return 1
+
+    print(f"[..] qwen      calling {endpoint} (model={backend._model})")
+    try:
+        start = time.perf_counter()
+        text = backend.recognize(image_bytes)
+        ms = int((time.perf_counter() - start) * 1000)
+    except Exception as err:  # network / HTTP / JSON errors from the server
+        print(f"[FAIL] qwen      request failed: {err}")
+        print("  Is the Ollama server up? Try: ollama run qwen2.5vl")
+        return 1
+
+    print(f"[OK] qwen      ms={ms}")
+    print("--- recognised text " + "-" * 40)
+    print(text or "(empty - check the image / model)")
+    print("-" * 60)
+    if not text.strip():
+        print("[WARN] Backend reachable but read nothing from the image.")
+        return 2
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Verify the Esterra OCR service.")
     ap.add_argument("--url", default="http://localhost:8000", help="Service base URL")
     ap.add_argument("--image", help="Path to an image to OCR (default: synthetic receipt)")
     ap.add_argument("--timeout", type=float, default=30.0, help="Per-request timeout (s)")
+    ap.add_argument("--qwen-endpoint", help="Smoke-test QwenBackend directly against this Ollama/vLLM URL")
     args = ap.parse_args()
     base = args.url.rstrip("/")
+
+    # Load the image once — shared by the service check and the qwen smoke test.
+    if args.image:
+        try:
+            with open(args.image, "rb") as fh:
+                image_bytes = fh.read()
+            image_name = args.image.rsplit("/", 1)[-1]
+        except OSError as err:
+            print(f"[FAIL] could not read --image: {err}")
+            return 1
+    else:
+        image_bytes = _sample_receipt_png()
+        image_name = "sample.png"
+
+    # Direct backend smoke test — skips the FastAPI service entirely.
+    if args.qwen_endpoint:
+        return _smoke_qwen(args.qwen_endpoint, image_bytes)
 
     # 1. health -------------------------------------------------------------
     try:
@@ -89,19 +152,9 @@ def main() -> int:
         return 1
 
     # 2. ocr ----------------------------------------------------------------
-    if args.image:
-        try:
-            with open(args.image, "rb") as fh:
-                data = fh.read()
-            filename = args.image.rsplit("/", 1)[-1]
-        except OSError as err:
-            print(f"[FAIL] could not read --image: {err}")
-            return 1
-        print(f"[..] /ocr      posting {filename} ({len(data)} bytes)")
-    else:
-        data = _sample_receipt_png()
-        filename = "sample.png"
-        print(f"[..] /ocr      posting synthetic receipt ({len(data)} bytes)")
+    data, filename = image_bytes, image_name
+    kind = filename if args.image else "synthetic receipt"
+    print(f"[..] /ocr      posting {kind} ({len(data)} bytes)")
 
     try:
         result = _post_file(f"{base}/ocr", data, filename, args.timeout)
