@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { supabase, isSupabaseConfigured } from "./supabase";
-import { getCollection, upsertDocument } from "./data";
+import { getCollection, upsertDocument, clearDataCache } from "./data";
 import { Collections } from "./collections";
 import type { UserProfile } from "./types";
 import { parseRole, UserRole } from "./rbac";
@@ -169,6 +169,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     localStorage.removeItem(STORAGE_KEY);
+    clearDataCache();
     setUser(null);
     if (isSupabaseConfigured) {
       try { await supabase.auth.signOut(); } catch { /* ignore */ }

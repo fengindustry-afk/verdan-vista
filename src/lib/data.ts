@@ -77,6 +77,25 @@ function memSet(key: string, value: unknown) {
   }
 }
 
+/**
+ * Drop all cached collection data. Called on logout so a shared browser doesn't
+ * serve the previous user's cached rows to the next session (reads now fall back
+ * to cache when there's no authenticated session, so stale data must be cleared).
+ */
+export function clearDataCache() {
+  for (const k of [...mem.keys()]) {
+    if (k.startsWith("col:")) mem.delete(k);
+  }
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(CACHE_PREFIX)) localStorage.removeItem(k);
+    }
+  } catch {
+    // localStorage unavailable — the in-memory cache was already cleared above
+  }
+}
+
 const warned = new Set<string>();
 function warnOnce(key: string, msg: string) {
   if (warned.has(key)) return;
@@ -102,6 +121,27 @@ export async function getCollection<T extends Doc>(
   }
   if (!isSupabaseConfigured || offline) return [];
 
+  // Ensure the persisted auth session is fully restored before issuing the read.
+  // supabase-js loads (and, if the access token expired, refreshes) the session
+  // asynchronously on reload. A read that races ahead of that — or hits an
+  // intermittently failed token refresh, or a cross-tab auth-lock timeout — is
+  // sent with only the anon key. RLS requires an authenticated JWT to read, so
+  // it answers with *zero rows* (a successful, non-error empty response). Caching
+  // that anon-empty would blank the UI until the cache expired, even though the
+  // user is a valid admin: the "data comes and goes across reloads" bug. When we
+  // can't confirm an authenticated session, serve the cache instead of issuing
+  // (and then caching) an anon read.
+  let session: Awaited<ReturnType<typeof supabase.auth.getSession>>["data"]["session"] = null;
+  try {
+    session = (await supabase.auth.getSession()).data.session;
+  } catch {
+    // getSession can reject transiently (e.g. cross-tab lock timeout) — treat as
+    // "not ready" and fall back to cache rather than firing an anon read.
+  }
+  if (!session) {
+    return memGet<T[]>(key, { ignoreExpiry: true }) ?? [];
+  }
+
   const { data, error } = await supabase
     .from(collection)
     .select("id,data,updated_at")
@@ -117,19 +157,9 @@ export async function getCollection<T extends Doc>(
     console.error(`[data] getCollection(${collection}) failed:`, error.message);
     return memGet<T[]>(key) ?? [];
   }
+  // This read ran under a confirmed authenticated session, so an empty result is
+  // a genuine "collection is empty" and is safe to cache.
   const rows = (data ?? []).map((r) => hydrate<T>(r as { id: string; data: unknown }));
-  // Guard against a transient auth gap blanking good data: an unauthenticated
-  // session passes RLS as *zero rows* (not an error), so an empty result while
-  // we hold a non-empty cache is more likely a lost session than a truly emptied
-  // collection. Don't overwrite the cache with `[]` unless we can confirm the
-  // read ran under an authenticated session; serve the cached data instead.
-  if (rows.length === 0) {
-    const cached = memGet<T[]>(key, { ignoreExpiry: true });
-    if (cached && cached.length > 0) {
-      const { data: sessionData } = await supabase.auth.getSession();
-      if (!sessionData.session) return cached;
-    }
-  }
   memSet(key, rows);
   return rows;
 }
