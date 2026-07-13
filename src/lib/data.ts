@@ -10,7 +10,27 @@ import { Collections, type CollectionName } from "./collections";
  * best-effort, so the UI stays responsive and works offline / in demo mode.
  */
 
-type Doc = { id: string } & Record<string, unknown>;
+type Doc = { id: string };
+
+/**
+ * Thrown when a write is rejected by the backend's row-level security / auth —
+ * i.e. the current session isn't allowed to write (e.g. demo/anon session, or a
+ * Viewer). Unlike a dropped connection this is NOT retryable, so such writes are
+ * never queued; callers that opt in (`throwOnUnauthorized`) get this to surface
+ * an honest "not saved" message instead of a false success.
+ */
+export class WriteNotAuthorizedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "WriteNotAuthorizedError";
+  }
+}
+
+// Postgres 42501 = insufficient_privilege (RLS); PGRST301 = PostgREST JWT/auth.
+const AUTH_ERROR = /42501|PGRST301|row-level security|permission denied|not authoriz|\bJWT\b|forbidden/i;
+function isAuthError(error: { code?: string; message?: string }): boolean {
+  return AUTH_ERROR.test(error.code ?? "") || AUTH_ERROR.test(error.message ?? "");
+}
 
 /**
  * Whether reads/writes should stay local. Driven by connectivity: the browser's
@@ -139,7 +159,7 @@ export async function getDocument<T extends Doc>(
 export async function upsertDocument<T extends Doc>(
   collection: CollectionName,
   doc: T,
-  opts: { queueOnError?: boolean } = {}
+  opts: { queueOnError?: boolean; throwOnUnauthorized?: boolean } = {}
 ): Promise<T> {
   // `queueOnError: false` is for best-effort writes (e.g. the edit-history log)
   // that must never pile up in — and endlessly retry through — the offline queue
@@ -164,7 +184,15 @@ export async function upsertDocument<T extends Doc>(
     .from(collection)
     .upsert({ id, data: payload, updated_at: new Date().toISOString() });
   if (error) {
-    if (queueOnError) {
+    if (isAuthError(error)) {
+      // Rejected by RLS/auth — retrying won't help until the session/role changes,
+      // so DON'T queue it (that would retry forever). Roll back the optimistic cache
+      // entry so the UI doesn't show a row that isn't really stored.
+      const rolledBack = (memGet<T[]>(key, { ignoreExpiry: true }) ?? []).filter((d) => d.id !== id);
+      memSet(key, rolledBack);
+      console.warn(`[data] upsert(${collection}/${id}) rejected (not authorized):`, error.message);
+      if (opts.throwOnUnauthorized) throw new WriteNotAuthorizedError(error.message);
+    } else if (queueOnError) {
       // Push failed (e.g. connection dropped mid-request) — queue it for later sync.
       console.error(`[data] upsert(${collection}/${id}) failed, queuing:`, error.message);
       enqueueWrite({ type: "upsert", collection, doc: record, queuedAt: Date.now() });
