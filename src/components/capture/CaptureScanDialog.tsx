@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Camera, Crosshair, Loader2, MapPin } from "lucide-react";
+import { Camera, Crosshair, Loader2, MapPin, Upload } from "lucide-react";
 import { useUpsert } from "@/hooks/useCollection";
 import { Collections } from "@/lib/collections";
 import type { TreeScan } from "@/lib/types";
@@ -15,7 +15,8 @@ import { toast } from "sonner";
 export function CaptureScanDialog({ treeId }: { treeId: string }) {
   const { user } = useAuth();
   const upsert = useUpsert<TreeScan>(Collections.scans);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const uploadRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [blob, setBlob] = useState<Blob | null>(null);
   const [preview, setPreview] = useState("");
@@ -26,10 +27,16 @@ export function CaptureScanDialog({ treeId }: { treeId: string }) {
 
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    // Reset the input so re-picking the same file still fires onChange.
+    e.target.value = "";
     if (!file) return;
+    if (!file.type.startsWith("image/")) return toast.error("Please choose an image file.");
     const compressed = await compressImage(file);
     setBlob(compressed);
-    setPreview(URL.createObjectURL(compressed));
+    setPreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(compressed);
+    });
   };
 
   const captureGps = async () => {
@@ -74,7 +81,7 @@ export function CaptureScanDialog({ treeId }: { treeId: string }) {
     <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) reset(); }}>
       <DialogTrigger asChild>
         <button className="inline-flex items-center gap-2 rounded-lg border border-primary/40 text-primary px-3 py-2 text-sm font-medium hover:bg-primary/10 transition-colors">
-          <Camera className="h-4 w-4" /> Capture Scan
+          <Camera className="h-4 w-4" /> Capture / Upload
         </button>
       </DialogTrigger>
       <DialogContent>
@@ -82,16 +89,31 @@ export function CaptureScanDialog({ treeId }: { treeId: string }) {
           <DialogTitle>Capture Tree Scan</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-2">
-          <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={onFile} className="hidden" />
+          {/* Two inputs: one forces the camera (capture), one is a plain file
+              picker for choosing an existing image from the gallery / disk. */}
+          <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={onFile} className="hidden" />
+          <input ref={uploadRef} type="file" accept="image/*" onChange={onFile} className="hidden" />
           {preview ? (
             <div className="relative">
               <img src={preview} alt="scan preview" className="w-full rounded-lg max-h-56 object-cover" />
-              <button onClick={() => fileRef.current?.click()} className="absolute bottom-2 right-2 rounded-lg bg-background/80 backdrop-blur px-2.5 py-1 text-xs border border-border">Retake</button>
+              <div className="absolute bottom-2 right-2 flex gap-2">
+                <button onClick={() => cameraRef.current?.click()} className="inline-flex items-center gap-1 rounded-lg bg-background/80 backdrop-blur px-2.5 py-1 text-xs border border-border">
+                  <Camera className="h-3 w-3" /> Retake
+                </button>
+                <button onClick={() => uploadRef.current?.click()} className="inline-flex items-center gap-1 rounded-lg bg-background/80 backdrop-blur px-2.5 py-1 text-xs border border-border">
+                  <Upload className="h-3 w-3" /> Replace
+                </button>
+              </div>
             </div>
           ) : (
-            <button onClick={() => fileRef.current?.click()} className="w-full inline-flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border py-10 text-sm text-muted-foreground hover:bg-muted/40 transition-colors">
-              <Camera className="h-6 w-6 text-primary" /> Tap to open camera / choose image
-            </button>
+            <div className="grid grid-cols-2 gap-3">
+              <button onClick={() => cameraRef.current?.click()} className="inline-flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border py-10 text-sm text-muted-foreground hover:bg-muted/40 transition-colors">
+                <Camera className="h-6 w-6 text-primary" /> Take photo
+              </button>
+              <button onClick={() => uploadRef.current?.click()} className="inline-flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border py-10 text-sm text-muted-foreground hover:bg-muted/40 transition-colors">
+                <Upload className="h-6 w-6 text-primary" /> Upload image
+              </button>
+            </div>
           )}
 
           <div className="flex items-center justify-between rounded-lg bg-muted/50 border border-border p-3 text-xs">

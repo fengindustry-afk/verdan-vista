@@ -13,10 +13,13 @@ export type ReadinessStatusValue = "not_started" | "in_progress" | "done";
 /**
  * A per-activity status document in the `readiness_status` collection. `id`
  * equals the activity `Key`, so an activity has at most one status row.
+ * Custom tasks use keys prefixed with `custom_` to distinguish them from catalog activities.
  */
 export interface ReadinessStatusDoc {
   id: string;
   Status: ReadinessStatusValue;
+  Label?: string;
+  PIC?: string;
   Note?: string;
   UpdatedBy?: string;
   Timestamp: string;

@@ -44,20 +44,57 @@ export function getCurrentPosition(): Promise<GeoFix> {
   });
 }
 
-/** Down-scales a captured image to keep uploads light (max edge ~1280px, JPEG). */
+/**
+ * Decode an image file to something drawable. Prefers `createImageBitmap` (fast,
+ * and `imageOrientation: "from-image"` bakes in EXIF rotation so phone photos
+ * aren't sideways), but falls back to an `<img>` element + object URL when that
+ * throws — some browsers can't `createImageBitmap` certain camera outputs, which
+ * previously made `compressImage` return the raw, un-renderable file (the "scan
+ * shows blank" bug). Returns null only when neither path can decode the file.
+ */
+async function decodeImage(
+  file: Blob
+): Promise<{ draw: CanvasImageSource; width: number; height: number } | null> {
+  try {
+    const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+    return { draw: bitmap, width: bitmap.width, height: bitmap.height };
+  } catch {
+    /* fall through to the <img> decode path */
+  }
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement | null>((resolve) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => resolve(null);
+      el.src = url;
+    });
+    if (!img || !img.naturalWidth) return null;
+    return { draw: img, width: img.naturalWidth, height: img.naturalHeight };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+/**
+ * Down-scales a captured image to keep uploads light (max edge ~1280px, JPEG)
+ * and normalises it to a browser-renderable JPEG. If the file can't be decoded
+ * at all we return it unchanged so capture still proceeds rather than failing.
+ */
 export async function compressImage(file: File, maxEdge = 1280, quality = 0.8): Promise<Blob> {
-  const bitmap = await createImageBitmap(file).catch(() => null);
-  if (!bitmap) return file;
-  const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
-  const w = Math.round(bitmap.width * scale);
-  const h = Math.round(bitmap.height * scale);
+  const decoded = await decodeImage(file);
+  if (!decoded) return file;
+  const { draw, width, height } = decoded;
+  const scale = Math.min(1, maxEdge / Math.max(width, height));
+  const w = Math.max(1, Math.round(width * scale));
+  const h = Math.max(1, Math.round(height * scale));
   const canvas = document.createElement("canvas");
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext("2d");
   if (!ctx) return file;
-  ctx.drawImage(bitmap, 0, 0, w, h);
+  ctx.drawImage(draw, 0, 0, w, h);
   return new Promise((resolve) =>
-    canvas.toBlob((b) => resolve(b ?? file), "image/jpeg", quality)
+    canvas.toBlob((b) => resolve(b && b.size > 0 ? b : file), "image/jpeg", quality)
   );
 }

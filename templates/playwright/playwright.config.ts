@@ -1,15 +1,11 @@
 import { defineConfig, devices } from "@playwright/test";
 
 /**
- * Playwright E2E config for Verdant Vista (Vite + React on port 8080).
- *
- * - `webServer` auto-starts `npm run dev` and waits for it (reused locally).
- * - The `setup` project performs a demo login once and saves the session to
- *   `e2e/.auth/user.json`; other projects load it via `storageState` so specs
- *   start already authenticated. See e2e/auth.setup.ts.
+ * Portable Playwright config. Change PORT and webServer.command per project.
+ * Delete the `setup` project + `storageState` lines if the app has no auth.
  */
 
-const PORT = 8080;
+const PORT = 5173; // ← your dev server port (Vite 5173 / Next/CRA 3000 / …)
 const baseURL = process.env.E2E_BASE_URL ?? `http://localhost:${PORT}`;
 
 export default defineConfig({
@@ -47,7 +43,7 @@ export default defineConfig({
   ],
 
   webServer: {
-    command: "npm run dev",
+    command: "npm run dev", // ← your dev command
     url: baseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

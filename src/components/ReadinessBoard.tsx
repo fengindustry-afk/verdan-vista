@@ -1,5 +1,8 @@
 import { useMemo, useState } from "react";
-import { ChevronDown, Loader2, Circle, CircleDashed, CheckCircle2, User } from "lucide-react";
+import { ChevronDown, Loader2, Circle, CircleDashed, CheckCircle2, User, Plus } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useReadinessStatus } from "@/hooks/useCollection";
 import { useUpsert } from "@/hooks/useCollection";
 import { Collections } from "@/lib/collections";
@@ -31,6 +34,9 @@ export function ReadinessBoard() {
   const { user, role } = useAuth();
   const canWrite = hasPermission(role, Permission.AddFeedstock);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [newTaskLabel, setNewTaskLabel] = useState("");
+  const [newTaskPic, setNewTaskPic] = useState("");
 
   // activity Key -> current status value (defaults to not_started when absent).
   const statusByKey = useMemo(() => {
@@ -51,6 +57,8 @@ export function ReadinessBoard() {
     return { done, total: all.length };
   }, [statusByKey]);
 
+  const customTasks = statuses.filter((s) => s.id.startsWith("custom_"));
+
   const cycle = (activity: ReadinessActivity) => {
     if (!canWrite) return;
     const current = statusByKey[activity.Key] ?? "not_started";
@@ -61,6 +69,37 @@ export function ReadinessBoard() {
       UpdatedBy: user?.FullName || user?.Email || "Operator",
       Timestamp: new Date().toISOString(),
     });
+  };
+
+  const cycleCustom = (id: string) => {
+    if (!canWrite) return;
+    const current = statusByKey[id] ?? "not_started";
+    const next = READINESS_STATUS_ORDER[(READINESS_STATUS_ORDER.indexOf(current) + 1) % READINESS_STATUS_ORDER.length];
+    const task = statuses.find((s) => s.id === id);
+    upsert.mutate({
+      id,
+      Status: next,
+      Label: task?.Label,
+      PIC: task?.PIC,
+      UpdatedBy: user?.FullName || user?.Email || "Operator",
+      Timestamp: new Date().toISOString(),
+    });
+  };
+
+  const addCustomTask = () => {
+    if (!newTaskLabel.trim() || !canWrite) return;
+    const id = `custom_${Date.now()}`;
+    upsert.mutate({
+      id,
+      Status: "not_started",
+      Label: newTaskLabel.trim(),
+      PIC: newTaskPic.trim() || user?.FullName || "Operator",
+      UpdatedBy: user?.FullName || user?.Email || "Operator",
+      Timestamp: new Date().toISOString(),
+    });
+    setNewTaskLabel("");
+    setNewTaskPic("");
+    setAddDialogOpen(false);
   };
 
   if (isLoading) {
@@ -93,6 +132,103 @@ export function ReadinessBoard() {
           </p>
         )}
       </BentoCard>
+
+      {/* Custom Tasks Section */}
+      <div className="rounded-2xl border border-border/50 bg-card/40 overflow-hidden">
+        <div className="flex w-full items-center justify-between px-4 py-3 hover:bg-muted/40 transition-colors">
+          <div className="flex items-center gap-3 flex-1">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 shrink-0">
+              <Plus className="h-4 w-4 text-primary" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-foreground">Custom Tasks</p>
+              <p className="text-[11px] text-muted-foreground">{customTasks.length} task{customTasks.length !== 1 ? "s" : ""}</p>
+            </div>
+          </div>
+          <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
+            <DialogTrigger asChild>
+              <button disabled={!canWrite} className="inline-flex items-center gap-2 rounded-lg border border-primary/40 text-primary px-3 py-2 text-xs font-medium hover:bg-primary/10 transition-colors disabled:opacity-60">
+                <Plus className="h-3.5 w-3.5" /> Add Task
+              </button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Add Custom Task</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 py-2">
+                <div>
+                  <Label htmlFor="task-label" className="text-xs">Task Label *</Label>
+                  <Input
+                    id="task-label"
+                    value={newTaskLabel}
+                    onChange={(e) => setNewTaskLabel(e.target.value)}
+                    placeholder="e.g. Conduct equipment audit"
+                    onKeyDown={(e) => e.key === "Enter" && addCustomTask()}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="task-pic" className="text-xs">Person In Charge (optional)</Label>
+                  <Input
+                    id="task-pic"
+                    value={newTaskPic}
+                    onChange={(e) => setNewTaskPic(e.target.value)}
+                    placeholder={user?.FullName || "Name"}
+                    className="mt-1"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-2 justify-end">
+                <button
+                  onClick={() => setAddDialogOpen(false)}
+                  className="inline-flex items-center gap-2 rounded-lg border border-border text-foreground px-3 py-2 text-sm font-medium hover:bg-muted/40 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={addCustomTask}
+                  disabled={!newTaskLabel.trim()}
+                  className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-3 py-2 text-sm font-medium hover:bg-primary/90 disabled:opacity-60"
+                >
+                  Create Task
+                </button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </div>
+        {customTasks.length > 0 && (
+          <div className="border-t border-border/50 px-4 py-3 space-y-1.5">
+            {customTasks.map((task) => {
+              const status = task.Status;
+              const St = STATUS_STYLE[status];
+              const StIcon = St.icon;
+              return (
+                <div key={task.id} className="flex items-start gap-3 rounded-lg px-2 py-1.5 hover:bg-muted/30">
+                  <button
+                    onClick={() => cycleCustom(task.id)}
+                    disabled={!canWrite}
+                    title={canWrite ? `Click to advance · ${READINESS_STATUS_LABEL[status]}` : READINESS_STATUS_LABEL[status]}
+                    className={`mt-0.5 flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-medium shrink-0 transition-colors ${St.className} ${canWrite ? "cursor-pointer hover:brightness-110" : "cursor-default"}`}
+                  >
+                    <StIcon className="h-3 w-3" />
+                    <span className="hidden sm:inline">{READINESS_STATUS_LABEL[status]}</span>
+                  </button>
+                  <div className="min-w-0 flex-1">
+                    <p className={`text-sm ${status === "done" ? "text-muted-foreground line-through" : "text-foreground"}`}>
+                      {task.Label || "Untitled"}
+                    </p>
+                    {task.PIC && (
+                      <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground mt-0.5">
+                        <User className="h-3 w-3" /> {task.PIC}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       {READINESS_CATALOG.map((cat) => {
         const Icon = cat.Icon;
