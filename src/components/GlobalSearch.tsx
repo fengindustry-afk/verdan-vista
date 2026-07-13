@@ -1,13 +1,70 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Search, X, Loader2, CornerDownLeft, type LucideIcon } from "lucide-react";
-import { Package, Workflow as WorkflowIcon, Trees, Wallet, ReceiptText, MapPin, Users } from "lucide-react";
+import {
+  Package, Workflow as WorkflowIcon, Trees, Wallet, ReceiptText, MapPin, Users,
+  FlaskConical, Eye, PackageCheck, ClipboardCheck, PiggyBank, Compass,
+} from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
   useFeedstock, useWorkProcessEntries, useTrees, useCostEntries,
-  useReceipts, useLocations, useUsers,
+  useReceipts, useLocations, useUsers, useSoilSamples, usePlotObservations,
+  usePlotApplications, useReadinessStatus, useCostBudgets,
 } from "@/hooks/useCollection";
 import { entryTitle, entrySubtitle } from "@/lib/workProcess";
+import { navSections } from "@/lib/navigation";
+import { PLOT_SECTIONS } from "@/lib/testingPlotSections";
+import { READINESS_CATALOG } from "@/lib/readiness";
+import { useAuth } from "@/lib/auth";
+import { hasPermission, Permission } from "@/lib/rbac";
+
+/** Static navigable destinations — pages and in-page tabs — so search reaches
+ *  every section, not just record data. Each is permission-gated below. */
+interface PageEntry {
+  title: string;
+  subtitle: string;
+  to: string;
+  keywords: string;
+  permission: Permission;
+  icon: LucideIcon;
+}
+
+function buildPageEntries(): PageEntry[] {
+  // Top-level pages come straight from the nav (deduped by url).
+  const seen = new Set<string>();
+  const pages: PageEntry[] = [];
+  for (const s of navSections) {
+    for (const c of s.children) {
+      if (seen.has(c.url)) continue;
+      seen.add(c.url);
+      pages.push({
+        title: c.title,
+        subtitle: c.title === s.title ? "Page" : `${s.title} · Page`,
+        to: c.url,
+        keywords: `${c.title} ${s.title}`,
+        permission: c.permission,
+        icon: c.icon,
+      });
+    }
+  }
+  // In-page tabs that aren't their own route — deep-linked via query params.
+  pages.push(
+    { title: "Work Process", subtitle: "Workflow · Tab", to: "/workflow?tab=work-process", keywords: "work process stages entries data collection", permission: Permission.ViewFeedstock, icon: WorkflowIcon },
+    { title: "Readiness", subtitle: "Workflow · Tab", to: "/workflow?tab=readiness", keywords: "readiness production checklist tasks manpower feedstock logistics utility operation", permission: Permission.ViewFeedstock, icon: ClipboardCheck },
+    { title: "Custody", subtitle: "Workflow · Tab", to: "/workflow?tab=custody", keywords: "custody chain of custody stages batches lifecycle", permission: Permission.ViewFeedstock, icon: Compass },
+  );
+  for (const sec of PLOT_SECTIONS) {
+    pages.push({
+      title: `Section ${sec.letter} — ${sec.title}`,
+      subtitle: "Testing Plot · Tab",
+      to: `/testing-plot?section=${sec.key}`,
+      keywords: `${sec.title} ${sec.titleBm} section ${sec.letter} testing plot`,
+      permission: Permission.ViewLocations,
+      icon: sec.icon,
+    });
+  }
+  return pages;
+}
 
 /** One flattened, navigable hit from any collection. */
 interface Hit {
@@ -45,6 +102,7 @@ export function GlobalSearch({
   const [focused, setFocused] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
+  const { role } = useAuth();
   const feedstock = useFeedstock();
   const workProcess = useWorkProcessEntries();
   const trees = useTrees();
@@ -52,14 +110,35 @@ export function GlobalSearch({
   const receipts = useReceipts();
   const locations = useLocations();
   const users = useUsers();
+  const soilSamples = useSoilSamples();
+  const observations = usePlotObservations();
+  const applications = usePlotApplications();
+  const readiness = useReadinessStatus();
+  const budgets = useCostBudgets();
 
   const isLoading =
     feedstock.isLoading || workProcess.isLoading || trees.isLoading ||
-    costs.isLoading || receipts.isLoading || locations.isLoading || users.isLoading;
+    costs.isLoading || receipts.isLoading || locations.isLoading || users.isLoading ||
+    soilSamples.isLoading || observations.isLoading || applications.isLoading ||
+    readiness.isLoading || budgets.isLoading;
 
   // Build the flat index once per data change (not per keystroke).
   const index = useMemo<Hit[]>(() => {
     const hits: Hit[] = [];
+
+    // Pages & tabs — every navigable destination the role can access.
+    for (const p of buildPageEntries()) {
+      if (!hasPermission(role, p.permission)) continue;
+      hits.push({
+        key: `page:${p.to}`,
+        group: "Pages",
+        icon: p.icon,
+        title: p.title,
+        subtitle: p.subtitle,
+        to: p.to,
+        haystack: hay(p.title, p.subtitle, p.keywords, p.to),
+      });
+    }
 
     for (const f of feedstock.data ?? []) {
       hits.push({
@@ -146,8 +225,95 @@ export function GlobalSearch({
       });
     }
 
+    // Testing Plot · Section E — soil analysis samples.
+    for (const s of soilSamples.data ?? []) {
+      hits.push({
+        key: `soil:${s.id}`,
+        group: "Soil Analysis",
+        icon: FlaskConical,
+        title: s.Parameter || "Soil sample",
+        subtitle: [s.TreatmentGroup, s.Date, s.Note].filter(Boolean).join(" · "),
+        to: "/testing-plot?section=E",
+        haystack: hay(s.Parameter, s.TreatmentGroup, s.Note, s.Date, s.InitialReading, s.FinalReading),
+      });
+    }
+
+    // Testing Plot · Section F — visual observations.
+    for (const o of observations.data ?? []) {
+      hits.push({
+        key: `obs:${o.id}`,
+        group: "Observations",
+        icon: Eye,
+        title: [o.Date, o.TreatmentGroup].filter(Boolean).join(" · ") || "Observation",
+        subtitle: [o.LeafCondition, o.StemCondition, o.SoilCondition, o.Notes].filter(Boolean).join(" · "),
+        to: "/testing-plot?section=F",
+        haystack: hay(o.Date, o.TreatmentGroup, o.LeafCondition, o.StemCondition, o.SoilCondition, o.Notes, o.RecordedBy),
+      });
+    }
+
+    // Testing Plot · Section H — product applications.
+    for (const a of applications.data ?? []) {
+      hits.push({
+        key: `app:${a.id}`,
+        group: "Applications",
+        icon: PackageCheck,
+        title: a.Product || "Product application",
+        subtitle: [a.Method, a.Date, a.Officer].filter(Boolean).join(" · "),
+        to: "/testing-plot?section=H",
+        haystack: hay(a.Product, a.Method, a.Officer, a.Supervisor, a.Notes, a.Date, a.RatePerTreeKg),
+      });
+    }
+
+    // Workflow · Readiness — catalog + custom tasks that have a status row.
+    for (const r of readiness.data ?? []) {
+      if (!r.Label) continue; // catalog activities without custom labels aren't self-descriptive
+      hits.push({
+        key: `readiness:${r.id}`,
+        group: "Readiness",
+        icon: ClipboardCheck,
+        title: r.Label,
+        subtitle: [r.PIC, r.Status?.replace("_", " ")].filter(Boolean).join(" · "),
+        to: "/workflow?tab=readiness",
+        haystack: hay(r.Label, r.PIC, r.Status, r.Note),
+      });
+    }
+
+    // Workflow · Readiness — the static activity catalog (searchable by label / PIC).
+    for (const cat of READINESS_CATALOG) {
+      for (const section of cat.Sections) {
+        for (const act of section.Activities) {
+          hits.push({
+            key: `readiness-cat:${act.Key}`,
+            group: "Readiness",
+            icon: ClipboardCheck,
+            title: act.Label,
+            subtitle: [cat.Title, section.Title, act.PIC].filter(Boolean).join(" · "),
+            to: "/workflow?tab=readiness",
+            haystack: hay(act.Label, act.PIC, cat.Title, section.Title, ...Object.values(act.Attrs)),
+          });
+        }
+      }
+    }
+
+    // Cost Tracker — category budgets.
+    for (const b of budgets.data ?? []) {
+      hits.push({
+        key: `budget:${b.id}`,
+        group: "Budgets",
+        icon: PiggyBank,
+        title: b.Category || "Budget",
+        subtitle: `Monthly limit · ${b.MonthlyLimit}`,
+        to: "/cost-tracker",
+        haystack: hay(b.Category, b.MonthlyLimit),
+      });
+    }
+
     return hits;
-  }, [feedstock.data, workProcess.data, trees.data, costs.data, receipts.data, locations.data, users.data]);
+  }, [
+    role, feedstock.data, workProcess.data, trees.data, costs.data, receipts.data,
+    locations.data, users.data, soilSamples.data, observations.data,
+    applications.data, readiness.data, budgets.data,
+  ]);
 
   // Match on every whitespace-separated token (AND). Title matches rank first.
   const results = useMemo(() => {
@@ -208,7 +374,7 @@ export function GlobalSearch({
         onChange={(e) => setQuery(e.target.value)}
         onFocus={() => setFocused(true)}
         onKeyDown={onKeyDown}
-        placeholder="Search anything — batches, entries, trees, costs, receipts, people…"
+        placeholder="Search anything — pages, sections, batches, trees, soil, tasks, costs, people…"
         className="pl-9 pr-9 h-11"
         aria-label="Global search"
       />

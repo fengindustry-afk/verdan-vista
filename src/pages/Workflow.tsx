@@ -6,7 +6,7 @@ import { Truck, Settings2, Flame, FlaskConical, Warehouse, Sprout, Trees, Loader
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useMemo, useState } from "react";
 import {
   phases, stageByKey, entryTitle, entrySubtitle, formatEntryTimestamp,
@@ -26,6 +26,8 @@ const STAGE_META: Record<string, { icon: typeof Truck; desc: string }> = {
 };
 
 export default function Workflow() {
+  const [searchParams] = useSearchParams();
+  const initialTab = searchParams.get("tab") || "work-process";
   return (
     <div className="relative p-6 lg:p-8 space-y-6">
       <div className="glow-orb w-72 h-72 -top-36 -right-20 animate-pulse-glow" />
@@ -34,7 +36,7 @@ export default function Workflow() {
         <p className="text-sm text-muted-foreground mt-1">Custody lifecycle, work-process data collection & production readiness</p>
       </div>
 
-      <Tabs defaultValue="work-process">
+      <Tabs defaultValue={initialTab}>
         <TabsList>
           <TabsTrigger value="work-process">Work Process</TabsTrigger>
           <TabsTrigger value="readiness">Readiness</TabsTrigger>
