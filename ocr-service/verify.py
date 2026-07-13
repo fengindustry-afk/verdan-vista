@@ -96,14 +96,18 @@ def _smoke_qwen(endpoint: str, image_bytes: bytes) -> int:
         print(f"[FAIL] qwen backend config: {err}")
         return 1
 
-    print(f"[..] qwen      calling {endpoint} (model={backend._model})")
+    mode = "openai-compatible" if backend._api_key else "ollama"
+    print(f"[..] qwen      calling {endpoint} (mode={mode}, model={backend._model})")
     try:
         start = time.perf_counter()
         text = backend.recognize(image_bytes)
         ms = int((time.perf_counter() - start) * 1000)
     except Exception as err:  # network / HTTP / JSON errors from the server
         print(f"[FAIL] qwen      request failed: {err}")
-        print("  Is the Ollama server up? Try: ollama run qwen2.5vl")
+        if backend._api_key:
+            print("  Check QWEN_ENDPOINT base URL, QWEN_MODEL, and that QWEN_API_KEY is valid.")
+        else:
+            print("  Is the Ollama server up? Try: ollama run qwen2.5vl")
         return 1
 
     print(f"[OK] qwen      ms={ms}")
