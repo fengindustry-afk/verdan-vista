@@ -8,7 +8,7 @@ import { Camera, Loader2, ScanText, Plus, ChevronDown } from "lucide-react";
 import { useUpsert, useCategoryNames } from "@/hooks/useCollection";
 import { Collections } from "@/lib/collections";
 import type { Receipt } from "@/lib/types";
-import { compressReceiptImage, formatBytes } from "@/lib/receiptImage";
+import { compressReceiptImage, preprocessForOcr, formatBytes } from "@/lib/receiptImage";
 import { runOcr } from "@/lib/ocr";
 import { parseReceipt, computeRetentionUntil } from "@/lib/receipts";
 import { uploadImage, Buckets } from "@/lib/storage";
@@ -32,7 +32,7 @@ function num(v: string): number | null {
 
 export function CaptureReceiptDialog() {
   const { user } = useAuth();
-  const upsert = useUpsert<Receipt>(Collections.receipts);
+  const upsert = useUpsert<Receipt>(Collections.receipts, { surfaceErrors: true });
   const categoryNames = useCategoryNames();
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -41,6 +41,7 @@ export function CaptureReceiptDialog() {
   const [preview, setPreview] = useState("");
   const [compressed, setCompressed] = useState<Awaited<ReturnType<typeof compressReceiptImage>> | null>(null);
   const [ocrPct, setOcrPct] = useState(0);
+  const [ocrEngine, setOcrEngine] = useState<"remote" | "tesseract" | null>(null);
   const [rawText, setRawText] = useState("");
   const [showRaw, setShowRaw] = useState(false);
   const [form, setForm] = useState<Form>(emptyForm);
@@ -48,7 +49,7 @@ export function CaptureReceiptDialog() {
 
   const reset = () => {
     setStep("capture"); setPreview(""); setCompressed(null); setOcrPct(0);
-    setRawText(""); setShowRaw(false); setForm(emptyForm); setSaving(false);
+    setOcrEngine(null); setRawText(""); setShowRaw(false); setForm(emptyForm); setSaving(false);
   };
 
   const set = (k: keyof Form, v: string) => setForm((f) => ({ ...f, [k]: v }));
@@ -64,9 +65,13 @@ export function CaptureReceiptDialog() {
       setPreview(URL.createObjectURL(c.blob));
 
       // OCR is best-effort: if the engine/CDN is unavailable, the user can still
-      // fill the form manually and keep the (already-retained) image.
+      // fill the form manually and keep the (already-retained) image. Recognise
+      // from a dedicated high-contrast, upscaled copy of the *original* — not the
+      // lossy archival WebP — for materially better accuracy.
       try {
-        const { text } = await runOcr(c.blob, setOcrPct);
+        const ocrImage = await preprocessForOcr(file);
+        const { text, engine } = await runOcr(ocrImage, setOcrPct);
+        setOcrEngine(engine);
         setRawText(text);
         const parsed = parseReceipt(text);
         setForm((f) => ({
@@ -127,6 +132,10 @@ export function CaptureReceiptDialog() {
       toast.success("Receipt saved & retained");
       setOpen(false);
       reset();
+    } catch {
+      // An RLS/auth rejection already surfaced an honest toast via useUpsert's
+      // onError. Keep the dialog open with the entered data so the user can sign
+      // in with a save-enabled account and retry, rather than losing their work.
     } finally {
       setSaving(false);
     }
@@ -173,6 +182,16 @@ export function CaptureReceiptDialog() {
               <div className="relative">
                 <img src={preview} alt="receipt" className="w-full rounded-lg max-h-52 object-contain bg-muted" />
                 <div className="absolute bottom-2 right-2 flex gap-2">
+                  {ocrEngine && (
+                    <span
+                      className="rounded-lg bg-background/80 backdrop-blur px-2 py-1 text-[10px] border border-border text-muted-foreground"
+                      title={ocrEngine === "remote"
+                        ? "Read by the OCR service"
+                        : "OCR service unavailable — read on-device with Tesseract"}
+                    >
+                      {ocrEngine === "remote" ? "Server OCR" : "On-device OCR"}
+                    </span>
+                  )}
                   {compressed && (
                     <span className="rounded-lg bg-background/80 backdrop-blur px-2 py-1 text-[10px] border border-border text-muted-foreground">
                       {formatBytes(compressed.bytes)} · {compressed.mime.split("/")[1].toUpperCase()}

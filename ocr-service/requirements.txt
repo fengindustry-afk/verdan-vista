@@ -1,0 +1,13 @@
+# Core service
+fastapi>=0.111
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9   # required by FastAPI for multipart file uploads
+pillow>=10.0
+numpy>=1.26
+
+# Default backend (PaddleOCR). CPU wheels; first run downloads the models.
+paddleocr>=2.7
+paddlepaddle>=2.6
+
+# Optional lighter backend — uncomment to use OCR_BACKEND=tesseract instead:
+# pytesseract>=0.3.10   # also: sudo apt-get install tesseract-ocr
