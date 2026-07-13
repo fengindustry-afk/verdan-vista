@@ -92,6 +92,30 @@ auto-selects its mode by whether `QWEN_API_KEY` is set:
 
 > Pricing is approximate and moves — confirm on the provider's live page.
 
+### ⚠️ Data-sensitivity warning — read before using the managed API
+
+Managed-API mode **sends every image to a third party**. Receipts are tax
+records (LHDN 7-year retention) and may contain commercially sensitive figures;
+sending them off-box raises **data-residency (PDPA)**, **provider retention /
+training**, and **availability** concerns, and runs against the `mrv-hybrid-vision`
+"own the pipeline, server-side keys" principle. Tier your data:
+
+| Data | Sensitivity | Recommended path |
+|---|---|---|
+| Credit-issuance / MRV compliance | 🔴 critical | Never a third-party API. Controlled infra only. |
+| Receipts (tax records) | 🟠 sensitive | `paddle` (local, no egress) or **self-hosted** Qwen. |
+| Tree / scan health images | 🟢 low | Managed API is fine. |
+
+For critical/production data, prefer **PaddleOCR** (fully local, zero egress) or
+**self-hosted Qwen** (Ollama/vLLM on infra you control). Only use the managed
+API for low-sensitivity images — and if for anything sensitive, require a
+**zero-retention / no-training** tier, a documented region, a signed DPA, and
+PDPA sign-off (a legal/procurement decision).
+
+Because of this, the backend **refuses to start in managed-API mode unless you
+explicitly opt in** with `QWEN_ALLOW_MANAGED=true` — a deliberate speed-bump so a
+stray `QWEN_API_KEY` can't silently route sensitive receipts to a third party.
+
 ### Step by step (managed API)
 
 **1. Get a provider key (you).** Create an account with a provider that hosts
@@ -112,6 +136,7 @@ OCR_BACKEND=qwen
 QWEN_ENDPOINT=https://openrouter.ai/api/v1
 QWEN_API_KEY=sk-your-real-key-here
 QWEN_MODEL=qwen/qwen2.5-vl-7b-instruct
+QWEN_ALLOW_MANAGED=true    # required opt-in to send images to a third party
 ```
 
 **3. Install the extra dependency.** Uncomment `requests>=2.31` in

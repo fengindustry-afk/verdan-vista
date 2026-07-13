@@ -58,6 +58,19 @@ class QwenBackend(OcrBackend):
         # An API key switches us to provider-agnostic OpenAI-compatible mode.
         self._api_key = os.getenv("QWEN_API_KEY")
         if self._api_key:
+            # Managed mode SENDS EACH IMAGE TO A THIRD PARTY. Receipts are tax
+            # records (LHDN 7-yr retention) and cross-border egress has PDPA
+            # implications — so require an explicit opt-in rather than letting a
+            # stray QWEN_API_KEY silently route sensitive data off-box. Self-host
+            # (Ollama/vLLM, no key) or paddle for critical data.
+            if os.getenv("QWEN_ALLOW_MANAGED", "").lower() not in ("1", "true", "yes"):
+                raise RuntimeError(
+                    "Managed-API (third-party) mode is a data-egress path: each "
+                    "image is sent to the provider at QWEN_ENDPOINT. For critical "
+                    "data self-host Qwen (unset QWEN_API_KEY) or use OCR_BACKEND="
+                    "paddle. To deliberately allow the managed API, set "
+                    "QWEN_ALLOW_MANAGED=true. See README 'Enable the Qwen backend'."
+                )
             # Managed providers use fuller model ids, e.g. "qwen/qwen2.5-vl-7b-instruct".
             self._model = os.getenv("QWEN_MODEL", "qwen2.5-vl-7b-instruct")
         else:
