@@ -8,6 +8,12 @@
       "port": 8080
     },
     {
+      "name": "verdant-vista-alt",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "8090", "--strictPort"],
+      "port": 8090
+    },
+    {
       "name": "verdant-vista-preview",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "preview", "--", "--port", "4173"],
