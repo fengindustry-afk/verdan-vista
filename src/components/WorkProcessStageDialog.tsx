@@ -4,7 +4,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Plus, Loader2, ChevronLeft, ClipboardList } from "lucide-react";
+import { Plus, Loader2, ChevronLeft, ClipboardList, Pencil } from "lucide-react";
 import { useUpsert, useWorkProcessEntries } from "@/hooks/useCollection";
 import { Collections } from "@/lib/collections";
 import { useAuth } from "@/lib/auth";
@@ -41,8 +41,11 @@ export function WorkProcessStageDialog({
   const upsert = useUpsert<WorkProcessEntry>(Collections.workProcess);
   const { user, role } = useAuth();
   const canWrite = hasPermission(role, Permission.AddFeedstock);
+  const canEdit = hasPermission(role, Permission.EditFeedstock);
   const [mode, setMode] = useState<Mode>({ view: "list" });
   const [values, setValues] = useState<Record<string, string>>({});
+  // When set, the form is editing an existing entry rather than creating one.
+  const [editing, setEditing] = useState<WorkProcessEntry | null>(null);
 
   // Jump straight to a specific entry's detail when asked (e.g. from search).
   useEffect(() => {
@@ -67,16 +70,33 @@ export function WorkProcessStageDialog({
     const seed: Record<string, string> = {};
     for (const f of stageFields(stage)) if (f.Type === "date") seed[f.Key] = todayIso();
     setValues(seed);
+    setEditing(null);
+    setMode({ view: "form" });
+  };
+
+  const startEdit = (entry: WorkProcessEntry) => {
+    setValues({ ...entry.Values });
+    setEditing(entry);
     setMode({ view: "form" });
   };
 
   const submit = async () => {
-    if (!canWrite) return;
+    if (editing ? !canEdit : !canWrite) return;
     const filled = Object.fromEntries(
       Object.entries(values).filter(([, v]) => v?.trim())
     );
     if (Object.keys(filled).length === 0) {
       toast.error("Fill in at least one field.");
+      return;
+    }
+    if (editing) {
+      // Update in place: keep the original id, author and capture time so the
+      // upsert overwrites the existing row and records the change in history.
+      const updated: WorkProcessEntry = { ...editing, Values: filled };
+      await upsert.mutateAsync(updated);
+      toast.success("Entry updated");
+      setEditing(null);
+      setMode({ view: "detail", entry: updated });
       return;
     }
     const id = `wpe_${crypto.randomUUID()}`;
@@ -106,7 +126,7 @@ export function WorkProcessStageDialog({
           <DialogTitle className="flex items-center gap-2">
             {mode.view !== "list" && (
               <button
-                onClick={() => setMode({ view: "list" })}
+                onClick={() => { setEditing(null); setMode({ view: "list" }); }}
                 className="text-muted-foreground hover:text-foreground transition-colors"
                 aria-label="Back to entries"
               >
@@ -115,7 +135,7 @@ export function WorkProcessStageDialog({
             )}
             <Icon className="h-4 w-4 text-primary" />
             {stage.Title}
-            {mode.view === "form" && " · New Entry"}
+            {mode.view === "form" && (editing ? " · Edit Entry" : " · New Entry")}
           </DialogTitle>
         </DialogHeader>
 
@@ -184,7 +204,7 @@ export function WorkProcessStageDialog({
               className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary text-primary-foreground px-4 py-2 text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-60"
             >
               {upsert.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-              Submit entry
+              {editing ? "Save changes" : "Submit entry"}
             </button>
           </>
         )}
@@ -205,10 +225,20 @@ export function WorkProcessStageDialog({
               <p className="text-[11px] text-muted-foreground">
                 Recorded by {mode.entry.CapturedBy} · {formatEntryTimestamp(mode.entry.Timestamp)}
               </p>
-              <HistoryButton
-                title="Entry history"
-                filter={{ collection: Collections.workProcess, documentId: mode.entry.id }}
-              />
+              <div className="flex items-center gap-2">
+                {canEdit && (
+                  <button
+                    onClick={() => startEdit(mode.entry)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border/60 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted/50 transition-colors"
+                  >
+                    <Pencil className="h-3.5 w-3.5" /> Edit
+                  </button>
+                )}
+                <HistoryButton
+                  title="Entry history"
+                  filter={{ collection: Collections.workProcess, documentId: mode.entry.id }}
+                />
+              </div>
             </div>
           </div>
         )}

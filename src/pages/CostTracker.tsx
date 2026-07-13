@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { useCostEntries, useCostBudgets, useCategoryNames, useDelete } from "@/hooks/useCollection";
 import { Collections } from "@/lib/collections";
 import { categorySpendForMonth, projectMonthSummary } from "@/lib/costTracker";
-import { fmt } from "@/lib/format";
+import { fmt, money } from "@/lib/format";
 import { NewCostEntryDialog } from "@/components/NewCostEntryDialog";
 import { SetBudgetDialog } from "@/components/SetBudgetDialog";
 import { ManageCategoriesDialog } from "@/components/ManageCategoriesDialog";
@@ -66,16 +66,16 @@ export default function CostTracker() {
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <BentoCard>
               <p className="text-xs text-muted-foreground mb-1">Spent this month</p>
-              <p className="text-2xl font-bold text-foreground">${fmt(summary.totalSpent, 2)}</p>
+              <p className="text-2xl font-bold text-foreground">{money(summary.totalSpent)}</p>
             </BentoCard>
             <BentoCard delay={0.05}>
               <p className="text-xs text-muted-foreground mb-1">Budget this month</p>
-              <p className="text-2xl font-bold text-foreground">${fmt(summary.totalBudget, 2)}</p>
+              <p className="text-2xl font-bold text-foreground">{money(summary.totalBudget)}</p>
             </BentoCard>
             <BentoCard delay={0.1}>
               <p className="text-xs text-muted-foreground mb-1">Remaining</p>
               <p className={`text-2xl font-bold ${summary.remaining < 0 ? "text-destructive" : "text-foreground"}`}>
-                ${fmt(summary.remaining, 2)}
+                {money(summary.remaining)}
               </p>
             </BentoCard>
             <BentoCard delay={0.15}>
@@ -87,7 +87,7 @@ export default function CostTracker() {
                 summary.totalBudget > 0 && summary.projectedTotal > summary.totalBudget
                   ? "text-amber-400" : "text-foreground"
               }`}>
-                ${fmt(summary.projectedTotal, 2)}
+                {money(summary.projectedTotal)}
               </p>
             </BentoCard>
           </div>
@@ -114,7 +114,7 @@ export default function CostTracker() {
                     </Badge>
                   </div>
                   <p className="text-xs text-muted-foreground mb-3">
-                    ${fmt(s.spent, 2)} {s.budget > 0 ? `of $${fmt(s.budget, 2)}` : "· no budget set"}
+                    {money(s.spent)} {s.budget > 0 ? `of ${money(s.budget)}` : "· no budget set"}
                   </p>
                   <div className="h-1.5 rounded-full bg-muted overflow-hidden">
                     <div
@@ -149,7 +149,7 @@ export default function CostTracker() {
                         <td className="px-4 py-3 text-foreground">{e.Title}</td>
                         <td className="px-4 py-3 text-muted-foreground">{e.Category}</td>
                         <td className="px-4 py-3 text-muted-foreground">{e.Date}</td>
-                        <td className="px-4 py-3 text-right font-medium text-foreground">${fmt(e.Amount, 2)}</td>
+                        <td className="px-4 py-3 text-right font-medium text-foreground">{money(e.Amount)}</td>
                         {canDelete && (
                           <td className="px-4 py-3 text-right">
                             <button

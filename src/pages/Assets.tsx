@@ -141,7 +141,7 @@ export default function Assets() {
           </DialogHeader>
           {photo && (
             <div className="space-y-3">
-              <StoredImage bucket={Buckets.photos} stored={photo.PhotoUrl} alt={photo.Description} className="w-full rounded-lg max-h-72 object-cover" />
+              <StoredImage bucket={Buckets.photos} stored={photo.PhotoUrl} alt={photo.Description} className="w-full rounded-lg max-h-72 object-cover" zoomable />
               <div className="space-y-2 text-sm">
                 <Row k="Coordinates" v={`${photo.Latitude}, ${photo.Longitude}`} mono />
                 {photo.Accuracy && <Row k="Accuracy" v={photo.Accuracy} />}

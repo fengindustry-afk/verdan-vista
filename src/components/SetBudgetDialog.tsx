@@ -63,7 +63,7 @@ export function SetBudgetDialog() {
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Monthly Budgets by Category</DialogTitle>
+          <DialogTitle>Monthly Budgets by Category (MYR)</DialogTitle>
         </DialogHeader>
         <div className="space-y-3 py-2">
           {categoryNames.map((c) => (
