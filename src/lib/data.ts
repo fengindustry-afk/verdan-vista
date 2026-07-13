@@ -98,6 +98,18 @@ export async function getCollection<T extends Doc>(
     return memGet<T[]>(key) ?? [];
   }
   const rows = (data ?? []).map((r) => hydrate<T>(r as { id: string; data: unknown }));
+  // Guard against a transient auth gap blanking good data: an unauthenticated
+  // session passes RLS as *zero rows* (not an error), so an empty result while
+  // we hold a non-empty cache is more likely a lost session than a truly emptied
+  // collection. Don't overwrite the cache with `[]` unless we can confirm the
+  // read ran under an authenticated session; serve the cached data instead.
+  if (rows.length === 0) {
+    const cached = memGet<T[]>(key, { ignoreExpiry: true });
+    if (cached && cached.length > 0) {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) return cached;
+    }
+  }
   memSet(key, rows);
   return rows;
 }
