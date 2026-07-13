@@ -19,6 +19,7 @@ import type {
 } from "@/lib/types";
 import type { SensorReading } from "@/lib/sensors";
 import type { WorkProcessEntry } from "@/lib/workProcess";
+import type { ReadinessStatusDoc } from "@/lib/readiness";
 import { WORK_PROCESS_SEED } from "@/lib/workProcessSeed";
 import { DefaultCostCategories } from "@/lib/validation";
 
@@ -47,6 +48,7 @@ export const useCostBudgets = () => useCollection<CostBudget>(Collections.costBu
 export const useCostCategories = () => useCollection<CostCategory>(Collections.costCategories);
 export const useReceipts = () => useCollection<Receipt>(Collections.receipts);
 export const useSensorReadings = () => useCollection<SensorReading>(Collections.sensorReadings);
+export const useReadinessStatus = () => useCollection<ReadinessStatusDoc>(Collections.readiness);
 
 /**
  * Work-process entries from the shared Supabase collection, falling back to the

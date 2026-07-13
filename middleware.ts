@@ -41,7 +41,7 @@ const BLOCKED_AGENTS =
   /(sqlmap|nikto|nmap|masscan|nessus|acunetix|dirbuster|gobuster|wpscan|zgrab|fuzz|semrush|petalbot)/i;
 
 // --- HTTP methods this static SPA actually needs at the edge ------------------
-const ALLOWED_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+const ALLOWED_METHODS = new Set(["GET", "HEAD", "OPTIONS", "POST", "DELETE"]);
 
 // --- Optional geo block (empty = off). Use ISO country codes, e.g. ["CN","RU"]
 const BLOCKED_COUNTRIES: string[] = [];
@@ -70,7 +70,87 @@ function deny(status: number, msg: string): Response {
   });
 }
 
-export default function middleware(request: Request): Response | undefined {
+// --- httpOnly Cookie handlers (for session token security) ---------------------
+async function handleSetCookie(request: Request): Promise<Response> {
+  try {
+    const body = await request.json() as { session: string };
+    if (!body.session) {
+      return deny(400, "Missing session payload");
+    }
+
+    // Parse session to extract token and expiry
+    let sessionData: { access_token?: string; expires_at?: number };
+    try {
+      sessionData = JSON.parse(body.session);
+    } catch {
+      return deny(400, "Invalid session JSON");
+    }
+
+    const accessToken = sessionData.access_token;
+    if (!accessToken) {
+      return deny(400, "Missing access_token in session");
+    }
+
+    // Extract expiry from JWT (iat + exp claims), or default to 1 hour
+    let maxAge = 3600;
+    try {
+      const payload = JSON.parse(
+        atob(accessToken.split(".")[1])
+      ) as { exp?: number; iat?: number };
+      if (payload.exp && payload.iat) {
+        maxAge = payload.exp - payload.iat;
+      }
+    } catch {
+      // Unable to parse JWT; use default TTL
+    }
+
+    // Get project ref from environment or derive from request
+    const projectRef = process.env.VITE_SUPABASE_URL?.match(
+      /https:\/\/([^.]+)\.supabase\.co/
+    )?.[1] ?? "project";
+
+    const cookieName = `sb-${projectRef}-auth-token`;
+    const cookieValue = encodeURIComponent(body.session);
+    const cookieHeader = `${cookieName}=${cookieValue}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${maxAge}`;
+
+    return new Response(
+      JSON.stringify({ success: true, message: "Cookie set" }),
+      {
+        status: 200,
+        headers: {
+          "content-type": "application/json",
+          "set-cookie": cookieHeader,
+        },
+      }
+    );
+  } catch (error) {
+    console.error("[middleware] Error in handleSetCookie:", error);
+    return deny(500, "Internal Server Error");
+  }
+}
+
+function handleClearCookie(): Response {
+  // Get project ref from environment or derive from request
+  const projectRef = process.env.VITE_SUPABASE_URL?.match(
+    /https:\/\/([^.]+)\.supabase\.co/
+  )?.[1] ?? "project";
+
+  const cookieName = `sb-${projectRef}-auth-token`;
+  const cookieHeader = `${cookieName}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`;
+
+  return new Response(
+    JSON.stringify({ success: true, message: "Cookie cleared" }),
+    {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+        "set-cookie": cookieHeader,
+      },
+    }
+  );
+}
+
+export default async function middleware(request: Request): Promise<Response | undefined> {
   const url = new URL(request.url);
   const path = url.pathname;
   const ua = request.headers.get("user-agent") ?? "";
@@ -80,13 +160,24 @@ export default function middleware(request: Request): Response | undefined {
     "unknown";
   const country = request.headers.get("x-vercel-ip-country") ?? "";
 
+  // 0. Handle httpOnly cookie setter (internal auth route)
+  if (path === "/_auth/set-cookie") {
+    if (request.method === "POST") {
+      return await handleSetCookie(request);
+    } else if (request.method === "DELETE") {
+      return handleClearCookie();
+    }
+    return deny(405, "Method Not Allowed");
+  }
+
   // 1. Method allowlist (drop TRACE/PUT/DELETE etc. at the static edge)
   if (!ALLOWED_METHODS.has(request.method)) {
     return deny(405, "Method Not Allowed");
   }
 
   // 2. Decoy / exploit-scanner paths -> instant 403 (CrowdSec decoy analog)
-  if (BLOCKED_PATHS.some((re) => re.test(path))) {
+  // Exclude internal /_auth routes from blocklist
+  if (!path.startsWith("/_auth") && BLOCKED_PATHS.some((re) => re.test(path))) {
     return deny(403, "Forbidden");
   }
 

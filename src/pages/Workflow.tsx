@@ -13,6 +13,7 @@ import {
   type WorkflowStageDef, type WorkProcessEntry,
 } from "@/lib/workProcess";
 import { WorkProcessStageDialog } from "@/components/WorkProcessStageDialog";
+import { ReadinessBoard } from "@/components/ReadinessBoard";
 
 const STAGE_META: Record<string, { icon: typeof Truck; desc: string }> = {
   "Feedstock Collection": { icon: Truck, desc: "Biomass gathered from source" },
@@ -30,16 +31,20 @@ export default function Workflow() {
       <div className="glow-orb w-72 h-72 -top-36 -right-20 animate-pulse-glow" />
       <div>
         <h1 className="text-2xl font-bold text-foreground">Workflow</h1>
-        <p className="text-sm text-muted-foreground mt-1">Custody lifecycle overview & work-process data collection</p>
+        <p className="text-sm text-muted-foreground mt-1">Custody lifecycle, work-process data collection & production readiness</p>
       </div>
 
       <Tabs defaultValue="work-process">
         <TabsList>
           <TabsTrigger value="work-process">Work Process</TabsTrigger>
+          <TabsTrigger value="readiness">Readiness</TabsTrigger>
           <TabsTrigger value="custody">Custody</TabsTrigger>
         </TabsList>
         <TabsContent value="work-process" className="space-y-6 pt-2">
           <WorkProcessHub />
+        </TabsContent>
+        <TabsContent value="readiness" className="space-y-6 pt-2">
+          <ReadinessBoard />
         </TabsContent>
         <TabsContent value="custody" className="space-y-6 pt-2">
           <CustodyOverview />

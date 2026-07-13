@@ -22,6 +22,9 @@ export const Collections = {
   workProcess: "work_process_entries",
   editHistory: "edit_history",
   receipts: "receipts",
+  sensorDevices: "sensor_devices",
+  sensorReadings: "sensor_readings",
+  readiness: "readiness_status",
 } as const;
 
 export type CollectionName = (typeof Collections)[keyof typeof Collections];
