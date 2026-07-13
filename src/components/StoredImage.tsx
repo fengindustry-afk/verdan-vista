@@ -7,12 +7,17 @@ import { ImageLightbox } from "@/components/ImageLightbox";
 export function StoredImage({
   bucket,
   stored,
+  fallback,
   alt = "",
   className = "",
   zoomable = false,
 }: {
   bucket: string;
   stored?: string;
+  /** Inline data URL used when `stored` can't be resolved to a URL (e.g. a
+   *  storage object whose signed URL can't be produced in this environment).
+   *  Guarantees a just-uploaded image still renders instead of "No image". */
+  fallback?: string;
   alt?: string;
   className?: string;
   /** When true, clicking the image opens a full-screen lightbox to inspect it. */
@@ -28,14 +33,19 @@ export function StoredImage({
     resolveImageUrl(bucket, stored)
       .then((u) => {
         if (!active) return;
-        setUrl(u);
-        setState(u ? "ok" : "none");
+        const resolved = u ?? fallback ?? null;
+        setUrl(resolved);
+        setState(resolved ? "ok" : "none");
       })
-      .catch(() => active && setState("none"));
+      .catch(() => {
+        if (!active) return;
+        setUrl(fallback ?? null);
+        setState(fallback ? "ok" : "none");
+      });
     return () => {
       active = false;
     };
-  }, [bucket, stored]);
+  }, [bucket, stored, fallback]);
 
   if (state === "loading") {
     return (

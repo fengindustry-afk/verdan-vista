@@ -1,5 +1,6 @@
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
+import { SectionNav } from "@/components/SectionNav";
 import { RequirePermission } from "@/components/RequirePermission";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
@@ -65,6 +66,7 @@ export function AppLayout() {
               </DropdownMenu>
             )}
           </header>
+          <SectionNav />
           <main className="flex-1 overflow-auto">
             <ErrorBoundary resetKey={location.pathname}>
               <RequirePermission>

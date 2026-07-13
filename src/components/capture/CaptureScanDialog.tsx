@@ -46,7 +46,10 @@ export function CaptureScanDialog({ treeId }: { treeId: string }) {
     setSaving(true);
     try {
       const id = `scan_${Date.now().toString(36)}`;
-      const stored = await uploadImage(Buckets.scans, `${treeId}/${id}.jpg`, blob);
+      // keepDataUrl: retain a compact base64 fallback alongside the storage path
+      // so the scan thumbnail always renders, even if a signed URL can't be
+      // produced in this environment (the "new scan shows empty" bug).
+      const stored = await uploadImage(Buckets.scans, `${treeId}/${id}.jpg`, blob, { keepDataUrl: true });
       const doc: TreeScan = {
         id,
         TreeId: treeId,

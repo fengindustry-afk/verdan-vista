@@ -147,7 +147,13 @@ export default function TreeDetail() {
                   className={`space-y-1 text-left ${canEdit ? "cursor-pointer group" : "cursor-default"}`}
                 >
                   <div className="relative">
-                    <StoredImage bucket={Buckets.scans} stored={s.ImageUrl || (s.ImageBase64 ? `data:image/jpeg;base64,${s.ImageBase64}` : undefined)} alt="scan" className="w-full h-20 object-cover rounded-lg" />
+                    <StoredImage
+                      bucket={Buckets.scans}
+                      stored={s.ImageUrl || undefined}
+                      fallback={s.ImageBase64 ? `data:image/jpeg;base64,${s.ImageBase64}` : undefined}
+                      alt="scan"
+                      className="w-full h-20 object-cover rounded-lg"
+                    />
                     {s.HealthStatus && (
                       <span className={`absolute top-1 left-1 rounded-full border bg-background/80 backdrop-blur px-1.5 py-0.5 text-[9px] font-semibold ${healthTone(s.HealthStatus)}`}>
                         {s.HealthStatus}

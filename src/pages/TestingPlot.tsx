@@ -1,15 +1,24 @@
 import { BentoCard } from "@/components/BentoCard";
-import { useTrees, useReadings, useSoilSamples } from "@/hooks/useCollection";
-import { TreePine, Loader2, Plus, FlaskConical } from "lucide-react";
+import {
+  useTrees, useReadings, useSoilSamples, usePlotObservations, usePlotApplications,
+} from "@/hooks/useCollection";
+import { TreePine, Loader2, Plus, Pencil, User, Calendar } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip } from "recharts";
 import { EditTreeDialog } from "@/components/capture/EditTreeDialog";
 import { EditSoilSampleDialog } from "@/components/capture/EditSoilSampleDialog";
+import { EditObservationDialog } from "@/components/capture/EditObservationDialog";
+import { EditApplicationDialog } from "@/components/capture/EditApplicationDialog";
 import { TestingPlotSummary } from "@/components/TestingPlotSummary";
-import { soilPercentChange } from "@/lib/testingPlotSummary";
-import type { SoilSample } from "@/lib/types";
+import { PairTable } from "@/components/testing-plot/PairTable";
+import { soilPercentChange, summarizeTestingPlot, SUMMARY_PARAMS } from "@/lib/testingPlotSummary";
+import {
+  PLOT_SECTIONS, GROWTH_COLUMNS, HEALTH_COLUMNS, YIELD_COLUMNS,
+  buildSectionRows, groupReadingsByTree, type PlotSectionDef,
+} from "@/lib/testingPlotSections";
+import type { SoilSample, PlotObservation, PlotApplication } from "@/lib/types";
 import { fmt } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
 import { hasPermission, Permission } from "@/lib/rbac";
@@ -18,23 +27,116 @@ export default function TestingPlot() {
   const { data: trees = [], isLoading } = useTrees();
   const { data: readings = [] } = useReadings();
   const { data: soilSamples = [] } = useSoilSamples();
+  const { data: observations = [] } = usePlotObservations();
+  const { data: applications = [] } = usePlotApplications();
   const { role } = useAuth();
   const canEdit = hasPermission(role, Permission.AddLocations);
 
-  const [editingSoil, setEditingSoil] = useState<SoilSample | null>(null);
-  const [addingSoil, setAddingSoil] = useState(false);
-
+  const readingsByTree = useMemo(() => groupReadingsByTree(readings), [readings]);
   const treatmentGroups = useMemo(
     () => Array.from(new Set(trees.map((t) => t.TreatmentGroup?.trim()).filter((g): g is string => !!g))),
     [trees]
   );
 
-  const readingsByTree = useMemo(() => {
-    const map = new Map<string, number>();
-    readings.forEach((r) => map.set(r.TreeId, (map.get(r.TreeId) ?? 0) + 1));
-    return map;
-  }, [readings]);
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 text-muted-foreground text-sm py-20 justify-center">
+        <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+      </div>
+    );
+  }
 
+  return (
+    <div className="relative p-6 lg:p-8 space-y-6">
+      <div className="glow-orb w-72 h-72 -top-36 right-10 animate-pulse-glow" />
+      <div>
+        <h1 className="text-2xl font-bold text-foreground">Testing Plot</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Biochar field trial — structured to the ESTERRA Plot 5 workbook (Section A–H)
+        </p>
+      </div>
+
+      <Tabs defaultValue="summary">
+        <TabsList className="flex w-full overflow-x-auto justify-start">
+          <TabsTrigger value="summary">Summary</TabsTrigger>
+          {PLOT_SECTIONS.map((s) => (
+            <TabsTrigger key={s.key} value={s.key} className="whitespace-nowrap">
+              <s.icon className="h-3.5 w-3.5 mr-1" /> {s.letter}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+
+        <TabsContent value="summary" className="pt-4">
+          <TestingPlotSummary trees={trees} readings={readings} soilSamples={soilSamples} />
+        </TabsContent>
+
+        <TabsContent value="A" className="pt-4 space-y-4">
+          <SectionHeader def={PLOT_SECTIONS[0]} action={canEdit ? <EditTreeDialog /> : undefined} />
+          <SectionA trees={trees} readingsByTree={readingsByTree} canEdit={canEdit} />
+        </TabsContent>
+
+        <TabsContent value="B" className="pt-4 space-y-4">
+          <SectionHeader def={PLOT_SECTIONS[1]} />
+          <PairTable rows={buildSectionRows(trees, readingsByTree, GROWTH_COLUMNS)} columns={GROWTH_COLUMNS} />
+          <p className="text-[11px] text-muted-foreground">Values are recorded per tree — open a tree to add a new reading.</p>
+        </TabsContent>
+
+        <TabsContent value="C" className="pt-4 space-y-4">
+          <SectionHeader def={PLOT_SECTIONS[2]} />
+          <PairTable rows={buildSectionRows(trees, readingsByTree, HEALTH_COLUMNS)} columns={HEALTH_COLUMNS} />
+        </TabsContent>
+
+        <TabsContent value="D" className="pt-4 space-y-4">
+          <SectionHeader def={PLOT_SECTIONS[3]} />
+          <PairTable rows={buildSectionRows(trees, readingsByTree, YIELD_COLUMNS)} columns={YIELD_COLUMNS} />
+        </TabsContent>
+
+        <TabsContent value="E" className="pt-4 space-y-4">
+          <SectionE soilSamples={soilSamples} groups={treatmentGroups} canEdit={canEdit} />
+        </TabsContent>
+
+        <TabsContent value="F" className="pt-4 space-y-4">
+          <SectionF observations={observations} groups={treatmentGroups} canEdit={canEdit} />
+        </TabsContent>
+
+        <TabsContent value="G" className="pt-4 space-y-4">
+          <SectionHeader def={PLOT_SECTIONS[6]} />
+          <SectionG trees={trees} readings={readings} />
+        </TabsContent>
+
+        <TabsContent value="H" className="pt-4 space-y-4">
+          <SectionH applications={applications} canEdit={canEdit} />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+function SectionHeader({ def, action }: { def: PlotSectionDef; action?: React.ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="flex items-center gap-2">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+          <def.icon className="h-4 w-4 text-primary" />
+        </div>
+        <div>
+          <h2 className="text-sm font-semibold text-foreground">Section {def.letter} — {def.title}</h2>
+          <p className="text-[11px] text-muted-foreground">{def.titleBm}</p>
+        </div>
+      </div>
+      {action}
+    </div>
+  );
+}
+
+/* ── Section A — Plot Information (trees, grouped by treatment) ─────────────── */
+function SectionA({
+  trees, readingsByTree, canEdit,
+}: {
+  trees: import("@/lib/types").Tree[];
+  readingsByTree: Map<string, import("@/lib/types").TreeReading[]>;
+  canEdit: boolean;
+}) {
   const groups = useMemo(() => {
     const byGroup = new Map<string, typeof trees>();
     trees.forEach((t) => {
@@ -44,168 +146,280 @@ export default function TestingPlot() {
     return Array.from(byGroup.entries());
   }, [trees]);
 
-  // Average latest height per treatment group (growth comparison)
-  const growthData = useMemo(() => {
-    return groups.map(([group, groupTrees]) => {
-      const ids = new Set(groupTrees.map((t) => t.id));
-      const groupReadings = readings.filter((r) => ids.has(r.TreeId) && r.HeightCm);
-      const avgHeight =
-        groupReadings.length > 0
-          ? groupReadings.reduce((s, r) => s + (r.HeightCm ?? 0), 0) / groupReadings.length
-          : 0;
-      return { group, avgHeight: Math.round(avgHeight) };
-    });
-  }, [groups, readings]);
+  if (trees.length === 0) return <p className="text-sm text-muted-foreground py-10 text-center">No trees recorded.</p>;
 
   return (
-    <div className="relative p-6 lg:p-8 space-y-6">
-      <div className="glow-orb w-72 h-72 -top-36 right-10 animate-pulse-glow" />
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Testing Plot</h1>
-          <p className="text-sm text-muted-foreground mt-1">Biochar field trial — tree health &amp; growth readings</p>
-        </div>
-        {canEdit && <EditTreeDialog />}
-      </div>
-
-      {isLoading ? (
-        <Loading />
-      ) : (
-        <>
-          <TestingPlotSummary trees={trees} readings={readings} soilSamples={soilSamples} />
-
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                <FlaskConical className="h-3.5 w-3.5" /> Soil Analysis
-              </h2>
-              {canEdit && (
-                <button
-                  onClick={() => setAddingSoil(true)}
-                  className="inline-flex items-center gap-1 rounded-md border border-primary/40 text-primary px-2 py-1 text-xs font-medium hover:bg-primary/10 transition-colors"
-                >
-                  <Plus className="h-3 w-3" /> Add sample
-                </button>
-              )}
-            </div>
-            {soilSamples.length === 0 ? (
-              <p className="text-xs text-muted-foreground">No soil samples recorded.{canEdit && " Add one to include soil metrics in the summary."}</p>
-            ) : (
-              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {soilSamples.map((s) => {
-                  const pct = soilPercentChange(s);
-                  return (
-                    <BentoCard key={s.id} className="cursor-pointer" >
-                      <button
-                        onClick={() => canEdit && setEditingSoil(s)}
-                        disabled={!canEdit}
-                        className={`w-full text-left ${canEdit ? "cursor-pointer" : "cursor-default"}`}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <span className="text-xs font-semibold text-foreground">{s.Parameter}</span>
-                          {s.TreatmentGroup && <Badge variant="outline" className="text-[10px]">{s.TreatmentGroup}</Badge>}
-                        </div>
-                        <p className="text-[11px] text-muted-foreground mt-1">
-                          {s.InitialReading ?? "—"} → {s.FinalReading ?? "—"}
-                          {pct !== null && (
-                            <span className={pct >= 0 ? " text-primary" : " text-destructive"}>
-                              {" "}({pct > 0 ? "+" : ""}{fmt(pct, 1)}%)
-                            </span>
-                          )}
-                        </p>
-                      </button>
-                    </BentoCard>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {growthData.some((g) => g.avgHeight > 0) && (
-            <BentoCard>
-              <h3 className="text-sm font-semibold text-foreground mb-4">Average Height by Treatment Group (cm)</h3>
-              <div className="h-56">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={growthData}>
-                    <XAxis dataKey="group" tick={{ fill: "hsl(215, 10%, 55%)", fontSize: 11 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: "hsl(215, 10%, 55%)", fontSize: 12 }} axisLine={false} tickLine={false} />
-                    <Tooltip
-                      contentStyle={{ background: "hsl(225, 15%, 8%)", border: "1px solid hsl(225, 10%, 16%)", borderRadius: "12px", color: "hsl(210, 20%, 92%)", fontSize: 12 }}
-                    />
-                    <Bar dataKey="avgHeight" fill="hsl(160, 64%, 40%)" radius={[6, 6, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </BentoCard>
-          )}
-
-          {groups.map(([group, groupTrees]) => (
-            <div key={group} className="space-y-3">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                {group} · {groupTrees.length} trees
-              </h2>
-              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                {groupTrees.map((t, i) => (
-                  <BentoCard key={t.id} delay={i * 0.03} className="relative h-full cursor-pointer group">
-                    {/* Stretched link sits behind the content so tapping the card
-                        navigates, while the edit control (above it, not a descendant
-                        of the anchor) never leaks its close-click into navigation. */}
-                    <Link
-                      to={`/testing-plot/${encodeURIComponent(t.id)}`}
-                      aria-label={`View ${t.TreeCode}`}
-                      className="absolute inset-0 z-0 rounded-[inherit]"
-                    />
-                    <div className="relative z-10 pointer-events-none">
-                      <div className="flex items-start justify-between mb-1">
-                        <h3 className="text-sm font-semibold text-foreground flex items-center gap-1.5 group-hover:text-primary transition-colors">
-                          <TreePine className="h-3.5 w-3.5 text-primary" /> {t.TreeCode}
-                        </h3>
-                        <div className="flex items-center gap-1.5">
-                          <Badge variant="outline" className="text-[10px]">{readingsByTree.get(t.id) ?? 0} readings</Badge>
-                          {canEdit && (
-                            <span className="pointer-events-auto">
-                              <EditTreeDialog tree={t} />
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <p className="text-[11px] text-muted-foreground">{t.Species}</p>
-                      <p className="text-[11px] text-muted-foreground mt-1">{t.PlotName} · {t.CropAge}</p>
-                      {t.Treatment && t.Treatment !== "None" && (
-                        <p className="text-[11px] text-cyan-400 mt-1">Treatment: {t.Treatment}</p>
-                      )}
+    <div className="space-y-5">
+      {groups.map(([group, groupTrees]) => (
+        <div key={group} className="space-y-3">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            {group} · {groupTrees.length} trees
+          </h3>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {groupTrees.map((t, i) => (
+              <BentoCard key={t.id} delay={i * 0.03} className="relative h-full cursor-pointer group">
+                <Link to={`/testing-plot/${encodeURIComponent(t.id)}`} aria-label={`View ${t.TreeCode}`} className="absolute inset-0 z-0 rounded-[inherit]" />
+                <div className="relative z-10 pointer-events-none">
+                  <div className="flex items-start justify-between mb-1">
+                    <h3 className="text-sm font-semibold text-foreground flex items-center gap-1.5 group-hover:text-primary transition-colors">
+                      <TreePine className="h-3.5 w-3.5 text-primary" /> {t.TreeCode}
+                    </h3>
+                    <div className="flex items-center gap-1.5">
+                      <Badge variant="outline" className="text-[10px]">{readingsByTree.get(t.id)?.length ?? 0} readings</Badge>
+                      {canEdit && <span className="pointer-events-auto"><EditTreeDialog tree={t} /></span>}
                     </div>
-                  </BentoCard>
-                ))}
-              </div>
-            </div>
-          ))}
-          {trees.length === 0 && <p className="text-sm text-muted-foreground py-10 text-center">No trees recorded.</p>}
-        </>
-      )}
-
-      {canEdit && (
-        <>
-          <EditSoilSampleDialog
-            groups={treatmentGroups}
-            open={addingSoil}
-            onOpenChange={setAddingSoil}
-          />
-          <EditSoilSampleDialog
-            key={editingSoil?.id ?? "none"}
-            sample={editingSoil ?? undefined}
-            groups={treatmentGroups}
-            open={!!editingSoil}
-            onOpenChange={(o) => !o && setEditingSoil(null)}
-          />
-        </>
-      )}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">{t.Species}</p>
+                  <p className="text-[11px] text-muted-foreground mt-1">{t.PlotName} · {t.CropAge}</p>
+                  {t.Treatment && t.Treatment !== "None" && (
+                    <p className="text-[11px] text-cyan-400 mt-1">Treatment: {t.Treatment}</p>
+                  )}
+                </div>
+              </BentoCard>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
 
-const Loading = () => (
-  <div className="flex items-center gap-2 text-muted-foreground text-sm py-20 justify-center">
-    <Loader2 className="h-4 w-4 animate-spin" /> Loading…
-  </div>
-);
+/* ── Section E — Soil Analysis ─────────────────────────────────────────────── */
+function SectionE({
+  soilSamples, groups, canEdit,
+}: {
+  soilSamples: SoilSample[];
+  groups: string[];
+  canEdit: boolean;
+}) {
+  const [editing, setEditing] = useState<SoilSample | null>(null);
+  const [adding, setAdding] = useState(false);
+  return (
+    <>
+      <SectionHeader
+        def={PLOT_SECTIONS[4]}
+        action={canEdit ? (
+          <button onClick={() => setAdding(true)} className="inline-flex items-center gap-1 rounded-md border border-primary/40 text-primary px-2 py-1 text-xs font-medium hover:bg-primary/10 transition-colors">
+            <Plus className="h-3 w-3" /> Add sample
+          </button>
+        ) : undefined}
+      />
+      {soilSamples.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No soil samples recorded.{canEdit && " Add one to include soil metrics in the summary."}</p>
+      ) : (
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {soilSamples.map((s) => {
+            const pct = soilPercentChange(s);
+            return (
+              <BentoCard key={s.id}>
+                <button onClick={() => canEdit && setEditing(s)} disabled={!canEdit} className={`w-full text-left ${canEdit ? "cursor-pointer" : "cursor-default"}`}>
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-xs font-semibold text-foreground">{s.Parameter}</span>
+                    {s.TreatmentGroup && <Badge variant="outline" className="text-[10px]">{s.TreatmentGroup}</Badge>}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    {s.InitialReading ?? "—"} → {s.FinalReading ?? "—"}
+                    {pct !== null && (
+                      <span className={pct >= 0 ? " text-primary" : " text-destructive"}> ({pct > 0 ? "+" : ""}{fmt(pct, 1)}%)</span>
+                    )}
+                  </p>
+                </button>
+              </BentoCard>
+            );
+          })}
+        </div>
+      )}
+      {canEdit && (
+        <>
+          <EditSoilSampleDialog groups={groups} open={adding} onOpenChange={setAdding} />
+          <EditSoilSampleDialog key={editing?.id ?? "none"} sample={editing ?? undefined} groups={groups} open={!!editing} onOpenChange={(o) => !o && setEditing(null)} />
+        </>
+      )}
+    </>
+  );
+}
+
+/* ── Section F — Visual Observation ────────────────────────────────────────── */
+function SectionF({
+  observations, groups, canEdit,
+}: {
+  observations: PlotObservation[];
+  groups: string[];
+  canEdit: boolean;
+}) {
+  const [editing, setEditing] = useState<PlotObservation | null>(null);
+  const [adding, setAdding] = useState(false);
+  const sorted = useMemo(
+    () => [...observations].sort((a, b) => (b.Date ?? "").localeCompare(a.Date ?? "")),
+    [observations]
+  );
+  return (
+    <>
+      <SectionHeader
+        def={PLOT_SECTIONS[5]}
+        action={canEdit ? (
+          <button onClick={() => setAdding(true)} className="inline-flex items-center gap-1 rounded-md border border-primary/40 text-primary px-2 py-1 text-xs font-medium hover:bg-primary/10 transition-colors">
+            <Plus className="h-3 w-3" /> Add observation
+          </button>
+        ) : undefined}
+      />
+      {sorted.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No observations recorded.{canEdit && " Add the first dated field note."}</p>
+      ) : (
+        <div className="space-y-3">
+          {sorted.map((o) => (
+            <BentoCard key={o.id} className="!p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1 space-y-1">
+                  <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                    <Calendar className="h-3 w-3" /> {o.Date ?? "—"}
+                    {o.TreatmentGroup && <Badge variant="outline" className="text-[10px]">{o.TreatmentGroup}</Badge>}
+                  </div>
+                  <Field label="Keadaan daun" value={o.LeafCondition} />
+                  <Field label="Keadaan batang" value={o.StemCondition} />
+                  <Field label="Keadaan tanah" value={o.SoilCondition} />
+                  {o.Notes && <Field label="Catatan" value={o.Notes} />}
+                  {o.RecordedBy && <p className="text-[10px] text-muted-foreground flex items-center gap-1 pt-0.5"><User className="h-2.5 w-2.5" /> {o.RecordedBy}</p>}
+                </div>
+                {canEdit && (
+                  <button onClick={() => setEditing(o)} className="shrink-0 rounded-md p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors" aria-label="Edit observation">
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+            </BentoCard>
+          ))}
+        </div>
+      )}
+      {canEdit && (
+        <>
+          <EditObservationDialog groups={groups} open={adding} onOpenChange={setAdding} />
+          <EditObservationDialog key={editing?.id ?? "none"} observation={editing ?? undefined} groups={groups} open={!!editing} onOpenChange={(o) => !o && setEditing(null)} />
+        </>
+      )}
+    </>
+  );
+}
+
+function Field({ label, value }: { label: string; value?: string }) {
+  if (!value) return null;
+  return (
+    <p className="text-xs text-foreground">
+      <span className="text-muted-foreground">{label}: </span>{value}
+    </p>
+  );
+}
+
+/* ── Section G — Control vs ESTERRA (computed comparison) ───────────────────── */
+function SectionG({ trees, readings }: { trees: import("@/lib/types").Tree[]; readings: import("@/lib/types").TreeReading[] }) {
+  const summaries = useMemo(() => summarizeTestingPlot(trees, readings), [trees, readings]);
+  if (summaries.length < 1) return <p className="text-sm text-muted-foreground py-8 text-center">Not enough data to compare.</p>;
+
+  const pctFor = (group: string, paramKey: string) =>
+    summaries.find((s) => s.group === group)?.results.find((r) => r.param.key === paramKey)?.percent ?? null;
+
+  return (
+    <div className="overflow-x-auto rounded-xl border border-border/50">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b border-border/50 bg-muted/40 text-muted-foreground">
+            <th className="text-left font-medium px-3 py-2">Parameter (% change)</th>
+            {summaries.map((s) => (
+              <th key={s.group} className="text-right font-medium px-3 py-2 whitespace-nowrap">{s.group}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {SUMMARY_PARAMS.map((p) => (
+            <tr key={p.key as string} className="border-b border-border/30 hover:bg-muted/20">
+              <td className="px-3 py-2 text-muted-foreground">{p.label}</td>
+              {summaries.map((s) => {
+                const v = pctFor(s.group, p.key as string);
+                return (
+                  <td key={s.group} className="px-3 py-2 text-right tabular-nums">
+                    {v == null ? <span className="text-muted-foreground/50">—</span> : (
+                      <span className={v >= 0 ? "text-primary" : "text-destructive"}>{v > 0 ? "+" : ""}{fmt(v, 1)}%</span>
+                    )}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/* ── Section H — Product Application Record ─────────────────────────────────── */
+function SectionH({ applications, canEdit }: { applications: PlotApplication[]; canEdit: boolean }) {
+  const [editing, setEditing] = useState<PlotApplication | null>(null);
+  const [adding, setAdding] = useState(false);
+  const sorted = useMemo(
+    () => [...applications].sort((a, b) => (b.Date ?? "").localeCompare(a.Date ?? "")),
+    [applications]
+  );
+  const totalKg = (a: PlotApplication) =>
+    a.RatePerTreeKg != null && a.TreeCount != null ? a.RatePerTreeKg * a.TreeCount : null;
+  const totalCost = (a: PlotApplication) => {
+    const kg = totalKg(a);
+    return kg != null && a.UnitPrice != null ? kg * a.UnitPrice : null;
+  };
+
+  return (
+    <>
+      <SectionHeader
+        def={PLOT_SECTIONS[7]}
+        action={canEdit ? (
+          <button onClick={() => setAdding(true)} className="inline-flex items-center gap-1 rounded-md border border-primary/40 text-primary px-2 py-1 text-xs font-medium hover:bg-primary/10 transition-colors">
+            <Plus className="h-3 w-3" /> Add application
+          </button>
+        ) : undefined}
+      />
+      {sorted.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No product applications recorded.{canEdit && " Log the first biochar/fertiliser application."}</p>
+      ) : (
+        <div className="overflow-x-auto rounded-xl border border-border/50">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-border/50 bg-muted/40 text-muted-foreground">
+                {["Tarikh", "Produk", "Kadar (kg/pokok)", "Bilangan pokok", "Total kadar (kg)", "Harga (RM/kg)", "Total cost (RM)", "Kaedah", "Pegawai", "Supervisor", ""].map((h) => (
+                  <th key={h} className="text-left font-medium px-3 py-2 whitespace-nowrap">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((a) => (
+                <tr key={a.id} className="border-b border-border/30 hover:bg-muted/20">
+                  <td className="px-3 py-2 whitespace-nowrap">{a.Date ?? "—"}</td>
+                  <td className="px-3 py-2 whitespace-nowrap text-foreground">{a.Product ?? "—"}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{a.RatePerTreeKg ?? "—"}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{a.TreeCount ?? "—"}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{totalKg(a) != null ? fmt(totalKg(a)!, 1) : "—"}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{a.UnitPrice ?? "—"}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-foreground">{totalCost(a) != null ? fmt(totalCost(a)!, 2) : "—"}</td>
+                  <td className="px-3 py-2 whitespace-nowrap">{a.Method ?? "—"}</td>
+                  <td className="px-3 py-2 whitespace-nowrap">{a.Officer ?? "—"}</td>
+                  <td className="px-3 py-2 whitespace-nowrap">{a.Supervisor ?? "—"}</td>
+                  <td className="px-3 py-2">
+                    {canEdit && (
+                      <button onClick={() => setEditing(a)} className="rounded-md p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors" aria-label="Edit application">
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {canEdit && (
+        <>
+          <EditApplicationDialog open={adding} onOpenChange={setAdding} />
+          <EditApplicationDialog key={editing?.id ?? "none"} application={editing ?? undefined} open={!!editing} onOpenChange={(o) => !o && setEditing(null)} />
+        </>
+      )}
+    </>
+  );
+}

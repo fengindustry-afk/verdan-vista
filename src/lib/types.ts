@@ -140,6 +140,52 @@ export interface SoilSample {
   Note?: string;
 }
 
+/**
+ * Section F – Pemerhatian Visual (visual observation log). One dated row of
+ * qualitative field notes on the plot's condition, mirroring the spreadsheet's
+ * TARIKH / KEADAAN DAUN / KEADAAN BATANG / KEADAAN TANAH / CATATAN columns.
+ */
+export interface PlotObservation {
+  id: string;
+  Date?: string;
+  /** Optional treatment group the observation applies to (ESTERRA / Control). */
+  TreatmentGroup?: string;
+  /** KEADAAN DAUN — leaf condition. */
+  LeafCondition?: string;
+  /** KEADAAN BATANG — stem/trunk condition. */
+  StemCondition?: string;
+  /** KEADAAN TANAH — soil condition. */
+  SoilCondition?: string;
+  /** CATATAN — free-text remarks. */
+  Notes?: string;
+  RecordedBy?: string;
+}
+
+/**
+ * Section H – Rekod Aplikasi Produk (product application record). One row per
+ * biochar/fertiliser application, mirroring TARIKH / PRODUK / KADAR / BILANGAN
+ * POKOK / TOTAL KADAR / PRICE LIST / TOTAL COST / KAEDAH / PEGAWAI / SUPERVISOR.
+ */
+export interface PlotApplication {
+  id: string;
+  Date?: string;
+  /** PRODUK — product name/grade. */
+  Product?: string;
+  /** KADAR (KG/POKOK) — application rate per tree. */
+  RatePerTreeKg?: number | null;
+  /** BILANGAN POKOK — number of trees treated. */
+  TreeCount?: number | null;
+  /** PRICE LIST (RAW MATERIAL) — unit price per kg (MYR). */
+  UnitPrice?: number | null;
+  /** KAEDAH APLIKASI — application method (e.g. MENABUR). */
+  Method?: string;
+  /** PEGAWAI BERTUGAS — officer on duty. */
+  Officer?: string;
+  /** SUPERVISOR. */
+  Supervisor?: string;
+  Notes?: string;
+}
+
 export interface TreeScan {
   id: string;
   TreeId: string;

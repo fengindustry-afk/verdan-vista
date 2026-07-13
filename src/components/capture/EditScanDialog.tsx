@@ -17,8 +17,9 @@ type Props = {
   onOpenChange: (open: boolean) => void;
 };
 
-const storedRef = (s: TreeScan) =>
-  s.ImageUrl || (s.ImageBase64 ? `data:image/jpeg;base64,${s.ImageBase64}` : undefined);
+const base64Ref = (s: TreeScan) =>
+  s.ImageBase64 ? `data:image/jpeg;base64,${s.ImageBase64}` : undefined;
+const storedRef = (s: TreeScan) => s.ImageUrl || base64Ref(s);
 
 /** Edit a scan's notes and run the tree-health analysis on its image. */
 export function EditScanDialog({ scan, open, onOpenChange }: Props) {
@@ -37,7 +38,11 @@ export function EditScanDialog({ scan, open, onOpenChange }: Props) {
   useEffect(() => {
     if (!open) return;
     setNotes(scan.Notes ?? "");
-    resolveImageUrl(Buckets.scans, storedRef(scan)).then(setUrl).catch(() => setUrl(null));
+    // Prefer the storage-signed URL; fall back to the inline base64 when a signed
+    // URL can't be produced, so the image and health analysis still work.
+    resolveImageUrl(Buckets.scans, storedRef(scan))
+      .then((u) => setUrl(u ?? base64Ref(scan) ?? null))
+      .catch(() => setUrl(base64Ref(scan) ?? null));
   }, [open, scan]);
 
   const analyze = async () => {

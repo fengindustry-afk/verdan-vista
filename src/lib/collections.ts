@@ -17,6 +17,8 @@ export const Collections = {
   soilSamples: "soil_samples",
   scans: "scans",
   labels: "labels",
+  plotObservations: "plot_observations",
+  plotApplications: "plot_applications",
   costEntries: "cost_entries",
   costBudgets: "cost_budgets",
   costCategories: "cost_categories",

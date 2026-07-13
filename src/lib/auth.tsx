@@ -1,9 +1,11 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { supabase, isSupabaseConfigured } from "./supabase";
-import { getCollection, upsertDocument, clearDataCache } from "./data";
+import { findDocumentByField, upsertDocument, clearDataCache } from "./data";
 import { Collections } from "./collections";
 import type { UserProfile } from "./types";
 import { parseRole, UserRole } from "./rbac";
+import { checkPasswordBreached } from "./pwned";
 
 /**
  * Authentication with two paths:
@@ -73,8 +75,7 @@ function loadStoredUser(): UserProfile | null {
  * email, else derive from the email and persist it. */
 async function resolveProfile(email: string, authId: string): Promise<UserProfile> {
   try {
-    const users = await getCollection<UserProfile>(Collections.users);
-    const existing = users.find((u) => (u.Email ?? "").toLowerCase() === email.toLowerCase());
+    const existing = await findDocumentByField<UserProfile>(Collections.users, "Email", email);
     if (existing) {
       const updated = { ...existing, LastLoginAt: new Date().toISOString() };
       await upsertDocument(Collections.users, updated);
@@ -89,6 +90,7 @@ async function resolveProfile(email: string, authId: string): Promise<UserProfil
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const qc = useQueryClient();
   const cached = loadStoredUser();
   const [user, setUser] = useState<UserProfile | null>(cached);
   const [loading, setLoading] = useState(false);
@@ -120,6 +122,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // Refetch every collection the moment an authenticated JWT becomes available.
+  // On a cold reload, collection reads fire before supabase-js finishes restoring
+  // the session, so `getCollection` serves cache-or-empty (the anti-anon-read
+  // guard) — but React Query then caches that empty result for `staleTime`, so a
+  // valid user sees blank data for up to a minute even though auth has since
+  // completed. onAuthStateChange fires INITIAL_SESSION (cold reload), SIGNED_IN
+  // (login) and TOKEN_REFRESHED (silent refresh); invalidating on each retries
+  // those reads under the real JWT as soon as it lands, so data appears right away
+  // instead of looking "gone" while the browser is still authenticating.
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session && (event === "INITIAL_SESSION" || event === "SIGNED_IN" || event === "TOKEN_REFRESHED")) {
+        void qc.invalidateQueries();
+      }
+    });
+    return () => sub.subscription.unsubscribe();
+  }, [qc]);
+
   const signIn = async (email: string, password: string) => {
     setLoading(true);
     try {
@@ -143,6 +164,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signUp = async (email: string, password: string, fullName: string) => {
     setLoading(true);
     try {
+      // Reject passwords known to be compromised (HIBP Pwned Passwords, free +
+      // k-anonymous). Fails open on network error so a HIBP outage can't block
+      // sign-up — Supabase's own leaked-password protection is the backstop.
+      const breached = await checkPasswordBreached(password);
+      if (breached) throw new Error(breached);
+
       const { error } = await supabase.auth.signUp({
         email,
         password,

@@ -1,20 +1,12 @@
 import { BentoCard } from "@/components/BentoCard";
 import { isSupabaseConfigured } from "@/lib/supabase";
-import { useFeedstock } from "@/hooks/useCollection";
-import { corcMetrics } from "@/lib/feedstock";
-import { Database, Download, Wifi, WifiOff, Palette, Moon, Sun, Check } from "lucide-react";
+import { Database, Wifi, WifiOff, Palette, Moon, Sun, Check } from "lucide-react";
 import { useEffect, useState } from "react";
-import { toast } from "sonner";
 import { useTheme } from "@/lib/theme-context";
 import { THEME_SETS, swatches } from "@/lib/theme";
 import { isEffectivelyOffline, onConnectivityChange, onOfflineSync, pendingSyncCount } from "@/lib/data";
-import { useAuth } from "@/lib/auth";
-import { hasPermission, Permission } from "@/lib/rbac";
 
 export default function Settings() {
-  const { data: feedstock = [] } = useFeedstock();
-  const { role } = useAuth();
-  const canExport = hasPermission(role, Permission.ExportData);
   const [online, setOnline] = useState(() => !isEffectivelyOffline());
   const [pending, setPending] = useState(() => pendingSyncCount());
   const { setId, mode, setThemeSet, toggleMode } = useTheme();
@@ -34,31 +26,12 @@ export default function Settings() {
     };
   }, []);
 
-  const exportCsv = () => {
-    const headers = ["Id", "Title", "Type", "Supplier", "Amount", "Status", "CurrentStage", "NetCORC", "DurabilityClass"];
-    const rows = feedstock.map((f) => {
-      const m = corcMetrics(f);
-      return [f.id, f.Title, f.Type, f.Supplier, f.Amount, f.Status, f.CurrentStage ?? "", m.netCorc.toFixed(2), m.durabilityClass]
-        .map((v) => `"${String(v).replace(/"/g, '""')}"`)
-        .join(",");
-    });
-    const csv = [headers.join(","), ...rows].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `corc-export-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success(`Exported ${feedstock.length} batches`);
-  };
-
   return (
     <div className="relative p-6 lg:p-8 space-y-6 max-w-3xl">
       <div className="glow-orb w-72 h-72 -top-36 right-10 animate-pulse-glow" />
       <div>
         <h1 className="text-2xl font-bold text-foreground">Settings</h1>
-        <p className="text-sm text-muted-foreground mt-1">Appearance, connection, data &amp; export</p>
+        <p className="text-sm text-muted-foreground mt-1">Appearance &amp; connection</p>
       </div>
 
       <BentoCard>
@@ -135,21 +108,6 @@ export default function Settings() {
           </p>
         )}
       </BentoCard>
-
-      {canExport && (
-        <BentoCard>
-          <h3 className="text-sm font-semibold text-foreground mb-1">Export Data</h3>
-          <p className="text-[11px] text-muted-foreground mb-4">
-            Download all feedstock batches with computed CORCs as CSV (NCMP / audit ready).
-          </p>
-          <button
-            onClick={exportCsv}
-            className="inline-flex items-center gap-2 rounded-lg bg-primary/15 text-primary px-4 py-2 text-sm font-medium hover:bg-primary/25 transition-colors"
-          >
-            <Download className="h-4 w-4" /> Export CSV ({feedstock.length})
-          </button>
-        </BentoCard>
-      )}
     </div>
   );
 }

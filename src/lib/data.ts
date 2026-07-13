@@ -186,6 +186,37 @@ export async function getDocument<T extends Doc>(
   return data ? hydrate<T>(data as { id: string; data: unknown }) : null;
 }
 
+/**
+ * Fetch a single document by a top-level field inside its jsonb payload, e.g.
+ * `findDocumentByField(users, "Email", email)`. Matches case-insensitively and
+ * returns the first hit. Used on the hot sign-in path so we don't pull the whole
+ * collection just to find one row. Falls back to the cache when offline / on error.
+ */
+export async function findDocumentByField<T extends Doc>(
+  collection: CollectionName,
+  field: string,
+  value: string
+): Promise<T | null> {
+  const findCached = () =>
+    (memGet<T[]>(`col:${collection}`, { ignoreExpiry: true }) ?? []).find(
+      (d) => String((d as Record<string, unknown>)[field] ?? "").toLowerCase() === value.toLowerCase()
+    ) ?? null;
+
+  if (!isSupabaseConfigured || isEffectivelyOffline()) return findCached();
+
+  const { data, error } = await supabase
+    .from(collection)
+    .select("id,data,updated_at")
+    .ilike(`data->>${field}`, value)
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.error(`[data] findDocumentByField(${collection}.${field}) failed:`, error.message);
+    return findCached();
+  }
+  return data ? hydrate<T>(data as { id: string; data: unknown }) : null;
+}
+
 export async function upsertDocument<T extends Doc>(
   collection: CollectionName,
   doc: T,

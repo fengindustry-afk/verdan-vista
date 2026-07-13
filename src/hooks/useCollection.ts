@@ -17,6 +17,8 @@ import type {
   CostBudget,
   CostCategory,
   Receipt,
+  PlotObservation,
+  PlotApplication,
 } from "@/lib/types";
 import type { SensorReading } from "@/lib/sensors";
 import type { WorkProcessEntry } from "@/lib/workProcess";
@@ -42,6 +44,8 @@ export const useUsers = () => useCollection<UserProfile>(Collections.users);
 export const useTrees = () => useCollection<Tree>(Collections.trees);
 export const useReadings = () => useCollection<TreeReading>(Collections.readings);
 export const useSoilSamples = () => useCollection<SoilSample>(Collections.soilSamples);
+export const usePlotObservations = () => useCollection<PlotObservation>(Collections.plotObservations);
+export const usePlotApplications = () => useCollection<PlotApplication>(Collections.plotApplications);
 export const useScans = () => useCollection<TreeScan>(Collections.scans);
 export const useBiomass = () => useCollection<BiomassData>(Collections.esaBiomass);
 export const useGroundTruth = () => useCollection<BiomassData>(Collections.groundTruth);

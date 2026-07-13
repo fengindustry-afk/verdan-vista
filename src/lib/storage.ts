@@ -34,7 +34,8 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 export async function uploadImage(
   bucket: string,
   path: string,
-  blob: Blob
+  blob: Blob,
+  opts: { keepDataUrl?: boolean } = {}
 ): Promise<StoredImage> {
   // Offline: skip the upload attempt and keep the image inline so capture still works.
   if (isSupabaseConfigured && !isEffectivelyOffline()) {
@@ -42,7 +43,12 @@ export async function uploadImage(
       upsert: true,
       contentType: blob.type || "image/jpeg",
     });
-    if (!error) return { path };
+    if (!error) {
+      // Optionally also return the inline data URL so the caller can persist a
+      // small fallback — the image still renders even if a signed URL can't be
+      // produced later (misconfigured bucket / policies), instead of "No image".
+      return opts.keepDataUrl ? { path, dataUrl: await blobToDataUrl(blob) } : { path };
+    }
     console.warn(`[storage] upload to ${bucket} failed, using inline fallback:`, error.message);
   }
   return { dataUrl: await blobToDataUrl(blob) };
