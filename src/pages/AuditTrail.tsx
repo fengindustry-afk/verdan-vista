@@ -4,6 +4,7 @@ import { useFeedstock, useHistory } from "@/hooks/useCollection";
 import { parseAuditLog } from "@/lib/feedstock";
 import { Collections } from "@/lib/collections";
 import { formatHistoryTimestamp, type HistoryAction, type HistoryEntry } from "@/lib/history";
+import { HistoryRestoreButton } from "@/components/HistoryRestoreButton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { useMemo, useState } from "react";
@@ -95,11 +96,25 @@ function CustodyFeed() {
 }
 
 // ── Edit-history feed: the app-wide immutable edit log across all collections ──
-const ACTION_META: Record<HistoryAction, { label: string; icon: typeof Plus; tone: string; dot: string }> = {
+type ActionMeta = { label: string; icon: typeof Plus; tone: string; dot: string };
+
+const ACTION_META: Record<HistoryAction, ActionMeta> = {
   create: { label: "Created", icon: Plus, tone: "text-emerald-400", dot: "text-emerald-400" },
   update: { label: "Edited", icon: Pencil, tone: "text-cyan-400", dot: "text-cyan-400" },
   delete: { label: "Deleted", icon: Trash2, tone: "text-red-400", dot: "text-red-400" },
 };
+
+/** Meta for an entry's action, tolerating unknown/legacy action strings. */
+function actionMeta(action: string): ActionMeta {
+  return (
+    ACTION_META[action as HistoryAction] ?? {
+      label: action || "Changed",
+      icon: CheckCircle2,
+      tone: "text-muted-foreground",
+      dot: "text-muted-foreground",
+    }
+  );
+}
 
 /** Friendly names for the document-store table behind each collection. */
 const COLLECTION_LABELS: Record<string, string> = {
@@ -129,8 +144,13 @@ function EditHistoryFeed() {
     const q = query.trim().toLowerCase();
     if (!q) return entries;
     return entries.filter((e) =>
-      [e.Label, e.Actor, e.Role, collectionLabel(e.Collection), ...e.Changes.flatMap((c) => [c.Field, c.Before ?? "", c.After ?? ""])]
-        .some((v) => v.toLowerCase().includes(q))
+      [
+        e.Label,
+        e.Actor,
+        e.Role,
+        collectionLabel(e.Collection),
+        ...(Array.isArray(e.Changes) ? e.Changes : []).flatMap((c) => [c.Field, c.Before ?? "", c.After ?? ""]),
+      ].some((v) => String(v ?? "").toLowerCase().includes(q))
     );
   }, [entries, query]);
 
@@ -185,10 +205,13 @@ function EditHistoryFeed() {
 }
 
 function EditHistoryCard({ entry, index }: { entry: HistoryEntry; index: number }) {
-  const meta = ACTION_META[entry.Action];
+  const meta = actionMeta(entry.Action);
   const Icon = meta.icon;
+  const changes = Array.isArray(entry.Changes) ? entry.Changes : [];
+  const [refreshKey, setRefreshKey] = useState(0);
+
   return (
-    <BentoCard delay={Math.min(index * 0.04, 0.4)} className="relative ml-10">
+    <BentoCard delay={Math.min(index * 0.04, 0.4)} className="relative ml-10" key={refreshKey}>
       <div className={`absolute -left-[29px] top-5 h-3 w-3 rounded-full border-2 border-background bg-current ${meta.dot}`} />
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
@@ -203,9 +226,9 @@ function EditHistoryCard({ entry, index }: { entry: HistoryEntry; index: number 
             <span>·</span>
             <span>{entry.Role}</span>
           </div>
-          {entry.Changes.length > 0 && (
+          {changes.length > 0 && (
             <div className="mt-2 space-y-1">
-              {entry.Changes.map((c) => (
+              {changes.map((c) => (
                 <div key={c.Field} className="text-[11px] flex flex-wrap items-baseline gap-1.5">
                   <span className="text-muted-foreground">{c.Field}:</span>
                   {c.Before != null && <span className="line-through text-red-400/80 break-all">{c.Before}</span>}
@@ -216,7 +239,12 @@ function EditHistoryCard({ entry, index }: { entry: HistoryEntry; index: number 
             </div>
           )}
         </div>
-        <p className="text-[10px] text-muted-foreground whitespace-nowrap shrink-0">{formatHistoryTimestamp(entry.Timestamp)}</p>
+        <div className="flex flex-col items-end gap-2 shrink-0">
+          <p className="text-[10px] text-muted-foreground whitespace-nowrap">{formatHistoryTimestamp(entry.Timestamp)}</p>
+          {(entry.Action === "update" || entry.Action === "delete") && changes.length > 0 && (
+            <HistoryRestoreButton entry={entry} onRestored={() => setRefreshKey((k) => k + 1)} />
+          )}
+        </div>
       </div>
     </BentoCard>
   );
