@@ -20,7 +20,7 @@ change.
 |---|---|---|
 | `paddle` (default) | CPU | PaddleOCR — best FOSS accuracy on messy receipts. Recommended for the VM. |
 | `tesseract` | CPU + `tesseract-ocr` | Lightest; server-side mirror of the browser engine. |
-| `qwen` | **GPU** | Qwen2.5-VL structured extraction — **stub**. Enable on the Windows PC/GPU later, not the VM. |
+| `qwen` | **Remote GPU** | Qwen2.5-VL vision OCR. Runs remotely (local dev GPU too small); self-hosted Ollama **or** a managed API. See [Enable the Qwen backend](#enable-the-qwen-backend). |
 
 ## Run on the Ubuntu VM
 
@@ -76,6 +76,69 @@ A browser page served over **HTTPS** (e.g. the deployed app) cannot call an
 **local Vite dev server** (`http://localhost:8080`). For the HTTPS app you'll
 need the service behind HTTPS (a reverse proxy / tunnel) or run it as a
 same-origin backend later.
+
+## Enable the Qwen backend
+
+Qwen2.5-VL is a vision model that reads receipts directly. The local dev GPU
+(GTX 970, 4 GB) is too small to run it, so it runs **remotely**. The backend
+auto-selects its mode by whether `QWEN_API_KEY` is set:
+
+- **Managed API** (key set) — provider-agnostic OpenAI-compatible endpoint
+  (OpenRouter, DashScope, Together, Fireworks…). Best for low/bursty receipt
+  volume: pay per image (~sen each, roughly **MYR 5–30/mo for ~1k receipts**)
+  instead of renting a GPU 24/7. **Recommended.**
+- **Self-hosted Ollama** (no key) — `ollama serve` on a GPU box you own/rent;
+  `QWEN_ENDPOINT` points at it. Cheaper only if the GPU is already paid for.
+
+> Pricing is approximate and moves — confirm on the provider's live page.
+
+### Step by step (managed API)
+
+**1. Get a provider key (you).** Create an account with a provider that hosts
+Qwen2.5-VL (e.g. OpenRouter or DashScope), add billing, and generate an API key.
+Treat it like a password — never commit it.
+
+**2. Configure `.env`.** On the box running this service:
+
+```bash
+cd ocr-service
+cp .env.example .env
+```
+
+Set in `.env` (OpenRouter shown; DashScope base URL/model are in `.env.example`):
+
+```
+OCR_BACKEND=qwen
+QWEN_ENDPOINT=https://openrouter.ai/api/v1
+QWEN_API_KEY=sk-your-real-key-here
+QWEN_MODEL=qwen/qwen2.5-vl-7b-instruct
+```
+
+**3. Install the extra dependency.** Uncomment `requests>=2.31` in
+`requirements.txt`, then `pip install -r requirements.txt`.
+
+**4. Smoke-test before starting the service** — drives the backend straight at
+the provider, no FastAPI needed (needs `QWEN_API_KEY` in the environment):
+
+```bash
+python verify.py --qwen-endpoint https://openrouter.ai/api/v1
+python verify.py --qwen-endpoint https://openrouter.ai/api/v1 --image ./receipt.jpg
+```
+
+Expect `mode=openai-compatible` and a transcription. On failure the hint names
+the likely cause (base URL, model id, or key).
+
+**5. Run and compare.** Start the service, confirm `/health` shows
+`backend=qwen`, then run a few **real** Malaysian receipts through both `qwen`
+and `paddle` (flip `OCR_BACKEND`) and keep whichever reads them better. If Qwen
+doesn't beat Paddle on your receipts, set `OCR_BACKEND=paddle` — you've spent
+only pennies testing and nothing else in the app changes.
+
+### Self-hosted Ollama instead
+
+Leave `QWEN_API_KEY` unset, run `ollama serve` (after `ollama pull qwen2.5vl`)
+on a GPU box, and point `QWEN_ENDPOINT=http://<box-ip>:11434`. Secure that port —
+don't expose it to the internet. Smoke-test the same way with `--qwen-endpoint`.
 
 ## Heavy training
 
