@@ -60,7 +60,9 @@ export function NewCostEntryDialog() {
     if (addingCategory) {
       await upsertCategory.mutateAsync({ id: crypto.randomUUID(), Name: resolvedCategory });
     }
-    const entry = createCostEntry(parsed.data, user?.FullName || user?.Email || "User");
+    // safeParse success guarantees the full shape at runtime; the cast works
+    // around zod resolving `.data` to its input (all-optional) flavor here.
+    const entry = createCostEntry(parsed.data as Parameters<typeof createCostEntry>[0], user?.FullName || user?.Email || "User");
     await upsert.mutateAsync(entry);
     toast.success(`Expense "${title}" logged`);
     setOpen(false);
@@ -101,7 +103,7 @@ export function NewCostEntryDialog() {
               )}
             </div>
             <div>
-              <Label className="text-xs">Amount</Label>
+              <Label className="text-xs">Amount (MYR)</Label>
               <Input type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" className="mt-1" />
             </div>
           </div>

@@ -8,7 +8,7 @@ import { Plus, Loader2 } from "lucide-react";
 import { useUpsert } from "@/hooks/useCollection";
 import { Collections } from "@/lib/collections";
 import type { Feedstock } from "@/lib/types";
-import { createBatch } from "@/lib/feedstockActions";
+import { createBatch, type NewBatchInput } from "@/lib/feedstockActions";
 import { useAuth } from "@/lib/auth";
 import { roleDisplayName } from "@/lib/rbac";
 import { newBatchSchema } from "@/lib/validation";
@@ -35,7 +35,9 @@ export function NewBatchDialog() {
       return;
     }
     const batch = createBatch(
-      parsed.data,
+      // safeParse success guarantees the full shape at runtime; the cast works
+      // around zod resolving `.data` to its input (all-optional) flavor here.
+      parsed.data as NewBatchInput,
       user?.FullName || user?.Email || "User",
       roleDisplayName[role]
     );
