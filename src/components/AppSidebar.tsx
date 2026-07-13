@@ -1,8 +1,10 @@
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
+import { Search } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { hasPermission } from "@/lib/rbac";
 import { navItems } from "@/lib/navigation";
+import { GlobalSearch } from "@/components/GlobalSearch";
 import {
   Sidebar,
   SidebarContent,
@@ -15,11 +17,18 @@ import {
 } from "@/components/ui/sidebar";
 
 export function AppSidebar() {
-  const { state } = useSidebar();
+  const { state, isMobile, setOpen, setOpenMobile } = useSidebar();
   const collapsed = state === "collapsed";
   const location = useLocation();
   const { role } = useAuth();
   const visibleItems = navItems.filter((item) => hasPermission(role, item.permission));
+
+  // Collapse the menu after a selection: close the sheet on mobile, collapse the
+  // rail to icons on desktop.
+  const handleNavigate = () => {
+    if (isMobile) setOpenMobile(false);
+    else setOpen(false);
+  };
 
   return (
     <Sidebar collapsible="icon" className="border-r border-border/50">
@@ -33,6 +42,21 @@ export function AppSidebar() {
           )}
         </div>
 
+        {/* Global search — full field when expanded, an icon that opens the rail when collapsed. */}
+        <div className="px-2 pb-3">
+          {collapsed ? (
+            <button
+              onClick={() => (isMobile ? setOpenMobile(true) : setOpen(true))}
+              className="flex h-9 w-9 items-center justify-center rounded-xl text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors mx-auto"
+              aria-label="Search"
+            >
+              <Search className="h-4 w-4" />
+            </button>
+          ) : (
+            <GlobalSearch className="w-full" panelClassName="min-w-[20rem]" />
+          )}
+        </div>
+
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
@@ -43,6 +67,7 @@ export function AppSidebar() {
                     <SidebarMenuButton asChild>
                       <NavLink
                         to={item.url}
+                        onClick={handleNavigate}
                         end
                         className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-all ${
                           active

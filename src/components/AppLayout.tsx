@@ -1,7 +1,8 @@
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { RequirePermission } from "@/components/RequirePermission";
-import { Outlet, useNavigate } from "react-router-dom";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
 import { roleDisplayName } from "@/lib/rbac";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -18,6 +19,7 @@ import { LogOut } from "lucide-react";
 export function AppLayout() {
   const { user, role, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const initials = (user?.FullName || user?.Email || "?")
     .split(" ")
@@ -64,9 +66,11 @@ export function AppLayout() {
             )}
           </header>
           <main className="flex-1 overflow-auto">
-            <RequirePermission>
-              <Outlet />
-            </RequirePermission>
+            <ErrorBoundary resetKey={location.pathname}>
+              <RequirePermission>
+                <Outlet />
+              </RequirePermission>
+            </ErrorBoundary>
           </main>
         </div>
       </div>
