@@ -1,19 +1,33 @@
 import { BentoCard } from "@/components/BentoCard";
-import { useTrees, useReadings } from "@/hooks/useCollection";
-import { TreePine, Loader2 } from "lucide-react";
+import { useTrees, useReadings, useSoilSamples } from "@/hooks/useCollection";
+import { TreePine, Loader2, Plus, FlaskConical } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip } from "recharts";
 import { EditTreeDialog } from "@/components/capture/EditTreeDialog";
+import { EditSoilSampleDialog } from "@/components/capture/EditSoilSampleDialog";
+import { TestingPlotSummary } from "@/components/TestingPlotSummary";
+import { soilPercentChange } from "@/lib/testingPlotSummary";
+import type { SoilSample } from "@/lib/types";
+import { fmt } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
 import { hasPermission, Permission } from "@/lib/rbac";
 
 export default function TestingPlot() {
   const { data: trees = [], isLoading } = useTrees();
   const { data: readings = [] } = useReadings();
+  const { data: soilSamples = [] } = useSoilSamples();
   const { role } = useAuth();
   const canEdit = hasPermission(role, Permission.AddLocations);
+
+  const [editingSoil, setEditingSoil] = useState<SoilSample | null>(null);
+  const [addingSoil, setAddingSoil] = useState(false);
+
+  const treatmentGroups = useMemo(
+    () => Array.from(new Set(trees.map((t) => t.TreatmentGroup?.trim()).filter((g): g is string => !!g))),
+    [trees]
+  );
 
   const readingsByTree = useMemo(() => {
     const map = new Map<string, number>();
@@ -58,6 +72,55 @@ export default function TestingPlot() {
         <Loading />
       ) : (
         <>
+          <TestingPlotSummary trees={trees} readings={readings} soilSamples={soilSamples} />
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                <FlaskConical className="h-3.5 w-3.5" /> Soil Analysis
+              </h2>
+              {canEdit && (
+                <button
+                  onClick={() => setAddingSoil(true)}
+                  className="inline-flex items-center gap-1 rounded-md border border-primary/40 text-primary px-2 py-1 text-xs font-medium hover:bg-primary/10 transition-colors"
+                >
+                  <Plus className="h-3 w-3" /> Add sample
+                </button>
+              )}
+            </div>
+            {soilSamples.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No soil samples recorded.{canEdit && " Add one to include soil metrics in the summary."}</p>
+            ) : (
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {soilSamples.map((s) => {
+                  const pct = soilPercentChange(s);
+                  return (
+                    <BentoCard key={s.id} className="cursor-pointer" >
+                      <button
+                        onClick={() => canEdit && setEditingSoil(s)}
+                        disabled={!canEdit}
+                        className={`w-full text-left ${canEdit ? "cursor-pointer" : "cursor-default"}`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="text-xs font-semibold text-foreground">{s.Parameter}</span>
+                          {s.TreatmentGroup && <Badge variant="outline" className="text-[10px]">{s.TreatmentGroup}</Badge>}
+                        </div>
+                        <p className="text-[11px] text-muted-foreground mt-1">
+                          {s.InitialReading ?? "—"} → {s.FinalReading ?? "—"}
+                          {pct !== null && (
+                            <span className={pct >= 0 ? " text-primary" : " text-destructive"}>
+                              {" "}({pct > 0 ? "+" : ""}{fmt(pct, 1)}%)
+                            </span>
+                          )}
+                        </p>
+                      </button>
+                    </BentoCard>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           {growthData.some((g) => g.avgHeight > 0) && (
             <BentoCard>
               <h3 className="text-sm font-semibold text-foreground mb-4">Average Height by Treatment Group (cm)</h3>
@@ -118,6 +181,23 @@ export default function TestingPlot() {
             </div>
           ))}
           {trees.length === 0 && <p className="text-sm text-muted-foreground py-10 text-center">No trees recorded.</p>}
+        </>
+      )}
+
+      {canEdit && (
+        <>
+          <EditSoilSampleDialog
+            groups={treatmentGroups}
+            open={addingSoil}
+            onOpenChange={setAddingSoil}
+          />
+          <EditSoilSampleDialog
+            key={editingSoil?.id ?? "none"}
+            sample={editingSoil ?? undefined}
+            groups={treatmentGroups}
+            open={!!editingSoil}
+            onOpenChange={(o) => !o && setEditingSoil(null)}
+          />
         </>
       )}
     </div>
