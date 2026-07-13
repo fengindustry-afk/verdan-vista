@@ -26,10 +26,16 @@ export function StoredImage({
   const [url, setUrl] = useState<string | null>(null);
   const [state, setState] = useState<"loading" | "ok" | "none">("loading");
   const [zoom, setZoom] = useState(false);
+  // Track whether the resolved (signed/remote) URL failed to actually load so we
+  // can fall back to the inline base64 copy. A signed URL can be produced fine
+  // yet still 404 (object missing / not viewable in this environment) — without
+  // this the <img> would render broken/blank instead of using the fallback.
+  const [triedFallback, setTriedFallback] = useState(false);
 
   useEffect(() => {
     let active = true;
     setState("loading");
+    setTriedFallback(false);
     resolveImageUrl(bucket, stored)
       .then((u) => {
         if (!active) return;
@@ -47,6 +53,17 @@ export function StoredImage({
     };
   }, [bucket, stored, fallback]);
 
+  // The resolved URL failed to load (e.g. signed URL 404s): swap in the inline
+  // base64 fallback if we have one and haven't already tried it.
+  const onImgError = () => {
+    if (!triedFallback && fallback && url !== fallback) {
+      setTriedFallback(true);
+      setUrl(fallback);
+    } else {
+      setState("none");
+    }
+  };
+
   if (state === "loading") {
     return (
       <div className={`flex items-center justify-center bg-muted ${className}`}>
@@ -63,7 +80,7 @@ export function StoredImage({
     );
   }
   if (!zoomable) {
-    return <img src={url} alt={alt} className={className} loading="lazy" />;
+    return <img src={url} alt={alt} className={className} loading="lazy" onError={onImgError} />;
   }
   return (
     <>
@@ -72,6 +89,7 @@ export function StoredImage({
         alt={alt}
         className={`${className} cursor-zoom-in`}
         loading="lazy"
+        onError={onImgError}
         onClick={(e) => {
           e.stopPropagation();
           setZoom(true);

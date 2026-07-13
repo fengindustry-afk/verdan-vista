@@ -103,6 +103,30 @@ function warnOnce(key: string, msg: string) {
   console.warn(msg);
 }
 
+/**
+ * Resolve the current auth session, deduping concurrent callers onto a single
+ * in-flight `getSession()`. On page load ~5–18 collection reads fire at once and
+ * each awaited `getSession()` serializes on supabase-js's auth lock — behind the
+ * one token refresh that reload may trigger — so every read waits on every other.
+ * That made data appear "incredibly slow / gone" on reload. Sharing one probe
+ * turns the thundering herd into a single call the whole burst awaits together.
+ */
+let inflightSession: Promise<Awaited<ReturnType<typeof supabase.auth.getSession>>["data"]["session"]> | null = null;
+function getReadySession() {
+  if (inflightSession) return inflightSession;
+  inflightSession = supabase.auth
+    .getSession()
+    .then((r) => r.data.session)
+    // getSession can reject transiently (e.g. cross-tab lock timeout) — treat as
+    // "not ready" so the caller falls back to cache rather than firing an anon read.
+    .catch(() => null);
+  // Clear once settled so the next burst re-probes fresh session state.
+  void inflightSession.finally(() => {
+    inflightSession = null;
+  });
+  return inflightSession;
+}
+
 /** Merge the row's primary key into its jsonb payload. */
 function hydrate<T extends Doc>(row: { id: string; data: unknown }): T {
   const data = (row.data ?? {}) as Record<string, unknown>;
@@ -131,13 +155,7 @@ export async function getCollection<T extends Doc>(
   // user is a valid admin: the "data comes and goes across reloads" bug. When we
   // can't confirm an authenticated session, serve the cache instead of issuing
   // (and then caching) an anon read.
-  let session: Awaited<ReturnType<typeof supabase.auth.getSession>>["data"]["session"] = null;
-  try {
-    session = (await supabase.auth.getSession()).data.session;
-  } catch {
-    // getSession can reject transiently (e.g. cross-tab lock timeout) — treat as
-    // "not ready" and fall back to cache rather than firing an anon read.
-  }
+  const session = await getReadySession();
   if (!session) {
     return memGet<T[]>(key, { ignoreExpiry: true }) ?? [];
   }
