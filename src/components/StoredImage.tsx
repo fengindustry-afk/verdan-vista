@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { resolveImageUrl } from "@/lib/storage";
 import { ImageOff, Loader2 } from "lucide-react";
+import { ImageLightbox } from "@/components/ImageLightbox";
 
 /** Resolves a stored image reference (bucket path, data URL, or legacy URL) and renders it. */
 export function StoredImage({
@@ -8,14 +9,18 @@ export function StoredImage({
   stored,
   alt = "",
   className = "",
+  zoomable = false,
 }: {
   bucket: string;
   stored?: string;
   alt?: string;
   className?: string;
+  /** When true, clicking the image opens a full-screen lightbox to inspect it. */
+  zoomable?: boolean;
 }) {
   const [url, setUrl] = useState<string | null>(null);
   const [state, setState] = useState<"loading" | "ok" | "none">("loading");
+  const [zoom, setZoom] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -47,5 +52,22 @@ export function StoredImage({
       </div>
     );
   }
-  return <img src={url} alt={alt} className={className} loading="lazy" />;
+  if (!zoomable) {
+    return <img src={url} alt={alt} className={className} loading="lazy" />;
+  }
+  return (
+    <>
+      <img
+        src={url}
+        alt={alt}
+        className={`${className} cursor-zoom-in`}
+        loading="lazy"
+        onClick={(e) => {
+          e.stopPropagation();
+          setZoom(true);
+        }}
+      />
+      <ImageLightbox src={url} alt={alt} open={zoom} onClose={() => setZoom(false)} />
+    </>
+  );
 }

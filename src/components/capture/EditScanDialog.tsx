@@ -8,6 +8,7 @@ import { Collections } from "@/lib/collections";
 import type { TreeScan } from "@/lib/types";
 import { resolveImageUrl, Buckets } from "@/lib/storage";
 import { analyzeTreeHealth, healthTone, type HealthResult } from "@/lib/health";
+import { ImageLightbox } from "@/components/ImageLightbox";
 import { toast } from "sonner";
 
 type Props = {
@@ -26,6 +27,7 @@ export function EditScanDialog({ scan, open, onOpenChange }: Props) {
   const [notes, setNotes] = useState(scan.Notes ?? "");
   const [url, setUrl] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
+  const [zoom, setZoom] = useState(false);
   const [health, setHealth] = useState<HealthResult | null>(
     scan.HealthStatus
       ? { status: scan.HealthStatus as HealthResult["status"], score: scan.HealthScore ?? 0, note: scan.HealthNote ?? "" }
@@ -82,7 +84,16 @@ export function EditScanDialog({ scan, open, onOpenChange }: Props) {
           <DialogTitle>Edit scan</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-2">
-          {url && <img src={url} alt="scan" className="w-full rounded-lg max-h-56 object-cover" />}
+          {url && (
+            <img
+              src={url}
+              alt="scan"
+              className="w-full rounded-lg max-h-56 object-cover cursor-zoom-in"
+              onClick={() => setZoom(true)}
+            />
+          )}
+          <ImageLightbox src={url} alt="scan" open={zoom} onClose={() => setZoom(false)} />
+
 
           <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-2">
             <div className="flex items-center justify-between">

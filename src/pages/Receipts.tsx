@@ -14,8 +14,9 @@ import type { Receipt } from "@/lib/types";
 import { formatBytes } from "@/lib/receiptImage";
 import { retentionYearsLeft, isRetentionExpired } from "@/lib/receipts";
 import { resolveImageUrl, Buckets } from "@/lib/storage";
-import { fmt } from "@/lib/format";
+import { fmt, money } from "@/lib/format";
 import { CaptureReceiptDialog } from "@/components/CaptureReceiptDialog";
+import { ImageLightbox } from "@/components/ImageLightbox";
 import { useAuth } from "@/lib/auth";
 import { hasPermission, Permission } from "@/lib/rbac";
 
@@ -82,7 +83,7 @@ export default function Receipts() {
         </BentoCard>
         <BentoCard delay={0.1}>
           <p className="text-xs text-muted-foreground mb-1">Total captured value</p>
-          <p className="text-2xl font-bold text-foreground">RM {fmt(stats.value, 2)}</p>
+          <p className="text-2xl font-bold text-foreground">{money(stats.value)}</p>
         </BentoCard>
         <BentoCard delay={0.15}>
           <p className="text-xs text-muted-foreground mb-1">Needs review</p>
@@ -124,7 +125,7 @@ export default function Receipts() {
                       <ReceiptText className="h-4 w-4 text-primary" />
                     </div>
                     <div className="text-right">
-                      <p className="text-lg font-bold text-foreground leading-none">RM {fmt(r.Total ?? 0, 2)}</p>
+                      <p className="text-lg font-bold text-foreground leading-none">{money(r.Total ?? 0)}</p>
                       {r.TaxType && r.TaxType !== "None" && (
                         <p className="text-[10px] text-muted-foreground mt-1">{r.TaxType} {r.TaxRate ? `${r.TaxRate}%` : ""}</p>
                       )}
@@ -170,6 +171,7 @@ function ReceiptDetailDialog({
   const del = useDelete(Collections.receipts);
   const [imgUrl, setImgUrl] = useState<string | null>(null);
   const [showRaw, setShowRaw] = useState(false);
+  const [zoom, setZoom] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -198,11 +200,11 @@ function ReceiptDetailDialog({
     ["Date", receipt.Date],
     ["Category", receipt.Category],
     ["Payment", receipt.PaymentMethod],
-    ["Subtotal", receipt.Subtotal != null ? `RM ${fmt(receipt.Subtotal, 2)}` : undefined],
+    ["Subtotal", receipt.Subtotal != null ? money(receipt.Subtotal) : undefined],
     ["Tax", receipt.TaxType && receipt.TaxType !== "None"
-      ? `${receipt.TaxType} ${receipt.TaxRate ? receipt.TaxRate + "% " : ""}· RM ${fmt(receipt.TaxAmount ?? 0, 2)}`
+      ? `${receipt.TaxType} ${receipt.TaxRate ? receipt.TaxRate + "% " : ""}· ${money(receipt.TaxAmount ?? 0)}`
       : undefined],
-    ["Total", receipt.Total != null ? `RM ${fmt(receipt.Total, 2)}` : undefined],
+    ["Total", receipt.Total != null ? money(receipt.Total) : undefined],
     ["Notes", receipt.Notes],
   ];
 
@@ -223,11 +225,17 @@ function ReceiptDetailDialog({
         <div className="space-y-4 max-h-[70vh] overflow-auto py-1">
           <div className="rounded-lg bg-muted overflow-hidden flex items-center justify-center min-h-[8rem]">
             {imgUrl ? (
-              <img src={imgUrl} alt="receipt" className="w-full max-h-72 object-contain" />
+              <img
+                src={imgUrl}
+                alt="receipt"
+                className="w-full max-h-72 object-contain cursor-zoom-in"
+                onClick={() => setZoom(true)}
+              />
             ) : (
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground my-10" />
             )}
           </div>
+          <ImageLightbox src={imgUrl} alt="receipt" open={zoom} onClose={() => setZoom(false)} />
 
           <div className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${expired ? "border-destructive/30 bg-destructive/10 text-destructive" : "border-primary/30 bg-primary/10 text-primary"}`}>
             {expired ? <FileWarning className="h-4 w-4 shrink-0" /> : <ShieldCheck className="h-4 w-4 shrink-0" />}
