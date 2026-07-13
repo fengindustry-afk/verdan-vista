@@ -6,7 +6,7 @@ import { TreePine, Loader2, Plus, Pencil, User, Calendar } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { EditTreeDialog } from "@/components/capture/EditTreeDialog";
 import { EditSoilSampleDialog } from "@/components/capture/EditSoilSampleDialog";
 import { EditObservationDialog } from "@/components/capture/EditObservationDialog";
@@ -31,6 +31,8 @@ export default function TestingPlot() {
   const { data: applications = [] } = usePlotApplications();
   const { role } = useAuth();
   const canEdit = hasPermission(role, Permission.AddLocations);
+  const [searchParams] = useSearchParams();
+  const initialSection = searchParams.get("section") || "summary";
 
   const readingsByTree = useMemo(() => groupReadingsByTree(readings), [readings]);
   const treatmentGroups = useMemo(
@@ -56,7 +58,7 @@ export default function TestingPlot() {
         </p>
       </div>
 
-      <Tabs defaultValue="summary">
+      <Tabs defaultValue={initialSection}>
         <TabsList className="flex w-full overflow-x-auto justify-start">
           <TabsTrigger value="summary">Summary</TabsTrigger>
           {PLOT_SECTIONS.map((s) => (

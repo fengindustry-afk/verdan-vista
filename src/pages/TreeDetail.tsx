@@ -54,7 +54,7 @@ export default function TreeDetail() {
   return (
     <div className="relative p-6 lg:p-8 space-y-6">
       <div className="glow-orb w-72 h-72 -top-36 right-10 animate-pulse-glow" />
-      <Link to="/testing-plot" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <Link to="/testing-plot?section=A" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft className="h-4 w-4" /> Back to plot
       </Link>
 
