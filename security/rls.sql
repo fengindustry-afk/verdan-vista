@@ -61,8 +61,12 @@ declare
   write_tables text[] := array[
     'feedstock_sourcing', 'asset_locations', 'geotagged_photos',
     'esa_biomass_data', 'esa_biomass_cache', 'ground_truth_biomass',
-    'fused_biomass', 'trees', 'readings', 'scans', 'labels', 'conditions'
+    'fused_biomass', 'trees', 'readings', 'soil_samples', 'scans', 'labels',
+    'work_process_entries', 'cost_entries', 'cost_budgets', 'cost_categories',
+    'receipts', 'sensor_devices', 'sensor_readings', 'readiness_status'
   ];
+  -- Note: 'edit_history' is intentionally excluded (has its own append-only policy);
+  -- 'users' has special rules (below) and is not in this generic set.
 begin
   foreach t in array write_tables loop
     -- Skip tables that don't exist on this project (some collections aren't

@@ -1,0 +1,15 @@
+{
+  "name": "esterra-receipt-pipeline",
+  "version": "1.0.0",
+  "description": "Telegram -> Claude Vision -> Google Sheets receipt auto-logger for Esterra Smart Money Tracker",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.0",
+    "express": "^4.19.2",
+    "googleapis": "^144.0.0",
+    "node-fetch": "^2.7.0"
+  }
+}
