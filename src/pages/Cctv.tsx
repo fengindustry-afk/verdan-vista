@@ -13,10 +13,14 @@ interface PresetStream {
   url: string;
 }
 
+// Public HLS reference streams maintained by Mux and Apple — the same demo
+// infrastructure the hls.js project uses for its own tests. Always-on, CORS-
+// enabled and trusted, so the player has a reliable feed to demo against
+// (unlike third-party webcam feeds, which frequently go offline).
 const LANDMARK_STREAMS: PresetStream[] = [
-  { name: "Kolobrzeg Port", location: "Kolobrzeg, Poland", url: "https://cdn-13-go.toya.net.pl/kamery/kolo_port.m3u8" },
-  { name: "Warsaw Old Town", location: "Warsaw, Poland", url: "https://hoktastream2.webcamera.pl/warszawa_cam_5f3b1a/warszawa_cam_5f3b1a.stream/playlist.m3u8" },
-  { name: "Eger Town Square", location: "Eger, Hungary", url: "https://s159.ipcamlive.com/streams/9fm6opn9d8oyhhxsz/stream.m3u8" },
+  { name: "Big Buck Bunny", location: "Mux HLS reference", url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8" },
+  { name: "Apple BipBop", location: "Apple HLS reference", url: "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_ts/master.m3u8" },
+  { name: "Tears of Steel", location: "Mux HLS reference", url: "https://test-streams.mux.dev/tos_ismc/main.m3u8" },
 ];
 
 export default function Cctv() {
@@ -39,7 +43,7 @@ export default function Cctv() {
         <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
           <Video className="h-6 w-6 text-primary" /> CCTV Monitoring
         </h1>
-        <p className="text-sm text-muted-foreground mt-1">Live HLS site surveillance &amp; global landmark cameras</p>
+        <p className="text-sm text-muted-foreground mt-1">Live HLS site surveillance &amp; reference camera feeds</p>
       </div>
 
       <div className="grid lg:grid-cols-5 gap-4">
@@ -83,7 +87,7 @@ export default function Cctv() {
 
         {/* Stream list */}
         <div className="lg:col-span-2 space-y-3">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Global Landmark Cameras</h2>
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Reference Camera Feeds</h2>
           {LANDMARK_STREAMS.map((s, i) => (
             <BentoCard key={s.url} delay={i * 0.05} className="cursor-pointer" >
               <button onClick={() => setActive(s)} className="w-full text-left flex items-center gap-3">
