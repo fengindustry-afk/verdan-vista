@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { getCollection, upsertDocument, deleteDocument, WriteNotAuthorizedError } from "@/lib/data";
+import { getCollection, upsertDocument, deleteDocument, WriteNotAuthorizedError, TableNotFoundError } from "@/lib/data";
 import { Collections } from "@/lib/collections";
 import { recordEdit, getHistory, type HistoryEntry } from "@/lib/history";
 import type {
@@ -123,6 +123,11 @@ export function useUpsert<T extends { id: string }>(
         toast.error("Not saved — your account can't write to the server.", {
           description:
             "You're in demo mode or lack permission. Sign in with an Operator/Manager/Admin account to save.",
+        });
+      } else if (err instanceof TableNotFoundError) {
+        toast.error("Not saved — this feature isn't set up in the database yet.", {
+          description:
+            "The backing table is missing. An admin needs to run the table's setup SQL (and reload the PostgREST schema).",
         });
       }
     },

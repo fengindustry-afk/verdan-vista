@@ -26,10 +26,31 @@ export class WriteNotAuthorizedError extends Error {
   }
 }
 
+/**
+ * Thrown when a write targets a table the backend doesn't know about (the table
+ * was never created, or PostgREST's schema cache is stale). Like an auth error
+ * this is NOT retryable — queuing it would silently hide the write forever and
+ * report a false success — so callers that opt in (`throwOnUnauthorized`) get
+ * this surfaced as an honest "not saved" message instead.
+ */
+export class TableNotFoundError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TableNotFoundError";
+  }
+}
+
 // Postgres 42501 = insufficient_privilege (RLS); PGRST301 = PostgREST JWT/auth.
 const AUTH_ERROR = /42501|PGRST301|row-level security|permission denied|not authoriz|\bJWT\b|forbidden/i;
 function isAuthError(error: { code?: string; message?: string }): boolean {
   return AUTH_ERROR.test(error.code ?? "") || AUTH_ERROR.test(error.message ?? "");
+}
+
+// PGRST205 = PostgREST can't find the table in its schema cache (table missing
+// or cache stale). On a read this is a benign "not set up yet"; on a write it's
+// a hard, non-retryable failure that must never be queued as a false success.
+function isTableNotFoundError(error: { code?: string; message?: string }): boolean {
+  return error.code === "PGRST205" || /find the table/i.test(error.message ?? "");
 }
 
 /**
@@ -168,7 +189,7 @@ export async function getCollection<T extends Doc>(
   if (error) {
     // A not-yet-created table is an expected "feature not set up" state, not an
     // error — return empty quietly (warn once) instead of spamming the console.
-    if (error.code === "PGRST205" || /find the table/i.test(error.message)) {
+    if (isTableNotFoundError(error)) {
       warnOnce(collection, `[data] table "${collection}" not found — treating as empty.`);
       return [];
     }
@@ -271,6 +292,14 @@ export async function upsertDocument<T extends Doc>(
       memSet(key, rolledBack);
       console.warn(`[data] upsert(${collection}/${id}) rejected (not authorized):`, error.message);
       if (opts.throwOnUnauthorized) throw new WriteNotAuthorizedError(error.message);
+    } else if (isTableNotFoundError(error)) {
+      // The table isn't in PostgREST's schema cache (never created, or the cache
+      // is stale). Queuing would retry forever AND report a false success, so
+      // roll back the optimistic entry and surface an honest failure instead.
+      const rolledBack = (memGet<T[]>(key, { ignoreExpiry: true }) ?? []).filter((d) => d.id !== id);
+      memSet(key, rolledBack);
+      console.warn(`[data] upsert(${collection}/${id}) rejected (table not found):`, error.message);
+      if (opts.throwOnUnauthorized) throw new TableNotFoundError(error.message);
     } else if (queueOnError) {
       // Push failed (e.g. connection dropped mid-request) — queue it for later sync.
       console.error(`[data] upsert(${collection}/${id}) failed, queuing:`, error.message);
