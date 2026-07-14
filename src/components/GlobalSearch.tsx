@@ -196,7 +196,7 @@ export function GlobalSearch({
         icon: ReceiptText,
         title: label,
         subtitle: [r.ReceiptNo, r.Category, r.Date].filter(Boolean).join(" · "),
-        to: "/receipts",
+        to: "/cost-tracker?tab=receipts",
         haystack: hay(r.Merchant, r.ReceiptNo, r.Category, r.Notes, r.MerchantTin, r.Date, r.Total),
       });
     }

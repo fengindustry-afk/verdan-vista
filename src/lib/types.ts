@@ -214,6 +214,8 @@ export interface CostEntry {
   Date: string;
   Note?: string;
   CreatedBy?: string;
+  /** Links this expense to a digitised receipt (scanned via Log Expense). */
+  ReceiptId?: string;
 }
 
 export interface CostBudget {

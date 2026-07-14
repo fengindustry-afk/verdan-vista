@@ -108,15 +108,21 @@ export function CaptureReceiptDialog() {
       return toast.error("PDF must be under 50 MB.");
     }
     setPdfFile({ blob: file, bytes: file.size });
+    // A PDF may be attached without any photo (e.g. a supplier's e-receipt). Move
+    // straight to the review form so it can be described and saved — otherwise the
+    // dialog stays on the capture screen and the PDF is never persisted.
+    setStep("review");
   };
 
   const save = async () => {
-    if (!compressed) return;
+    // Allow saving a PDF-only receipt (no photographed image).
+    if (!compressed && !pdfFile) return;
     setSaving(true);
     try {
       const id = `rcpt_${Date.now().toString(36)}`;
-      const ext = compressed.mime === "image/webp" ? "webp" : "jpg";
-      const stored = await uploadImage(Buckets.receipts, `${id}.${ext}`, compressed.blob);
+      const stored = compressed
+        ? await uploadImage(Buckets.receipts, `${id}.${compressed.mime === "image/webp" ? "webp" : "jpg"}`, compressed.blob)
+        : { path: "", dataUrl: "" };
 
       // Upload PDF if provided.
       let pdfStored: { path?: string; dataUrl?: string } = {};
@@ -143,8 +149,8 @@ export function CaptureReceiptDialog() {
         RawText: rawText,
         ImageUrl: stored.path ?? "",
         ImageBase64: stored.dataUrl ? stored.dataUrl.split(",")[1] ?? "" : "",
-        ImageMime: compressed.mime,
-        ImageBytes: compressed.bytes,
+        ImageMime: compressed?.mime ?? "",
+        ImageBytes: compressed?.bytes ?? 0,
         PdfUrl: pdfStored.path ?? "",
         PdfBase64: pdfStored.dataUrl ? pdfStored.dataUrl.split(",")[1] ?? "" : "",
         PdfBytes: pdfFile?.bytes,
@@ -327,7 +333,7 @@ export function CaptureReceiptDialog() {
 
             <button
               onClick={save}
-              disabled={saving || !compressed}
+              disabled={saving || (!compressed && !pdfFile)}
               className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-primary text-primary-foreground px-4 py-2 text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-60"
             >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}

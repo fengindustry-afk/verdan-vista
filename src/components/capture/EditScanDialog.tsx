@@ -27,6 +27,7 @@ export function EditScanDialog({ scan, open, onOpenChange }: Props) {
   const del = useDelete(Collections.scans);
   const [notes, setNotes] = useState(scan.Notes ?? "");
   const [url, setUrl] = useState<string | null>(null);
+  const [triedFallback, setTriedFallback] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [zoom, setZoom] = useState(false);
   const [health, setHealth] = useState<HealthResult | null>(
@@ -38,12 +39,26 @@ export function EditScanDialog({ scan, open, onOpenChange }: Props) {
   useEffect(() => {
     if (!open) return;
     setNotes(scan.Notes ?? "");
+    setTriedFallback(false);
     // Prefer the storage-signed URL; fall back to the inline base64 when a signed
     // URL can't be produced, so the image and health analysis still work.
     resolveImageUrl(Buckets.scans, storedRef(scan))
       .then((u) => setUrl(u ?? base64Ref(scan) ?? null))
       .catch(() => setUrl(base64Ref(scan) ?? null));
   }, [open, scan]);
+
+  // A signed URL can be produced yet still 404 (object missing / not viewable in
+  // this environment). Without this the <img> would blank out on the detail view
+  // even though the thumbnail (StoredImage) recovers via the same fallback.
+  const onImgError = () => {
+    const fallback = base64Ref(scan);
+    if (!triedFallback && fallback && url !== fallback) {
+      setTriedFallback(true);
+      setUrl(fallback);
+    } else {
+      setUrl(null);
+    }
+  };
 
   const analyze = async () => {
     if (!url) return toast.error("No image available to analyze.");
@@ -95,6 +110,7 @@ export function EditScanDialog({ scan, open, onOpenChange }: Props) {
               alt="scan"
               className="w-full rounded-lg max-h-56 object-cover cursor-zoom-in"
               onClick={() => setZoom(true)}
+              onError={onImgError}
             />
           )}
           <ImageLightbox src={url} alt="scan" open={zoom} onClose={() => setZoom(false)} />

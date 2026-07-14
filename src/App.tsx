@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { lazy, Suspense, useEffect } from "react";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -29,10 +29,9 @@ import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 
 // Code-split the routes that pull heavy libraries so they load on demand:
-// Reports → xlsx + jspdf, CCTV → hls.js, Receipts → tesseract.js OCR.
+// Reports → xlsx + jspdf, CCTV → hls.js.
 const Reports = lazy(() => import("./pages/Reports"));
 const Cctv = lazy(() => import("./pages/Cctv"));
-const Receipts = lazy(() => import("./pages/Receipts"));
 
 const PageFallback = () => (
   <div className="flex items-center gap-2 text-muted-foreground text-sm py-20 justify-center">
@@ -114,7 +113,8 @@ const App = () => (
             <Route path="/testing-plot" element={<TestingPlot />} />
             <Route path="/testing-plot/:id" element={<TreeDetail />} />
             <Route path="/cost-tracker" element={<CostTracker />} />
-            <Route path="/receipts" element={<Suspense fallback={<PageFallback />}><Receipts /></Suspense>} />
+            {/* Receipts folded into the Cost Tracker as a tab; keep the old path as a redirect for deep links. */}
+            <Route path="/receipts" element={<Navigate to="/cost-tracker?tab=receipts" replace />} />
             <Route path="/users" element={<Users />} />
             <Route path="/reports" element={<Suspense fallback={<PageFallback />}><Reports /></Suspense>} />
             <Route path="/audit-trail" element={<AuditTrail />} />

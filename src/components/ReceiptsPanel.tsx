@@ -20,7 +20,12 @@ import { ImageLightbox } from "@/components/ImageLightbox";
 import { useAuth } from "@/lib/auth";
 import { hasPermission, Permission } from "@/lib/rbac";
 
-export default function Receipts() {
+/**
+ * The receipts archive UI — stats, search and the digitised-receipt grid with a
+ * detail dialog. Rendered as the "Receipts" tab of the Cost Tracker so paper
+ * receipts and logged expenses live in one place.
+ */
+export function ReceiptsPanel() {
   const { data: receipts = [], isLoading } = useReceipts();
   const { role } = useAuth();
   const canAdd = hasPermission(role, Permission.AddCosts);
@@ -29,7 +34,7 @@ export default function Receipts() {
   const [selected, setSelected] = useState<Receipt | null>(null);
 
   const stats = useMemo(() => {
-    const bytes = receipts.reduce((s, r) => s + (r.ImageBytes ?? 0), 0);
+    const bytes = receipts.reduce((s, r) => s + (r.ImageBytes ?? 0) + (r.PdfBytes ?? 0), 0);
     const value = receipts.reduce((s, r) => s + (r.Total ?? 0), 0);
     const needReview = receipts.filter((r) => r.Status === "review").length;
     return {
@@ -52,16 +57,11 @@ export default function Receipts() {
   }, [receipts, query]);
 
   return (
-    <div className="relative p-6 lg:p-8 space-y-6">
-      <div className="glow-orb w-72 h-72 -top-36 right-10 animate-pulse-glow" />
-
+    <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Receipts</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Paper receipts digitised & retained 7 years for LHDN tax audit
-          </p>
-        </div>
+        <p className="text-sm text-muted-foreground">
+          Paper receipts digitised &amp; retained 7 years for LHDN tax audit
+        </p>
         {canAdd && <CaptureReceiptDialog />}
       </div>
 
@@ -141,7 +141,7 @@ export default function Receipts() {
                     <Badge variant="outline" className={`text-[10px] border ${expired ? "bg-destructive/15 text-destructive border-destructive/30" : "bg-primary/10 text-primary border-primary/30"}`}>
                       {expired ? "Retention lapsed" : `Keep ${yrs}y`}
                     </Badge>
-                    <span className="text-[10px] text-muted-foreground">{formatBytes(r.ImageBytes ?? 0)}</span>
+                    <span className="text-[10px] text-muted-foreground">{formatBytes((r.ImageBytes ?? 0) + (r.PdfBytes ?? 0))}</span>
                   </div>
                 </BentoCard>
               </button>
@@ -184,7 +184,7 @@ function ReceiptDetailDialog({
       if (receipt.ImageBase64) {
         const mime = receipt.ImageMime || "image/webp";
         if (active) setImgUrl(`data:${mime};base64,${receipt.ImageBase64}`);
-      } else {
+      } else if (receipt.ImageUrl) {
         const url = await resolveImageUrl(Buckets.receipts, receipt.ImageUrl);
         if (active) setImgUrl(url);
       }
@@ -200,6 +200,7 @@ function ReceiptDetailDialog({
 
   if (!receipt) return null;
   const expired = isRetentionExpired(receipt.RetentionUntil);
+  const hasImage = !!(receipt.ImageBase64 || receipt.ImageUrl);
 
   const rows: [string, string | undefined][] = [
     ["Merchant", receipt.Merchant],
@@ -231,19 +232,23 @@ function ReceiptDetailDialog({
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-4 max-h-[70vh] overflow-auto py-1">
-          <div className="rounded-lg bg-muted overflow-hidden flex items-center justify-center min-h-[8rem]">
-            {imgUrl ? (
-              <img
-                src={imgUrl}
-                alt="receipt"
-                className="w-full max-h-72 object-contain cursor-zoom-in"
-                onClick={() => setZoom(true)}
-              />
-            ) : (
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground my-10" />
-            )}
-          </div>
-          <ImageLightbox src={imgUrl} alt="receipt" open={zoom} onClose={() => setZoom(false)} />
+          {hasImage && (
+            <>
+              <div className="rounded-lg bg-muted overflow-hidden flex items-center justify-center min-h-[8rem]">
+                {imgUrl ? (
+                  <img
+                    src={imgUrl}
+                    alt="receipt"
+                    className="w-full max-h-72 object-contain cursor-zoom-in"
+                    onClick={() => setZoom(true)}
+                  />
+                ) : (
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground my-10" />
+                )}
+              </div>
+              <ImageLightbox src={imgUrl} alt="receipt" open={zoom} onClose={() => setZoom(false)} />
+            </>
+          )}
 
           {pdfUrl && (
             <div className="flex items-center justify-between rounded-lg bg-primary/10 border border-primary/30 px-3 py-2">

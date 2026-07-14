@@ -1,4 +1,4 @@
-import { LayoutDashboard, Activity, Package, Workflow, Calculator, MapPin, Video, TreePine, Wallet, ReceiptText, ShieldCheck, Shield, FileText, Settings, type LucideIcon } from "lucide-react";
+import { LayoutDashboard, Activity, Package, Workflow, Calculator, MapPin, Video, TreePine, Wallet, ShieldCheck, Shield, FileText, Settings, type LucideIcon } from "lucide-react";
 import { Permission } from "./rbac";
 
 /**
@@ -46,7 +46,6 @@ export const navSections: NavSection[] = [
       { title: "Feedstock", url: "/feedstock", icon: Package, permission: Permission.ViewFeedstock },
       { title: "Testing Plot", url: "/testing-plot", icon: TreePine, permission: Permission.ViewLocations },
       { title: "Cost Tracker", url: "/cost-tracker", icon: Wallet, permission: Permission.ViewCosts },
-      { title: "Receipts", url: "/receipts", icon: ReceiptText, permission: Permission.ViewCosts, nested: true },
     ],
   },
   {
