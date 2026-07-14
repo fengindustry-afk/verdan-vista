@@ -21,13 +21,19 @@ begin;
 
 -- ── Role resolution ────────────────────────────────────────────────────────
 -- The caller's role, looked up from the users table by their authenticated
--- email. SECURITY DEFINER so the lookup itself isn't blocked by RLS. Defaults
--- to the least privilege ('Viewer') when no profile row exists.
+-- email. Defaults to the least privilege ('Viewer') when no profile row exists.
+--
+-- SECURITY INVOKER (not DEFINER): the lookup only needs to read public.users,
+-- which users_select already exposes to every authenticated user, so there is no
+-- reason to run it as the table owner. Keeping it INVOKER is least-privilege and
+-- avoids the "Signed-In Users Can Execute SECURITY DEFINER Function" advisor
+-- finding — the `authenticated` role MUST retain EXECUTE here because RLS write
+-- policies call this on every request (see security/fix-current-app-role-definer.sql).
 create or replace function public.current_app_role()
 returns text
 language sql
 stable
-security definer
+security invoker
 set search_path = public
 as $$
   select coalesce(
