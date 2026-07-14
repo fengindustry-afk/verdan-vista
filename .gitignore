@@ -36,3 +36,10 @@ dist-ssr
 /blob-report/
 /playwright/.cache/
 /e2e/.auth/
+
+# Python (ocr-service)
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
