@@ -6,7 +6,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  ReceiptText, Search, X, Loader2, HardDrive, ShieldCheck, Trash2, FileWarning,
+  ReceiptText, Search, X, Loader2, HardDrive, ShieldCheck, Trash2, FileWarning, FileText, Download,
 } from "lucide-react";
 import { useReceipts, useDelete } from "@/hooks/useCollection";
 import { Collections } from "@/lib/collections";
@@ -170,22 +170,30 @@ function ReceiptDetailDialog({
 }) {
   const del = useDelete(Collections.receipts);
   const [imgUrl, setImgUrl] = useState<string | null>(null);
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [showRaw, setShowRaw] = useState(false);
   const [zoom, setZoom] = useState(false);
 
   useEffect(() => {
     let active = true;
     setImgUrl(null);
+    setPdfUrl(null);
     setShowRaw(false);
     if (!receipt) return;
     (async () => {
       if (receipt.ImageBase64) {
         const mime = receipt.ImageMime || "image/webp";
         if (active) setImgUrl(`data:${mime};base64,${receipt.ImageBase64}`);
-        return;
+      } else {
+        const url = await resolveImageUrl(Buckets.receipts, receipt.ImageUrl);
+        if (active) setImgUrl(url);
       }
-      const url = await resolveImageUrl(Buckets.receipts, receipt.ImageUrl);
-      if (active) setImgUrl(url);
+      if (receipt.PdfBase64) {
+        if (active) setPdfUrl(`data:application/pdf;base64,${receipt.PdfBase64}`);
+      } else if (receipt.PdfUrl) {
+        const url = await resolveImageUrl(Buckets.receipts, receipt.PdfUrl);
+        if (active) setPdfUrl(url);
+      }
     })();
     return () => { active = false; };
   }, [receipt]);
@@ -236,6 +244,21 @@ function ReceiptDetailDialog({
             )}
           </div>
           <ImageLightbox src={imgUrl} alt="receipt" open={zoom} onClose={() => setZoom(false)} />
+
+          {pdfUrl && (
+            <div className="flex items-center justify-between rounded-lg bg-primary/10 border border-primary/30 px-3 py-2">
+              <div className="flex items-center gap-2 text-sm">
+                <FileText className="h-4 w-4 text-primary" />
+                <div>
+                  <p className="font-medium text-foreground">PDF attached</p>
+                  {receipt?.PdfBytes && <p className="text-[11px] text-muted-foreground">{formatBytes(receipt.PdfBytes)}</p>}
+                </div>
+              </div>
+              <a href={pdfUrl} download={`receipt-${receipt?.ReceiptNo || receipt?.id}.pdf`} className="p-2 hover:bg-background/50 rounded transition-colors">
+                <Download className="h-4 w-4 text-primary" />
+              </a>
+            </div>
+          )}
 
           <div className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${expired ? "border-destructive/30 bg-destructive/10 text-destructive" : "border-primary/30 bg-primary/10 text-primary"}`}>
             {expired ? <FileWarning className="h-4 w-4 shrink-0" /> : <ShieldCheck className="h-4 w-4 shrink-0" />}

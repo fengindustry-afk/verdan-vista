@@ -262,6 +262,12 @@ export interface Receipt {
   ImageMime?: string;
   /** Stored image size in bytes, for storage-usage reporting. */
   ImageBytes?: number;
+  /** PDF attachment path in the `receipts` Storage bucket. */
+  PdfUrl?: string;
+  /** Inline base64 fallback for PDF when Storage is unavailable. */
+  PdfBase64?: string;
+  /** Stored PDF size in bytes. */
+  PdfBytes?: number;
   /** "review" (fields need confirming) | "confirmed". */
   Status?: string;
   CapturedBy?: string;

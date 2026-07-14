@@ -4,7 +4,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Camera, Loader2, ScanText, Plus, ChevronDown } from "lucide-react";
+import { Camera, Loader2, ScanText, Plus, ChevronDown, FileText, X } from "lucide-react";
 import { useUpsert, useCategoryNames } from "@/hooks/useCollection";
 import { Collections } from "@/lib/collections";
 import type { Receipt } from "@/lib/types";
@@ -35,11 +35,13 @@ export function CaptureReceiptDialog() {
   const upsert = useUpsert<Receipt>(Collections.receipts, { surfaceErrors: true });
   const categoryNames = useCategoryNames();
   const fileRef = useRef<HTMLInputElement>(null);
+  const pdfRef = useRef<HTMLInputElement>(null);
 
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<Step>("capture");
   const [preview, setPreview] = useState("");
   const [compressed, setCompressed] = useState<Awaited<ReturnType<typeof compressReceiptImage>> | null>(null);
+  const [pdfFile, setPdfFile] = useState<{ blob: Blob; bytes: number } | null>(null);
   const [ocrPct, setOcrPct] = useState(0);
   const [ocrEngine, setOcrEngine] = useState<"remote" | "tesseract" | null>(null);
   const [rawText, setRawText] = useState("");
@@ -48,7 +50,7 @@ export function CaptureReceiptDialog() {
   const [saving, setSaving] = useState(false);
 
   const reset = () => {
-    setStep("capture"); setPreview(""); setCompressed(null); setOcrPct(0);
+    setStep("capture"); setPreview(""); setCompressed(null); setPdfFile(null); setOcrPct(0);
     setOcrEngine(null); setRawText(""); setShowRaw(false); setForm(emptyForm); setSaving(false);
   };
 
@@ -95,6 +97,19 @@ export function CaptureReceiptDialog() {
     }
   };
 
+  const onPdfFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (file.type !== "application/pdf") {
+      return toast.error("Please choose a PDF file.");
+    }
+    if (file.size > 50 * 1024 * 1024) {
+      return toast.error("PDF must be under 50 MB.");
+    }
+    setPdfFile({ blob: file, bytes: file.size });
+  };
+
   const save = async () => {
     if (!compressed) return;
     setSaving(true);
@@ -102,6 +117,13 @@ export function CaptureReceiptDialog() {
       const id = `rcpt_${Date.now().toString(36)}`;
       const ext = compressed.mime === "image/webp" ? "webp" : "jpg";
       const stored = await uploadImage(Buckets.receipts, `${id}.${ext}`, compressed.blob);
+
+      // Upload PDF if provided.
+      let pdfStored: { path?: string; dataUrl?: string } = {};
+      if (pdfFile) {
+        pdfStored = await uploadImage(Buckets.receipts, `${id}.pdf`, pdfFile.blob, { keepDataUrl: true });
+      }
+
       const capturedAt = new Date().toISOString();
       const doc: Receipt = {
         id,
@@ -123,6 +145,9 @@ export function CaptureReceiptDialog() {
         ImageBase64: stored.dataUrl ? stored.dataUrl.split(",")[1] ?? "" : "",
         ImageMime: compressed.mime,
         ImageBytes: compressed.bytes,
+        PdfUrl: pdfStored.path ?? "",
+        PdfBase64: pdfStored.dataUrl ? pdfStored.dataUrl.split(",")[1] ?? "" : "",
+        PdfBytes: pdfFile?.bytes,
         Status: "confirmed",
         CapturedBy: user?.FullName || user?.Email || "User",
         CapturedAt: capturedAt,
@@ -154,16 +179,27 @@ export function CaptureReceiptDialog() {
         </DialogHeader>
 
         <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={onFile} className="hidden" />
+        <input ref={pdfRef} type="file" accept=".pdf" onChange={onPdfFile} className="hidden" />
 
         {step === "capture" && (
-          <button
-            onClick={() => fileRef.current?.click()}
-            className="w-full inline-flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border py-12 text-sm text-muted-foreground hover:bg-muted/40 transition-colors"
-          >
-            <Camera className="h-7 w-7 text-primary" />
-            Tap to photograph or upload a receipt
-            <span className="text-[11px]">Compressed to grayscale WebP · text read on-device</span>
-          </button>
+          <div className="space-y-3">
+            <button
+              onClick={() => fileRef.current?.click()}
+              className="w-full inline-flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border py-12 text-sm text-muted-foreground hover:bg-muted/40 transition-colors"
+            >
+              <Camera className="h-7 w-7 text-primary" />
+              Tap to photograph or upload a receipt
+              <span className="text-[11px]">Compressed to grayscale WebP · text read on-device</span>
+            </button>
+            <button
+              onClick={() => pdfRef.current?.click()}
+              className="w-full inline-flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border py-8 text-sm text-muted-foreground hover:bg-muted/40 transition-colors"
+            >
+              <FileText className="h-6 w-6 text-primary" />
+              Or attach a PDF (optional)
+              <span className="text-[11px]">Up to 50 MB</span>
+            </button>
+          </div>
         )}
 
         {step === "processing" && (
@@ -200,6 +236,30 @@ export function CaptureReceiptDialog() {
                   <button onClick={() => fileRef.current?.click()} className="rounded-lg bg-background/80 backdrop-blur px-2.5 py-1 text-xs border border-border">Retake</button>
                 </div>
               </div>
+            )}
+
+            {pdfFile && (
+              <div className="flex items-center justify-between rounded-lg bg-primary/10 border border-primary/30 px-3 py-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <FileText className="h-4 w-4 text-primary" />
+                  <div>
+                    <p className="font-medium text-foreground">PDF attached</p>
+                    <p className="text-[11px] text-muted-foreground">{formatBytes(pdfFile.bytes)}</p>
+                  </div>
+                </div>
+                <button onClick={() => setPdfFile(null)} className="p-1 hover:bg-background/50 rounded transition-colors">
+                  <X className="h-4 w-4 text-muted-foreground" />
+                </button>
+              </div>
+            )}
+
+            {!pdfFile && (
+              <button
+                onClick={() => pdfRef.current?.click()}
+                className="w-full inline-flex flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-border/50 py-3 text-xs text-muted-foreground hover:bg-muted/20 transition-colors"
+              >
+                <FileText className="h-4 w-4 text-primary/60" /> Attach PDF (optional)
+              </button>
             )}
 
             <div className="grid grid-cols-2 gap-3">
