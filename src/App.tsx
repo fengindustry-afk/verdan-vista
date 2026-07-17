@@ -23,6 +23,7 @@ import Assets from "./pages/Assets";
 import TestingPlot from "./pages/TestingPlot";
 import TreeDetail from "./pages/TreeDetail";
 import CostTracker from "./pages/CostTracker";
+import ShareTarget from "./pages/ShareTarget";
 import Users from "./pages/Users";
 import AuditTrail from "./pages/AuditTrail";
 import Settings from "./pages/Settings";
@@ -113,6 +114,8 @@ const App = () => (
             <Route path="/testing-plot" element={<TestingPlot />} />
             <Route path="/testing-plot/:id" element={<TreeDetail />} />
             <Route path="/cost-tracker" element={<CostTracker />} />
+            {/* Web Share Target landing: files shared from other apps land here. */}
+            <Route path="/share-target" element={<ShareTarget />} />
             {/* Receipts folded into the Cost Tracker as a tab; keep the old path as a redirect for deep links. */}
             <Route path="/receipts" element={<Navigate to="/cost-tracker?tab=receipts" replace />} />
             <Route path="/users" element={<Users />} />

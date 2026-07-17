@@ -18,6 +18,8 @@ export interface NavChild {
   url: string;
   icon: LucideIcon;
   permission: Permission;
+  /** Access-group module gating this page (see lib/groups.ts); absent = ungated. */
+  module?: string;
   /** Sub-item of the child immediately above it (rendered indented in the bar). */
   nested?: boolean;
 }
@@ -35,17 +37,17 @@ export const navSections: NavSection[] = [
     title: "Dashboard", url: "/", icon: LayoutDashboard,
     children: [
       { title: "Overview", url: "/", icon: LayoutDashboard, permission: Permission.ViewDashboard },
-      { title: "dMRV Monitor", url: "/dmrv", icon: Activity, permission: Permission.ViewDashboard },
+      { title: "dMRV Monitor", url: "/dmrv", icon: Activity, permission: Permission.ViewDashboard, module: "sensors" },
       { title: "CORC Calculator", url: "/corc-calculator", icon: Calculator, permission: Permission.ViewDashboard },
     ],
   },
   {
     title: "Workflow", url: "/workflow", icon: Workflow,
     children: [
-      { title: "Workflow", url: "/workflow", icon: Workflow, permission: Permission.ViewFeedstock },
-      { title: "Feedstock", url: "/feedstock", icon: Package, permission: Permission.ViewFeedstock },
-      { title: "Testing Plot", url: "/testing-plot", icon: TreePine, permission: Permission.ViewLocations },
-      { title: "Cost Tracker", url: "/cost-tracker", icon: Wallet, permission: Permission.ViewCosts },
+      { title: "Workflow", url: "/workflow", icon: Workflow, permission: Permission.ViewFeedstock, module: "workflow" },
+      { title: "Feedstock", url: "/feedstock", icon: Package, permission: Permission.ViewFeedstock, module: "custody" },
+      { title: "Testing Plot", url: "/testing-plot", icon: TreePine, permission: Permission.ViewLocations, module: "testing-plot" },
+      { title: "Cost Tracker", url: "/cost-tracker", icon: Wallet, permission: Permission.ViewCosts, module: "cost-tracker" },
     ],
   },
   {

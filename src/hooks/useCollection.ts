@@ -20,7 +20,10 @@ import type {
   PlotObservation,
   PlotApplication,
 } from "@/lib/types";
+import type { Group } from "@/lib/types";
 import type { SensorReading } from "@/lib/sensors";
+import { useAuth } from "@/lib/auth";
+import { activeGroupId } from "@/lib/groups";
 import type { WorkProcessEntry } from "@/lib/workProcess";
 import type { ReadinessStatusDoc } from "@/lib/readiness";
 import { WORK_PROCESS_SEED } from "@/lib/workProcessSeed";
@@ -41,6 +44,7 @@ export const useFeedstock = () => useCollection<Feedstock>(Collections.feedstock
 export const useLocations = () => useCollection<LocationData>(Collections.locations);
 export const usePhotos = () => useCollection<GeotaggedPhoto>(Collections.photos);
 export const useUsers = () => useCollection<UserProfile>(Collections.users);
+export const useGroups = () => useCollection<Group>(Collections.groups);
 export const useTrees = () => useCollection<Tree>(Collections.trees);
 export const useReadings = () => useCollection<TreeReading>(Collections.readings);
 export const useSoilSamples = () => useCollection<SoilSample>(Collections.soilSamples);
@@ -78,6 +82,13 @@ export function useCategoryNames(): string[] {
   return categories.length > 0 ? categories.map((c) => c.Name) : [...DefaultCostCategories];
 }
 
+/** Meta-collections that never get an access-group stamp. */
+const GROUP_STAMP_EXEMPT = new Set<string>([
+  Collections.users,
+  Collections.groups,
+  Collections.editHistory,
+]);
+
 /** Look up a document's current cached payload (its "before" snapshot for the log). */
 function cachedBefore<T extends { id: string }>(
   qc: ReturnType<typeof useQueryClient>,
@@ -99,9 +110,22 @@ export function useUpsert<T extends { id: string }>(
 ) {
   const qc = useQueryClient();
   const track = opts.history !== false;
+  const { user } = useAuth();
   return useMutation({
     mutationFn: async (doc: T) => {
-      const before = track ? cachedBefore<T>(qc, collection, doc.id) : undefined;
+      const before = cachedBefore<T>(qc, collection, doc.id);
+      // Stamp the creator's active access group onto NEW records so RLS scopes
+      // them to that group (see security/create-groups.sql). Existing records
+      // keep whatever GroupId they have (never re-stamped on edit), and
+      // meta-collections stay unstamped.
+      if (
+        !before &&
+        !GROUP_STAMP_EXEMPT.has(collection) &&
+        (doc as Record<string, unknown>).GroupId === undefined
+      ) {
+        const gid = activeGroupId(user);
+        if (gid) doc = { ...doc, GroupId: gid };
+      }
       // `surfaceErrors` makes an RLS/auth rejection throw (instead of silently
       // "succeeding") so the caller can show an honest "not saved" message.
       const saved = await upsertDocument<T>(collection, doc, {

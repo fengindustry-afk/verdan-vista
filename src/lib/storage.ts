@@ -2,11 +2,16 @@ import { supabase, isSupabaseConfigured } from "./supabase";
 import { isEffectivelyOffline } from "./data";
 
 /**
- * Image storage for captured photos/scans. Primary path uploads to a private
- * Supabase Storage bucket (scalable — the DB row stores only the object path,
- * and images are viewed via short-lived signed URLs). If the bucket doesn't
- * exist yet (security/storage-policies.sql not applied) or the upload fails, it
- * falls back to an inline base64 data URL so capture still works.
+ * Media storage for captured photos/scans/receipts. Three tiers, best first:
+ *
+ *   1. Cloudflare R2 — heavy files belong here (cheap at scale, keeps the
+ *      Supabase DB/Storage lean). The browser asks the `r2-sign` edge function
+ *      for a short-lived presigned URL and PUTs/GETs directly against R2; R2
+ *      credentials never reach the client. Stored refs are "r2:bucket/key".
+ *   2. Private Supabase Storage bucket — used when R2 isn't configured or the
+ *      signing/upload fails. Stored ref is the plain object path (legacy rows
+ *      all look like this and keep working unchanged).
+ *   3. Inline base64 data URL — last resort so capture still works offline.
  */
 
 export const Buckets = {
@@ -15,10 +20,12 @@ export const Buckets = {
   receipts: "receipts",
 } as const;
 
+const R2_PREFIX = "r2:";
+
 export interface StoredImage {
-  /** Object path in the bucket (when uploaded to Storage). */
+  /** Storage reference ("r2:bucket/key" or a Supabase Storage object path). */
   path?: string;
-  /** Inline data URL fallback (when Storage is unavailable). */
+  /** Inline data URL fallback (when no storage tier is available). */
   dataUrl?: string;
 }
 
@@ -31,14 +38,62 @@ function blobToDataUrl(blob: Blob): Promise<string> {
   });
 }
 
+/** After a signing failure (function not deployed, secrets missing, demo
+ * session), skip R2 attempts for a while instead of paying a doomed round-trip
+ * on every upload/thumbnail. */
+let r2DisabledUntil = 0;
+const R2_RETRY_COOLDOWN_MS = 5 * 60 * 1000;
+
+/** Ask r2-sign for a presigned URL. Throws when R2 is unavailable/denied. */
+async function signR2(
+  action: "put" | "get",
+  bucket: string,
+  key: string
+): Promise<{ url: string; ref: string }> {
+  if (Date.now() < r2DisabledUntil) throw new Error("R2 signing on cooldown");
+  const { data, error } = await supabase.functions.invoke("r2-sign", {
+    body: { action, bucket, key },
+  });
+  if (error) {
+    r2DisabledUntil = Date.now() + R2_RETRY_COOLDOWN_MS;
+    throw error;
+  }
+  if (!data?.url) throw new Error("r2-sign returned no URL");
+  return { url: data.url as string, ref: (data.ref as string) ?? `${R2_PREFIX}${bucket}/${key}` };
+}
+
+async function uploadToR2(bucket: string, key: string, blob: Blob): Promise<string> {
+  const { url, ref } = await signR2("put", bucket, key);
+  const res = await fetch(url, {
+    method: "PUT",
+    body: blob,
+    headers: { "Content-Type": blob.type || "application/octet-stream" },
+  });
+  if (!res.ok) throw new Error(`R2 PUT ${res.status}`);
+  return ref;
+}
+
 export async function uploadImage(
   bucket: string,
   path: string,
   blob: Blob,
   opts: { keepDataUrl?: boolean } = {}
 ): Promise<StoredImage> {
-  // Offline: skip the upload attempt and keep the image inline so capture still works.
+  // Offline: skip upload attempts and keep the image inline so capture still works.
   if (isSupabaseConfigured && !isEffectivelyOffline()) {
+    // Tier 1: R2. Signing fails fast (503) when the function/secrets aren't set
+    // up, or 401 for sessions that can't call functions (demo login) — both fall
+    // through to Supabase Storage. On success we do NOT keep the base64 fallback
+    // even when asked: the whole point of R2 is keeping big payloads out of the
+    // DB row, and GETs are signed by the same function that just signed this PUT.
+    try {
+      const ref = await uploadToR2(bucket, path, blob);
+      return { path: ref };
+    } catch (err) {
+      console.warn(`[storage] R2 upload for ${bucket}/${path} unavailable, trying Supabase:`, err);
+    }
+
+    // Tier 2: Supabase Storage.
     const { error } = await supabase.storage.from(bucket).upload(path, blob, {
       upsert: true,
       contentType: blob.type || "image/jpeg",
@@ -51,8 +106,14 @@ export async function uploadImage(
     }
     console.warn(`[storage] upload to ${bucket} failed, using inline fallback:`, error.message);
   }
+  // Tier 3: inline base64.
   return { dataUrl: await blobToDataUrl(blob) };
 }
+
+/** Signed R2 GET URLs, cached until shortly before they expire so a list view
+ * doesn't hit the edge function once per thumbnail per render. */
+const r2UrlCache = new Map<string, { url: string; expiresAt: number }>();
+const R2_GET_CACHE_MS = 55 * 60 * 1000; // URLs are signed for 60min
 
 /** Turns a stored reference into a viewable URL. */
 export async function resolveImageUrl(
@@ -64,6 +125,21 @@ export async function resolveImageUrl(
   // Already a usable URL (inline data URL, or a legacy absolute URL).
   if (stored.startsWith("data:") || stored.startsWith("http")) return stored;
   if (!isSupabaseConfigured || isEffectivelyOffline()) return null;
+
+  if (stored.startsWith(R2_PREFIX)) {
+    const cached = r2UrlCache.get(stored);
+    if (cached && cached.expiresAt > Date.now()) return cached.url;
+    const [b, ...rest] = stored.slice(R2_PREFIX.length).split("/");
+    try {
+      const { url } = await signR2("get", b, rest.join("/"));
+      r2UrlCache.set(stored, { url, expiresAt: Date.now() + R2_GET_CACHE_MS });
+      return url;
+    } catch (err) {
+      console.warn(`[storage] R2 sign ${stored} failed:`, err);
+      return null;
+    }
+  }
+
   const { data, error } = await supabase.storage.from(bucket).createSignedUrl(stored, expiresIn);
   if (error) {
     console.warn(`[storage] sign ${bucket}/${stored} failed:`, error.message);

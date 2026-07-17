@@ -8,10 +8,22 @@
       "port": 8080
     },
     {
+      "name": "myauditor",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "D:/Project 1/MYAuditor"],
+      "port": 8090
+    },
+    {
       "name": "verdant-vista-alt",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--", "--port", "8090", "--strictPort"],
       "port": 8090
+    },
+    {
+      "name": "verdant-vista-8095",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "8095", "--strictPort"],
+      "port": 8095
     },
     {
       "name": "verdant-vista-preview",

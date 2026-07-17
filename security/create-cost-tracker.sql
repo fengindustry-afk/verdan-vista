@@ -38,25 +38,51 @@ drop policy if exists anon_all on public.cost_entries;
 drop policy if exists anon_all on public.cost_budgets;
 drop policy if exists anon_all on public.cost_categories;
 
+-- Personal-ledger rows are private to their owner (matched by login email);
+-- Esterra (business) rows stay shared. NULL-safe: a missing owner email or a
+-- JWT without an email yields NULL (= not owner), never a match.
+create or replace function public.owns_personal_entry(data jsonb)
+returns boolean
+language sql stable
+set search_path = ''
+as $$
+  select coalesce(data->>'Ledger','Esterra') <> 'Personal'
+      or nullif(lower(coalesce(data->>'CreatedByEmail', data->>'CreatedBy')), '')
+         = lower(auth.jwt()->>'email');
+$$;
+
 drop policy if exists cost_entries_select on public.cost_entries;
 create policy cost_entries_select on public.cost_entries
-  for select to authenticated using (true);
+  for select to authenticated
+  using (public.owns_personal_entry(data));
 
 drop policy if exists cost_entries_insert on public.cost_entries;
 create policy cost_entries_insert on public.cost_entries
   for insert to authenticated
-  with check (public.has_role('Operator','Manager','Admin'));
+  with check (
+    public.has_role('Operator','Manager','Admin')
+    and public.owns_personal_entry(data)
+  );
 
 drop policy if exists cost_entries_update on public.cost_entries;
 create policy cost_entries_update on public.cost_entries
   for update to authenticated
-  using (public.has_role('Operator','Manager','Admin'))
-  with check (public.has_role('Operator','Manager','Admin'));
+  using (
+    public.has_role('Operator','Manager','Admin')
+    and public.owns_personal_entry(data)
+  )
+  with check (
+    public.has_role('Operator','Manager','Admin')
+    and public.owns_personal_entry(data)
+  );
 
 drop policy if exists cost_entries_delete on public.cost_entries;
 create policy cost_entries_delete on public.cost_entries
   for delete to authenticated
-  using (public.has_role('Manager','Admin'));
+  using (
+    public.has_role('Manager','Admin')
+    and public.owns_personal_entry(data)
+  );
 
 drop policy if exists cost_budgets_select on public.cost_budgets;
 create policy cost_budgets_select on public.cost_budgets

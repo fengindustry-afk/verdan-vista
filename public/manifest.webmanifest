@@ -1,0 +1,42 @@
+{
+  "name": "Esterra — Carbon Credit Flow Manager",
+  "short_name": "Esterra",
+  "description": "Carbon credit lifecycle tracking, CORC issuance, and audit. Share receipts and documents straight into Esterra.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0b120d",
+  "theme_color": "#0b120d",
+  "icons": [
+    {
+      "src": "/esterra-mark.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/esterra-icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "share_target": {
+    "action": "/share-target",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url",
+      "files": [
+        {
+          "name": "file",
+          "accept": ["image/*", "application/pdf"]
+        }
+      ]
+    }
+  }
+}

@@ -3,6 +3,7 @@ import { useLocation } from "react-router-dom";
 import { Search } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { hasPermission } from "@/lib/rbac";
+import { useModuleAccess } from "@/hooks/useModuleAccess";
 import { navSections, sectionForPath } from "@/lib/navigation";
 import { GlobalSearch } from "@/components/GlobalSearch";
 import {
@@ -21,9 +22,11 @@ export function AppSidebar() {
   const collapsed = state === "collapsed";
   const location = useLocation();
   const { role } = useAuth();
-  // A section is shown when the role can reach at least one of its child pages.
+  const canModule = useModuleAccess();
+  // A section is shown when the role (and access groups) can reach at least
+  // one of its child pages.
   const visibleSections = navSections.filter((section) =>
-    section.children.some((c) => hasPermission(role, c.permission))
+    section.children.some((c) => hasPermission(role, c.permission) && canModule(c.module))
   );
   const activeSection = sectionForPath(location.pathname);
 

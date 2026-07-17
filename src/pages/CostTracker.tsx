@@ -3,9 +3,13 @@ import { Wallet, TrendingUp, AlertTriangle, Loader2, Trash2 } from "lucide-react
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useSearchParams } from "react-router-dom";
+import { useState } from "react";
 import { useCostEntries, useCostBudgets, useCategoryNames, useDelete } from "@/hooks/useCollection";
 import { Collections } from "@/lib/collections";
-import { categorySpendForMonth, projectMonthSummary } from "@/lib/costTracker";
+import {
+  categorySpendForMonth, projectMonthSummary, filterEntries, moneySummary,
+  expenseByCategory, availableMonths, isSpend, entryType, LEDGERS,
+} from "@/lib/costTracker";
 import { money } from "@/lib/format";
 import { NewCostEntryDialog } from "@/components/NewCostEntryDialog";
 import { SetBudgetDialog } from "@/components/SetBudgetDialog";
@@ -43,8 +47,20 @@ export default function CostTracker() {
   const tab: TabValue = TABS.includes(tabParam as TabValue) ? (tabParam as TabValue) : "overview";
   const setTab = (v: string) => setSearchParams((p) => { p.set("tab", v); return p; }, { replace: true });
 
-  const spend = categorySpendForMonth(entries, budgets, categoryNames);
-  const summary = projectMonthSummary(entries, budgets);
+  // Ledger/month filters for the Smart Money Tracker dashboard (from Estera.xlsx).
+  const [ledgerFilter, setLedgerFilter] = useState("All");
+  const [monthFilter, setMonthFilter] = useState("All");
+  const months = availableMonths(entries);
+  const filtered = filterEntries(entries, { ledger: ledgerFilter, month: monthFilter });
+  const money$ = moneySummary(filtered);
+  const byCategory = expenseByCategory(filtered);
+  const maxCategoryTotal = Math.max(...byCategory.map((c) => c.total), 1);
+
+  // Budget section stays anchored to the current month, expenses only — income
+  // and savings must not count against spending budgets.
+  const spendEntries = entries.filter(isSpend);
+  const spend = categorySpendForMonth(spendEntries, budgets, categoryNames);
+  const summary = projectMonthSummary(spendEntries, budgets);
   const overBudgetCount = spend.filter((s) => s.status === "over").length;
   const recent = [...entries].sort((a, b) => (a.Date < b.Date ? 1 : -1));
 
@@ -80,6 +96,86 @@ export default function CostTracker() {
         ) : (
           <>
             <TabsContent value="overview" className="space-y-6 pt-4">
+              {/* ── Smart Money Tracker (ledger concept from Estera.xlsx) ── */}
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <h2 className="text-sm font-semibold text-foreground">Money Tracker</h2>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={ledgerFilter}
+                    onChange={(e) => setLedgerFilter(e.target.value)}
+                    className="rounded-lg bg-muted border border-border px-2.5 py-1.5 text-xs text-foreground"
+                    aria-label="Ledger filter"
+                  >
+                    <option>All</option>
+                    {LEDGERS.map((l) => <option key={l}>{l}</option>)}
+                  </select>
+                  <select
+                    value={monthFilter}
+                    onChange={(e) => setMonthFilter(e.target.value)}
+                    className="rounded-lg bg-muted border border-border px-2.5 py-1.5 text-xs text-foreground"
+                    aria-label="Month filter"
+                  >
+                    <option>All</option>
+                    {months.map((m) => <option key={m}>{m}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <BentoCard>
+                  <p className="text-xs text-muted-foreground mb-1">Income</p>
+                  <p className="text-2xl font-bold text-foreground">{money(money$.income)}</p>
+                </BentoCard>
+                <BentoCard delay={0.05}>
+                  <p className="text-xs text-muted-foreground mb-1">Expenses</p>
+                  <p className="text-2xl font-bold text-foreground">{money(money$.expenses)}</p>
+                  <p className="text-[11px] text-muted-foreground mt-1">{money$.count} transactions</p>
+                </BentoCard>
+                <BentoCard delay={0.1}>
+                  <p className="text-xs text-muted-foreground mb-1">Balance</p>
+                  <p className={`text-2xl font-bold ${money$.balance < 0 ? "text-destructive" : "text-foreground"}`}>
+                    {money(money$.balance)}
+                  </p>
+                  {money$.income > 0 && (
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      {money$.pctBalanceOfIncome.toFixed(0)}% of income kept
+                    </p>
+                  )}
+                </BentoCard>
+                <BentoCard delay={0.15}>
+                  <p className="text-xs text-muted-foreground mb-1">Savings &amp; Investment</p>
+                  <p className="text-2xl font-bold text-foreground">{money(money$.savingsInvestment)}</p>
+                </BentoCard>
+              </div>
+
+              {byCategory.length > 0 && (
+                <BentoCard>
+                  <h3 className="text-sm font-semibold text-foreground mb-3">
+                    Expenses by category
+                    {ledgerFilter !== "All" && <span className="text-muted-foreground font-normal"> · {ledgerFilter}</span>}
+                    {monthFilter !== "All" && <span className="text-muted-foreground font-normal"> · {monthFilter}</span>}
+                  </h3>
+                  <div className="space-y-2.5">
+                    {byCategory.map((c) => (
+                      <div key={c.category}>
+                        <div className="flex items-baseline justify-between gap-2 mb-1">
+                          <span className="text-xs text-foreground truncate">{c.category}</span>
+                          <span className="text-[11px] text-muted-foreground whitespace-nowrap">{money(c.total)}</span>
+                        </div>
+                        <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                          <div
+                            className="h-full bg-primary transition-all"
+                            style={{ width: `${Math.max(2, (c.total / maxCategoryTotal) * 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </BentoCard>
+              )}
+
+              {/* ── Monthly budgets (expenses only, current month) ── */}
+              <h2 className="text-sm font-semibold text-foreground">This month vs budget</h2>
               <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <BentoCard>
                   <p className="text-xs text-muted-foreground mb-1">Spent this month</p>
@@ -154,6 +250,8 @@ export default function CostTracker() {
                     <thead>
                       <tr className="border-b border-border/50 text-left text-[10px] uppercase tracking-wider text-muted-foreground">
                         <th className="px-4 py-3 font-medium">Title</th>
+                        <th className="px-4 py-3 font-medium">Ledger</th>
+                        <th className="px-4 py-3 font-medium">Type</th>
                         <th className="px-4 py-3 font-medium">Category</th>
                         <th className="px-4 py-3 font-medium">Date</th>
                         <th className="px-4 py-3 font-medium text-right">Amount</th>
@@ -164,6 +262,8 @@ export default function CostTracker() {
                       {recent.map((e) => (
                         <tr key={e.id} className="border-b border-border/30 last:border-0 hover:bg-muted/30">
                           <td className="px-4 py-3 text-foreground">{e.Title}</td>
+                          <td className="px-4 py-3 text-muted-foreground">{e.Ledger ?? "Esterra"}</td>
+                          <td className="px-4 py-3 text-muted-foreground">{entryType(e)}</td>
                           <td className="px-4 py-3 text-muted-foreground">{e.Category}</td>
                           <td className="px-4 py-3 text-muted-foreground">{e.Date}</td>
                           <td className="px-4 py-3 text-right font-medium text-foreground">{money(e.Amount)}</td>

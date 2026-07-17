@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger,
 } from "@/components/ui/dialog";
@@ -9,9 +9,10 @@ import { useUpsert, useCategoryNames } from "@/hooks/useCollection";
 import { Collections } from "@/lib/collections";
 import type { CostEntry, CostCategory, Receipt } from "@/lib/types";
 import { createCostEntry } from "@/lib/costTracker";
-import { compressReceiptImage, preprocessForOcr, formatBytes } from "@/lib/receiptImage";
-import { runOcr } from "@/lib/ocr";
-import { parseReceipt, computeRetentionUntil } from "@/lib/receipts";
+import { compressReceiptImage, formatBytes } from "@/lib/receiptImage";
+import { scanReceipt } from "@/lib/extractReceipt";
+import { LEDGERS, ENTRY_TYPES } from "@/lib/costTracker";
+import { computeRetentionUntil } from "@/lib/receipts";
 import { uploadImage, Buckets } from "@/lib/storage";
 import { useAuth } from "@/lib/auth";
 import { newCostEntrySchema, categoryNameSchema } from "@/lib/validation";
@@ -27,14 +28,35 @@ type ScannedReceipt = {
   parsed: Partial<Receipt>;
 };
 
-export function NewCostEntryDialog() {
+/**
+ * Log an expense. Self-triggering by default, but can be driven externally
+ * (controlled `open` + a pre-loaded `initialFile`) so the Share Target chooser
+ * can route a shared receipt image straight into this flow to auto-fill it.
+ */
+export function NewCostEntryDialog({
+  open: controlledOpen,
+  onOpenChange,
+  initialFile,
+  hideTrigger = false,
+}: {
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  initialFile?: File | null;
+  hideTrigger?: boolean;
+} = {}) {
   const { user } = useAuth();
   const upsert = useUpsert<CostEntry>(Collections.costEntries, { surfaceErrors: true });
   const upsertCategory = useUpsert<CostCategory>(Collections.costCategories, { surfaceErrors: true });
   const upsertReceipt = useUpsert<Receipt>(Collections.receipts, { surfaceErrors: true });
   const categoryNames = useCategoryNames();
   const fileRef = useRef<HTMLInputElement>(null);
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const open = isControlled ? controlledOpen : internalOpen;
+  const setOpen = (o: boolean) => {
+    if (isControlled) onOpenChange?.(o);
+    else setInternalOpen(o);
+  };
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState<string>(categoryNames[0]);
   const [newCategoryName, setNewCategoryName] = useState("");
@@ -43,6 +65,8 @@ export function NewCostEntryDialog() {
   const [note, setNote] = useState("");
   const [scanning, setScanning] = useState(false);
   const [receipt, setReceipt] = useState<ScannedReceipt | null>(null);
+  const [ledger, setLedger] = useState<string>("Esterra");
+  const [entryTypeSel, setEntryTypeSel] = useState<string>("Expense");
 
   const addingCategory = category === ADD_NEW;
 
@@ -50,6 +74,7 @@ export function NewCostEntryDialog() {
     setTitle(""); setAmount(""); setNote(""); setCategory(categoryNames[0]); setNewCategoryName("");
     setDate(new Date().toISOString().slice(0, 10));
     setReceipt(null); setScanning(false);
+    setLedger("Esterra"); setEntryTypeSel("Expense");
   };
 
   // Scan a receipt to auto-fill the expense. OCR is best-effort: if it can't read
@@ -58,6 +83,10 @@ export function NewCostEntryDialog() {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
+    await processReceiptFile(file);
+  };
+
+  const processReceiptFile = async (file: File) => {
     setScanning(true);
     try {
       const compressed = await compressReceiptImage(file);
@@ -65,16 +94,17 @@ export function NewCostEntryDialog() {
       let rawText = "";
       let parsed: Partial<Receipt> = {};
       try {
-        const ocrImage = await preprocessForOcr(file);
-        const { text } = await runOcr(ocrImage);
-        rawText = text;
-        parsed = parseReceipt(text);
+        const scan = await scanReceipt(file);
+        rawText = scan.rawText;
+        parsed = scan.fields;
         if (parsed.Merchant) setTitle(parsed.Merchant);
         if (parsed.Total != null) setAmount(String(parsed.Total));
         if (parsed.Date) setDate(parsed.Date);
+        // Adopt the AI's category suggestion only when it's an existing category.
+        if (parsed.Category && categoryNames.includes(parsed.Category)) setCategory(parsed.Category);
         toast.success("Receipt scanned — review the auto-filled fields.");
       } catch (err) {
-        console.warn("[cost] receipt OCR failed:", err);
+        console.warn("[cost] receipt scan failed:", err);
         toast.warning("Couldn't read the receipt text — fill the fields in manually.");
       }
       setReceipt({ compressed, preview, rawText, parsed });
@@ -82,6 +112,17 @@ export function NewCostEntryDialog() {
       setScanning(false);
     }
   };
+
+  // When opened with a pre-loaded image (Share Target flow), scan it as if the
+  // user had picked it. Guarded so each shared file is processed only once.
+  const processedFile = useRef<File | null>(null);
+  useEffect(() => {
+    if (open && initialFile && initialFile !== processedFile.current && initialFile.type.startsWith("image/")) {
+      processedFile.current = initialFile;
+      void processReceiptFile(initialFile);
+    }
+    if (!open) processedFile.current = null;
+  }, [open, initialFile]);
 
   const submit = async () => {
     let resolvedCategory = category;
@@ -107,7 +148,11 @@ export function NewCostEntryDialog() {
 
     // safeParse success guarantees the full shape at runtime; the cast works
     // around zod resolving `.data` to its input (all-optional) flavor here.
-    const entry = createCostEntry(parsed.data as Parameters<typeof createCostEntry>[0], user?.FullName || user?.Email || "User");
+    const entry = createCostEntry(
+      { ...(parsed.data as Parameters<typeof createCostEntry>[0]), ledger, type: entryTypeSel },
+      user?.FullName || user?.Email || "User",
+      user?.Email
+    );
     try {
       if (addingCategory) {
         await upsertCategory.mutateAsync({ id: crypto.randomUUID(), Name: resolvedCategory });
@@ -165,11 +210,13 @@ export function NewCostEntryDialog() {
 
   return (
     <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) reset(); }}>
-      <DialogTrigger asChild>
-        <button className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-4 py-2 text-sm font-semibold hover:bg-primary/90 transition-colors">
-          <Plus className="h-4 w-4" /> Log Expense
-        </button>
-      </DialogTrigger>
+      {!hideTrigger && (
+        <DialogTrigger asChild>
+          <button className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-4 py-2 text-sm font-semibold hover:bg-primary/90 transition-colors">
+            <Plus className="h-4 w-4" /> Log Expense
+          </button>
+        </DialogTrigger>
+      )}
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Log Expense</DialogTitle>
@@ -203,6 +250,20 @@ export function NewCostEntryDialog() {
           <div>
             <Label className="text-xs">Title</Label>
             <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Fertilizer restock" className="mt-1" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs">Ledger</Label>
+              <select value={ledger} onChange={(e) => setLedger(e.target.value)} className="mt-1 w-full rounded-lg bg-muted border border-border px-3 py-2 text-sm text-foreground">
+                {LEDGERS.map((l) => <option key={l}>{l}</option>)}
+              </select>
+            </div>
+            <div>
+              <Label className="text-xs">Type</Label>
+              <select value={entryTypeSel} onChange={(e) => setEntryTypeSel(e.target.value)} className="mt-1 w-full rounded-lg bg-muted border border-border px-3 py-2 text-sm text-foreground">
+                {ENTRY_TYPES.map((t) => <option key={t}>{t}</option>)}
+              </select>
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>

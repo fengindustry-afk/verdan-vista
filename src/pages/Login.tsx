@@ -15,10 +15,8 @@ const SHOW_DEMO =
   import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === "true";
 
 export default function Login() {
-  const { signIn, signUp, demoLogin, loading } = useAuth();
+  const { signIn, demoLogin, loading } = useAuth();
   const navigate = useNavigate();
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
-  const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -44,14 +42,6 @@ export default function Login() {
       return;
     }
     try {
-      if (mode === "signup") {
-        if (!fullName) return setError("Please enter your name.");
-        if (password.length < 6) return setError("Password must be at least 6 characters.");
-        await signUp(email, password, fullName);
-        toast.success("Account created — check your inbox to confirm your email.");
-        setMode("signin");
-        return;
-      }
       const profile = await signIn(email, password);
       markOnboarded(); // a signed-in user is never a first-timer
       toast.success(`Welcome, ${profile.FullName}`);
@@ -118,20 +108,10 @@ export default function Login() {
           </div>
         </div>
 
-        <h1 className="text-lg font-semibold text-foreground mb-1">
-          {mode === "signin" ? "Sign in" : "Create account"}
-        </h1>
-        <p className="text-xs text-muted-foreground mb-5">
-          {mode === "signin" ? "Access your carbon credit dashboard" : "Register a new CarbonTracker account"}
-        </p>
+        <h1 className="text-lg font-semibold text-foreground mb-1">Sign in</h1>
+        <p className="text-xs text-muted-foreground mb-5">Access your carbon credit dashboard</p>
 
         <form onSubmit={submit} className="space-y-4">
-          {mode === "signup" && (
-            <div>
-              <Label className="text-xs">Full name</Label>
-              <Input value={fullName} placeholder="Jane Doe" onChange={(e) => setFullName(e.target.value)} className="mt-1" />
-            </div>
-          )}
           <div>
             <Label className="text-xs">Email</Label>
             <Input type="email" value={email} placeholder="you@company.com" onChange={(e) => setEmail(e.target.value)} className="mt-1" />
@@ -147,16 +127,9 @@ export default function Login() {
             className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-primary text-primary-foreground px-4 py-2.5 text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-60"
           >
             {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-            {mode === "signin" ? "Sign in" : "Create account"}
+            Sign in
           </button>
         </form>
-
-        <button
-          onClick={() => { setMode(mode === "signin" ? "signup" : "signin"); setError(""); }}
-          className="mt-3 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-        >
-          {mode === "signin" ? "No account? Create one" : "Already have an account? Sign in"}
-        </button>
 
         {SHOW_DEMO && (
         <div className="mt-5 pt-5 border-t border-border/50">

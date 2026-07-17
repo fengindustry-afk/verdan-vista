@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
@@ -8,9 +8,9 @@ import { Camera, Loader2, ScanText, Plus, ChevronDown, FileText, X } from "lucid
 import { useUpsert, useCategoryNames } from "@/hooks/useCollection";
 import { Collections } from "@/lib/collections";
 import type { Receipt } from "@/lib/types";
-import { compressReceiptImage, preprocessForOcr, formatBytes } from "@/lib/receiptImage";
-import { runOcr } from "@/lib/ocr";
-import { parseReceipt, computeRetentionUntil } from "@/lib/receipts";
+import { compressReceiptImage, formatBytes } from "@/lib/receiptImage";
+import { scanReceipt, engineLabel, type ScanEngine } from "@/lib/extractReceipt";
+import { computeRetentionUntil } from "@/lib/receipts";
 import { uploadImage, Buckets } from "@/lib/storage";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
@@ -30,20 +30,41 @@ function num(v: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-export function CaptureReceiptDialog() {
+/**
+ * Scan/attach a receipt. Renders as a self-triggering button by default, but can
+ * also be driven externally (controlled `open` + a pre-loaded `initialFile`) so
+ * the Share Target chooser can route a shared image/PDF straight into this flow.
+ */
+export function CaptureReceiptDialog({
+  open: controlledOpen,
+  onOpenChange,
+  initialFile,
+  hideTrigger = false,
+}: {
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  initialFile?: File | null;
+  hideTrigger?: boolean;
+} = {}) {
   const { user } = useAuth();
   const upsert = useUpsert<Receipt>(Collections.receipts, { surfaceErrors: true });
   const categoryNames = useCategoryNames();
   const fileRef = useRef<HTMLInputElement>(null);
   const pdfRef = useRef<HTMLInputElement>(null);
 
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const open = isControlled ? controlledOpen : internalOpen;
+  const setOpen = (o: boolean) => {
+    if (isControlled) onOpenChange?.(o);
+    else setInternalOpen(o);
+  };
   const [step, setStep] = useState<Step>("capture");
   const [preview, setPreview] = useState("");
   const [compressed, setCompressed] = useState<Awaited<ReturnType<typeof compressReceiptImage>> | null>(null);
   const [pdfFile, setPdfFile] = useState<{ blob: Blob; bytes: number } | null>(null);
   const [ocrPct, setOcrPct] = useState(0);
-  const [ocrEngine, setOcrEngine] = useState<"remote" | "tesseract" | null>(null);
+  const [ocrEngine, setOcrEngine] = useState<ScanEngine | null>(null);
   const [rawText, setRawText] = useState("");
   const [showRaw, setShowRaw] = useState(false);
   const [form, setForm] = useState<Form>(emptyForm);
@@ -59,6 +80,10 @@ export function CaptureReceiptDialog() {
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    await processImageFile(file);
+  };
+
+  const processImageFile = async (file: File) => {
     setStep("processing");
     setOcrPct(0);
     try {
@@ -66,30 +91,31 @@ export function CaptureReceiptDialog() {
       setCompressed(c);
       setPreview(URL.createObjectURL(c.blob));
 
-      // OCR is best-effort: if the engine/CDN is unavailable, the user can still
-      // fill the form manually and keep the (already-retained) image. Recognise
-      // from a dedicated high-contrast, upscaled copy of the *original* — not the
-      // lossy archival WebP — for materially better accuracy.
+      // Reading is best-effort: if every engine (AI extraction, OCR service,
+      // in-browser Tesseract) is unavailable, the user can still fill the form
+      // manually and keep the (already-retained) image. Scan from the *original*
+      // file — not the lossy archival WebP — for materially better accuracy.
       try {
-        const ocrImage = await preprocessForOcr(file);
-        const { text, engine } = await runOcr(ocrImage, setOcrPct);
+        const { fields: parsed, rawText: text, engine } = await scanReceipt(file, setOcrPct);
         setOcrEngine(engine);
         setRawText(text);
-        const parsed = parseReceipt(text);
         setForm((f) => ({
           ...f,
           Merchant: parsed.Merchant ?? "",
           MerchantTin: parsed.MerchantTin ?? "",
           ReceiptNo: parsed.ReceiptNo ?? "",
           Date: parsed.Date ?? "",
+          // Only adopt an AI category suggestion when it matches an existing one.
+          Category: parsed.Category && categoryNames.includes(parsed.Category) ? parsed.Category : f.Category,
           Subtotal: parsed.Subtotal != null ? String(parsed.Subtotal) : "",
           TaxType: parsed.TaxType ?? "None",
           TaxRate: parsed.TaxRate != null ? String(parsed.TaxRate) : "",
           TaxAmount: parsed.TaxAmount != null ? String(parsed.TaxAmount) : "",
           Total: parsed.Total != null ? String(parsed.Total) : "",
+          PaymentMethod: parsed.PaymentMethod ?? f.PaymentMethod,
         }));
       } catch (err) {
-        console.warn("[receipts] OCR failed:", err);
+        console.warn("[receipts] scan failed:", err);
         toast.warning("Couldn't read the text automatically — fill the fields in manually.");
       }
     } finally {
@@ -101,6 +127,10 @@ export function CaptureReceiptDialog() {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
+    attachPdf(file);
+  };
+
+  const attachPdf = (file: File) => {
     if (file.type !== "application/pdf") {
       return toast.error("Please choose a PDF file.");
     }
@@ -113,6 +143,18 @@ export function CaptureReceiptDialog() {
     // dialog stays on the capture screen and the PDF is never persisted.
     setStep("review");
   };
+
+  // When opened with a pre-loaded file (Share Target flow), run it through the
+  // same path a manual pick would take. Guarded so each shared file processes once.
+  const processedFile = useRef<File | null>(null);
+  useEffect(() => {
+    if (open && initialFile && initialFile !== processedFile.current) {
+      processedFile.current = initialFile;
+      if (initialFile.type === "application/pdf") attachPdf(initialFile);
+      else processImageFile(initialFile);
+    }
+    if (!open) processedFile.current = null;
+  }, [open, initialFile]);
 
   const save = async () => {
     // Allow saving a PDF-only receipt (no photographed image).
@@ -174,11 +216,13 @@ export function CaptureReceiptDialog() {
 
   return (
     <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) reset(); }}>
-      <DialogTrigger asChild>
-        <button className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-4 py-2 text-sm font-semibold hover:bg-primary/90 transition-colors">
-          <Camera className="h-4 w-4" /> Scan Receipt
-        </button>
-      </DialogTrigger>
+      {!hideTrigger && (
+        <DialogTrigger asChild>
+          <button className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-4 py-2 text-sm font-semibold hover:bg-primary/90 transition-colors">
+            <Camera className="h-4 w-4" /> Scan Receipt
+          </button>
+        </DialogTrigger>
+      )}
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Scan Receipt</DialogTitle>
@@ -195,7 +239,7 @@ export function CaptureReceiptDialog() {
             >
               <Camera className="h-7 w-7 text-primary" />
               Tap to photograph or upload a receipt
-              <span className="text-[11px]">Compressed to grayscale WebP · text read on-device</span>
+              <span className="text-[11px]">Fields auto-filled by AI · falls back to on-device OCR offline</span>
             </button>
             <button
               onClick={() => pdfRef.current?.click()}
@@ -227,11 +271,15 @@ export function CaptureReceiptDialog() {
                   {ocrEngine && (
                     <span
                       className="rounded-lg bg-background/80 backdrop-blur px-2 py-1 text-[10px] border border-border text-muted-foreground"
-                      title={ocrEngine === "remote"
-                        ? "Read by the OCR service"
-                        : "OCR service unavailable — read on-device with Tesseract"}
+                      title={
+                        ocrEngine === "gemini" || ocrEngine === "grok"
+                          ? "Fields extracted by the AI vision model — review before saving"
+                          : ocrEngine === "remote"
+                            ? "Read by the OCR service"
+                            : "AI/OCR service unavailable — read on-device with Tesseract"
+                      }
                     >
-                      {ocrEngine === "remote" ? "Server OCR" : "On-device OCR"}
+                      {engineLabel(ocrEngine)}
                     </span>
                   )}
                   {compressed && (

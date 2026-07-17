@@ -214,8 +214,14 @@ export interface CostEntry {
   Date: string;
   Note?: string;
   CreatedBy?: string;
+  /** Owner's login email — RLS uses this to keep Personal-ledger rows private. */
+  CreatedByEmail?: string;
   /** Links this expense to a digitised receipt (scanned via Log Expense). */
   ReceiptId?: string;
+  /** "Esterra" (business) | "Personal" — which ledger the transaction belongs to. */
+  Ledger?: string;
+  /** "Expense" | "Income" | "Savings" | "Investment" | "Project" (legacy rows = Expense). */
+  Type?: string;
 }
 
 export interface CostBudget {
@@ -227,6 +233,8 @@ export interface CostBudget {
 export interface CostCategory {
   id: string;
   Name: string;
+  /** Optional ledger this category primarily belongs to ("Esterra" | "Personal"). */
+  Ledger?: string;
 }
 
 /**
@@ -278,6 +286,19 @@ export interface Receipt {
   RetentionUntil?: string;
 }
 
+/**
+ * Admin-managed access group. Members may access the listed modules; records
+ * stamped with this group's id are visible only to members (+ Admins).
+ * Enforced by RLS — see security/create-groups.sql.
+ */
+export interface Group {
+  id: string;
+  Name: string;
+  Description?: string;
+  /** Module ids from MODULES in lib/groups.ts (e.g. "cost-tracker", "trees"). */
+  Modules: string[];
+}
+
 export interface UserProfile {
   id: string;
   FullName: string;
@@ -290,6 +311,8 @@ export interface UserProfile {
   EmployeeId?: string;
   /** Stored as the role name string ("Viewer" | "Operator" | "Manager" | "Admin"). */
   Role: string;
+  /** Access-group ids this user belongs to (admin-assigned; pinned by DB trigger). */
+  Groups?: string[];
   CustomPermissions?: string;
   CreatedAt?: string;
   LastLoginAt?: string;

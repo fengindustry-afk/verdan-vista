@@ -1,7 +1,6 @@
 # CarbonTracker — Web
 
-<!-- Replace OWNER/REPO with your GitHub path once the repo is pushed. -->
-[![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/REPO/actions/workflows/ci.yml)
+[![CI](https://github.com/fengindustry-afk/verdan-vista/actions/workflows/ci.yml/badge.svg)](https://github.com/fengindustry-afk/verdan-vista/actions/workflows/ci.yml)
 
 Carbon Credit Flow Manager. Vite + React + TypeScript web app, wired to the same
 Supabase backend as the .NET MAUI mobile/desktop app (shared document-store schema).

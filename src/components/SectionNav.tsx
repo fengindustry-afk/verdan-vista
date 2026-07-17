@@ -2,6 +2,7 @@ import { Link, useLocation } from "react-router-dom";
 import { CornerDownRight } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { hasPermission } from "@/lib/rbac";
+import { useModuleAccess } from "@/hooks/useModuleAccess";
 import { sectionForPath, isChildActive } from "@/lib/navigation";
 import { cn } from "@/lib/utils";
 
@@ -18,11 +19,14 @@ import { cn } from "@/lib/utils";
 export function SectionNav() {
   const location = useLocation();
   const { role } = useAuth();
+  const canModule = useModuleAccess();
 
   const section = sectionForPath(location.pathname);
   if (!section) return null;
 
-  const items = section.children.filter((c) => hasPermission(role, c.permission));
+  const items = section.children.filter(
+    (c) => hasPermission(role, c.permission) && canModule(c.module)
+  );
   if (items.length <= 1) return null;
 
   return (

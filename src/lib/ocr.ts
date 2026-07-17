@@ -1,9 +1,11 @@
 /**
- * Client-side OCR via Tesseract.js. Runs entirely in the browser — receipt
- * images never leave the device — and the ~2MB engine + language data are
- * lazy-loaded only when a scan is actually requested, so the main bundle stays
- * light. The worker/core/lang assets are fetched from the jsDelivr CDN on first
- * use (cached by the browser thereafter).
+ * Classic OCR path — now the FALLBACK behind the AI extraction in
+ * `extractReceipt.ts` (which sends the image to the extract-receipt edge
+ * function). This module keeps capture working with no AI/network at all:
+ * an optional self-hosted OCR service first, then Tesseract.js fully
+ * in-browser (images never leave the device on that path). The ~2MB engine +
+ * language data are lazy-loaded from the jsDelivr CDN only when actually
+ * needed, so the main bundle stays light.
  */
 
 type OcrModule = typeof import("tesseract.js");

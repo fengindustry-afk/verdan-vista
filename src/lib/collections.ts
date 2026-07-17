@@ -12,6 +12,7 @@ export const Collections = {
   groundTruth: "ground_truth_biomass",
   fusedBiomass: "fused_biomass",
   users: "users",
+  groups: "groups",
   trees: "trees",
   readings: "readings",
   soilSamples: "soil_samples",
