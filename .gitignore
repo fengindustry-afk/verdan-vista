@@ -48,3 +48,6 @@ venv/
 supabase/.temp/
 supabase/.branches/
 .env.local
+
+# pdfjs worker, vendored into public/ by scripts/sync-pdf-worker.mjs
+public/pdf.worker.min.mjs

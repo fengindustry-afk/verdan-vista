@@ -18,7 +18,11 @@
     "security:verify": "node security/verify-posture.mjs",
     "check": "node scripts/prepush-check.mjs",
     "backup": "node scripts/backup-supabase.mjs",
-    "backup:r2": "node scripts/backup-supabase.mjs --to-r2"
+    "backup:r2": "node scripts/backup-supabase.mjs --to-r2",
+    "sync:pdf-worker": "node scripts/sync-pdf-worker.mjs",
+    "predev": "node scripts/sync-pdf-worker.mjs",
+    "prebuild": "node scripts/sync-pdf-worker.mjs",
+    "postinstall": "node scripts/sync-pdf-worker.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -65,6 +69,7 @@
     "jspdf-autotable": "^5.0.8",
     "lucide-react": "^0.462.0",
     "next-themes": "^0.3.0",
+    "pdfjs-dist": "^4.10.38",
     "react": "^18.3.1",
     "react-day-picker": "^8.10.1",
     "react-dom": "^18.3.1",

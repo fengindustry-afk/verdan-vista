@@ -18,4 +18,10 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  // Pre-bundle pdfjs-dist so the lazy `import("pdfjs-dist")` in the PDF receipt
+  // path resolves immediately. Without this, its first dynamic import triggers
+  // on-demand dep optimization + a reload, and the import promise hangs forever.
+  optimizeDeps: {
+    include: ["pdfjs-dist"],
+  },
 }));

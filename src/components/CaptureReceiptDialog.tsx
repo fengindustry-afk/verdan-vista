@@ -10,6 +10,7 @@ import { Collections } from "@/lib/collections";
 import type { Receipt, ReceiptLineItem } from "@/lib/types";
 import { compressReceiptImage, formatBytes } from "@/lib/receiptImage";
 import { scanReceipt, engineLabel, type ScanEngine } from "@/lib/extractReceipt";
+import { renderPdfFirstPage } from "@/lib/pdf";
 import { computeRetentionUntil } from "@/lib/receipts";
 import { uploadImage, Buckets } from "@/lib/storage";
 import { useAuth } from "@/lib/auth";
@@ -143,6 +144,36 @@ export function CaptureReceiptDialog({
     await processImageFile(file);
   };
 
+  // Run the vision-LLM/OCR pipeline on an image and populate the review form.
+  // `scanSource` is the best image to read (the original photo, or a PDF page
+  // rasterised to an image) — never the lossy archival WebP.
+  const scanAndFill = async (scanSource: Blob) => {
+    const { fields: parsed, rawText: text, engine } = await scanReceipt(scanSource, setOcrPct);
+    setOcrEngine(engine);
+    setRawText(text);
+    setLineItems(parsed.LineItems ?? []);
+    setForm((f) => {
+      const filled: Form = {
+        ...f,
+        Merchant: parsed.Merchant ?? "",
+        MerchantTin: parsed.MerchantTin ?? "",
+        ReceiptNo: parsed.ReceiptNo ?? "",
+        Date: parsed.Date ?? "",
+        // Only adopt an AI category suggestion when it matches an existing one.
+        Category: parsed.Category && categoryNames.includes(parsed.Category) ? parsed.Category : f.Category,
+        Subtotal: parsed.Subtotal != null ? String(parsed.Subtotal) : "",
+        TaxType: parsed.TaxType ?? "None",
+        TaxRate: parsed.TaxRate != null ? String(parsed.TaxRate) : "",
+        TaxAmount: parsed.TaxAmount != null ? String(parsed.TaxAmount) : "",
+        Total: parsed.Total != null ? String(parsed.Total) : "",
+        PaymentMethod: parsed.PaymentMethod ?? f.PaymentMethod,
+      };
+      // If the receipt didn't print a total, derive it from subtotal + tax
+      // so the amount box isn't left blank.
+      return filled.Total ? filled : recalcMoney(filled, "Subtotal");
+    });
+  };
+
   const processImageFile = async (file: File) => {
     setStep("processing");
     setOcrPct(0);
@@ -156,30 +187,7 @@ export function CaptureReceiptDialog({
       // manually and keep the (already-retained) image. Scan from the *original*
       // file — not the lossy archival WebP — for materially better accuracy.
       try {
-        const { fields: parsed, rawText: text, engine } = await scanReceipt(file, setOcrPct);
-        setOcrEngine(engine);
-        setRawText(text);
-        setLineItems(parsed.LineItems ?? []);
-        setForm((f) => {
-          const filled: Form = {
-            ...f,
-            Merchant: parsed.Merchant ?? "",
-            MerchantTin: parsed.MerchantTin ?? "",
-            ReceiptNo: parsed.ReceiptNo ?? "",
-            Date: parsed.Date ?? "",
-            // Only adopt an AI category suggestion when it matches an existing one.
-            Category: parsed.Category && categoryNames.includes(parsed.Category) ? parsed.Category : f.Category,
-            Subtotal: parsed.Subtotal != null ? String(parsed.Subtotal) : "",
-            TaxType: parsed.TaxType ?? "None",
-            TaxRate: parsed.TaxRate != null ? String(parsed.TaxRate) : "",
-            TaxAmount: parsed.TaxAmount != null ? String(parsed.TaxAmount) : "",
-            Total: parsed.Total != null ? String(parsed.Total) : "",
-            PaymentMethod: parsed.PaymentMethod ?? f.PaymentMethod,
-          };
-          // If the receipt didn't print a total, derive it from subtotal + tax
-          // so the amount box isn't left blank.
-          return filled.Total ? filled : recalcMoney(filled, "Subtotal");
-        });
+        await scanAndFill(file);
       } catch (err) {
         console.warn("[receipts] scan failed:", err);
         toast.warning("Couldn't read the text automatically — fill the fields in manually.");
@@ -196,18 +204,30 @@ export function CaptureReceiptDialog({
     attachPdf(file);
   };
 
-  const attachPdf = (file: File) => {
+  const attachPdf = async (file: File) => {
     if (file.type !== "application/pdf") {
-      return toast.error("Please choose a PDF file.");
+      toast.error("Please choose a PDF file.");
+      return;
     }
     if (file.size > 50 * 1024 * 1024) {
-      return toast.error("PDF must be under 50 MB.");
+      toast.error("PDF must be under 50 MB.");
+      return;
     }
     setPdfFile({ blob: file, bytes: file.size });
-    // A PDF may be attached without any photo (e.g. a supplier's e-receipt). Move
-    // straight to the review form so it can be described and saved — otherwise the
-    // dialog stays on the capture screen and the PDF is never persisted.
-    setStep("review");
+    // A PDF e-receipt / supplier invoice can be auto-read too: rasterise its
+    // first page to an image and run the same extraction pipeline. Best-effort —
+    // if the render or scan fails, the PDF is still attached and the user can
+    // fill the fields in by hand.
+    setStep("processing");
+    setOcrPct(0);
+    try {
+      const pageImage = await renderPdfFirstPage(file);
+      await scanAndFill(pageImage);
+    } catch (err) {
+      console.warn("[receipts] pdf scan failed:", err);
+    } finally {
+      setStep("review");
+    }
   };
 
   // When opened with a pre-loaded file (Share Target flow), run it through the
