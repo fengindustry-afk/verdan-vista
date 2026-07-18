@@ -7,8 +7,9 @@
  *
  * Secrets (supabase secrets set …):
  *   GEMINI_API_KEY   required for the primary engine
- *   XAI_API_KEY      required for the fallback engine
- *   GEMINI_MODEL     optional, default "gemini-2.5-flash"
+ *   GROK_API_KEY     required for the fallback engine (XAI_API_KEY also accepted)
+ *   GEMINI_MODEL     optional, default "gemini-2.0-flash"
+ *                    (gemini-2.5-flash is blocked for new API projects)
  *   GROK_MODEL       optional, default "grok-4"
  *
  * Every call (success or failure) is logged to public.ai_usage_log via the
@@ -70,7 +71,7 @@ interface ProviderResult {
 async function callGemini(image: string, mime: string): Promise<ProviderResult> {
   const key = Deno.env.get("GEMINI_API_KEY");
   if (!key) throw new Error("GEMINI_API_KEY not configured");
-  const model = Deno.env.get("GEMINI_MODEL") ?? "gemini-2.5-flash";
+  const model = Deno.env.get("GEMINI_MODEL") ?? "gemini-2.0-flash";
 
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
@@ -105,8 +106,9 @@ async function callGemini(image: string, mime: string): Promise<ProviderResult> 
 }
 
 async function callGrok(image: string, mime: string): Promise<ProviderResult> {
-  const key = Deno.env.get("XAI_API_KEY");
-  if (!key) throw new Error("XAI_API_KEY not configured");
+  // Secret is GROK_API_KEY (matches docs/setup); accept XAI_API_KEY too as an alias.
+  const key = Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY");
+  if (!key) throw new Error("GROK_API_KEY not configured");
   const model = Deno.env.get("GROK_MODEL") ?? "grok-4";
 
   const res = await fetch("https://api.x.ai/v1/chat/completions", {
