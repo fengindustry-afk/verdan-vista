@@ -87,6 +87,17 @@ export const costBudgetSchema = z.object({
   monthlyLimit: z.coerce.number().finite().min(0).max(100_000_000),
 });
 
+/** A budget targeting a group (category-group / ledger / access-group). */
+export const groupBudgetSchema = z.object({
+  scopeKey: safeText(80),
+  monthlyLimit: z.coerce.number().finite().min(0).max(100_000_000),
+});
+
+/** Optional category-group name (blank clears the grouping). */
+export const categoryGroupNameSchema = z
+  .union([z.literal(""), safeText(40)])
+  .transform((v) => (v === "" ? undefined : v));
+
 /** Returns a safe URL string or null. */
 export function sanitizeStreamUrl(input: string): string | null {
   const parsed = streamUrlSchema.safeParse(input);

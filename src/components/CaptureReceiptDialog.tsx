@@ -272,7 +272,7 @@ export function CaptureReceiptDialog({
                     <span
                       className="rounded-lg bg-background/80 backdrop-blur px-2 py-1 text-[10px] border border-border text-muted-foreground"
                       title={
-                        ocrEngine === "gemini" || ocrEngine === "grok"
+                        ocrEngine === "gemini" || ocrEngine === "groq"
                           ? "Fields extracted by the AI vision model — review before saving"
                           : ocrEngine === "remote"
                             ? "Read by the OCR service"

@@ -1,4 +1,4 @@
-import type { CostEntry, CostBudget } from "./types";
+import type { CostEntry, CostBudget, CostCategory, Group } from "./types";
 
 /** Ledgers from the Esterra Smart Money Tracker: business vs personal money. */
 export const LEDGERS = ["Esterra", "Personal"] as const;
@@ -20,6 +20,11 @@ export function isSpend(e: CostEntry): boolean {
 function isInMonth(iso: string, month: number, year: number): boolean {
   const d = new Date(iso);
   return d.getMonth() === month && d.getFullYear() === year;
+}
+
+/** True if the ISO date falls in the current calendar month. */
+export function inCurrentMonth(iso: string, now: Date = new Date()): boolean {
+  return isInMonth(iso, now.getMonth(), now.getFullYear());
 }
 
 export interface CategorySpend {
@@ -177,4 +182,162 @@ export function availableMonths(entries: CostEntry[]): string[] {
     if (/^\d{4}-\d{2}$/.test(m)) months.add(m);
   }
   return [...months].sort().reverse();
+}
+
+// ── Group budgets ──────────────────────────────────────────────────────────
+// A "group" is a bundle of spending along one of three dimensions. Budgets can
+// target a group directly (CostBudget.ScopeType/ScopeKey), giving the Overview
+// a small set of clean rows that each drill into their own detail.
+
+export type GroupDimension = "categoryGroup" | "ledger" | "accessGroup";
+
+export const GROUP_DIMENSIONS: ReadonlyArray<{ id: GroupDimension; label: string }> = [
+  { id: "categoryGroup", label: "Category group" },
+  { id: "ledger", label: "Ledger" },
+  { id: "accessGroup", label: "Access group" },
+];
+
+/** Placeholder keys for entries that don't yet belong to a real group. */
+export const UNGROUPED = "__ungrouped__";
+export const UNASSIGNED = "__unassigned__";
+
+/** category name → its category-group name (only categories with a Group set). */
+function categoryGroupMap(categories: CostCategory[]): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const c of categories) {
+    const g = c.Group?.trim();
+    if (g) m.set(c.Name, g);
+  }
+  return m;
+}
+
+/** The group key an entry belongs to along a dimension. */
+export function entryGroupKey(
+  e: CostEntry,
+  dimension: GroupDimension,
+  catGroups: Map<string, string>
+): string {
+  if (dimension === "ledger") return e.Ledger || "Esterra";
+  if (dimension === "accessGroup") return e.GroupId || UNASSIGNED;
+  return catGroups.get(e.Category) || UNGROUPED;
+}
+
+/** Human-readable label for a group key (access-group keys are ids → names). */
+export function groupLabel(key: string, dimension: GroupDimension, groups: Group[]): string {
+  if (key === UNGROUPED) return "Ungrouped";
+  if (key === UNASSIGNED) return "Unassigned";
+  if (dimension === "accessGroup") return groups.find((g) => g.id === key)?.Name ?? "Unknown group";
+  return key;
+}
+
+/** Monthly limit configured for one group (0 = none). Matches scoped budgets;
+ * legacy category budgets only answer the "categoryGroup"→category case. */
+function budgetForGroup(budgets: CostBudget[], dimension: GroupDimension, key: string): number {
+  for (const b of budgets) {
+    const type = b.ScopeType ?? "category";
+    const bKey = b.ScopeKey ?? b.Category;
+    if (type === dimension && bKey === key) return b.MonthlyLimit || 0;
+  }
+  return 0;
+}
+
+export interface GroupSpend {
+  key: string;
+  label: string;
+  spent: number;
+  budget: number;
+  /** 0-100+, spent as a percentage of budget (0 when budget is unset). */
+  pctUsed: number;
+  status: "ok" | "warning" | "over";
+  txCount: number;
+}
+
+/** The set of group keys to display for a dimension: always the natural
+ * members (both ledgers, every defined category-group, every access group),
+ * plus any key that actually has spend or a budget this month. */
+function groupUniverse(
+  spendEntries: CostEntry[],
+  budgets: CostBudget[],
+  categories: CostCategory[],
+  groups: Group[],
+  dimension: GroupDimension,
+  catGroups: Map<string, string>,
+  monthKeys: Set<string>
+): Set<string> {
+  const keys = new Set<string>();
+  if (dimension === "ledger") {
+    for (const l of LEDGERS) keys.add(l);
+  } else if (dimension === "categoryGroup") {
+    for (const g of catGroups.values()) keys.add(g);
+  } else {
+    for (const g of groups) keys.add(g.id);
+  }
+  for (const b of budgets) {
+    if ((b.ScopeType ?? "category") === dimension) keys.add(b.ScopeKey ?? b.Category ?? "");
+  }
+  for (const k of monthKeys) keys.add(k);
+  keys.delete("");
+  return keys;
+}
+
+/** Aggregates this month's spend per group along a dimension, against any
+ * group budgets. `spendEntries` should already be filtered to expenses. */
+export function groupSpendForMonth(
+  spendEntries: CostEntry[],
+  budgets: CostBudget[],
+  categories: CostCategory[],
+  groups: Group[],
+  dimension: GroupDimension,
+  now: Date = new Date()
+): GroupSpend[] {
+  const month = now.getMonth();
+  const year = now.getFullYear();
+  const catGroups = categoryGroupMap(categories);
+
+  const spentByKey = new Map<string, number>();
+  const countByKey = new Map<string, number>();
+  const monthKeys = new Set<string>();
+  for (const e of spendEntries) {
+    if (!isInMonth(e.Date, month, year)) continue;
+    const key = entryGroupKey(e, dimension, catGroups);
+    monthKeys.add(key);
+    spentByKey.set(key, (spentByKey.get(key) ?? 0) + (e.Amount || 0));
+    countByKey.set(key, (countByKey.get(key) ?? 0) + 1);
+  }
+
+  const universe = groupUniverse(
+    spendEntries, budgets, categories, groups, dimension, catGroups, monthKeys
+  );
+
+  const rows: GroupSpend[] = [];
+  for (const key of universe) {
+    const spent = spentByKey.get(key) ?? 0;
+    const budget = budgetForGroup(budgets, dimension, key);
+    const txCount = countByKey.get(key) ?? 0;
+    // Skip empty placeholder groups with no spend and no budget — nothing to show.
+    if ((key === UNGROUPED || key === UNASSIGNED) && spent === 0 && budget === 0) continue;
+    const pctUsed = budget > 0 ? (spent / budget) * 100 : 0;
+    const status: GroupSpend["status"] =
+      budget > 0 && spent >= budget ? "over" : budget > 0 && spent >= budget * 0.9 ? "warning" : "ok";
+    rows.push({ key, label: groupLabel(key, dimension, groups), spent, budget, pctUsed, status, txCount });
+  }
+  return rows.sort((a, b) => b.spent - a.spent || a.label.localeCompare(b.label));
+}
+
+/** All entries (any type) belonging to one group — powers the drill-down view. */
+export function entriesInGroup(
+  entries: CostEntry[],
+  dimension: GroupDimension,
+  key: string,
+  categories: CostCategory[]
+): CostEntry[] {
+  const catGroups = categoryGroupMap(categories);
+  return entries.filter((e) => entryGroupKey(e, dimension, catGroups) === key);
+}
+
+/** Roll-up totals across a dimension's groups for the current month. */
+export function groupTotals(rows: GroupSpend[]): { spent: number; budget: number; remaining: number; overCount: number } {
+  const spent = rows.reduce((s, r) => s + r.spent, 0);
+  const budget = rows.reduce((s, r) => s + r.budget, 0);
+  return { spent, budget, remaining: budget - spent, overCount: rows.filter((r) => r.status === "over").length };
 }

@@ -222,11 +222,24 @@ export interface CostEntry {
   Ledger?: string;
   /** "Expense" | "Income" | "Savings" | "Investment" | "Project" (legacy rows = Expense). */
   Type?: string;
+  /** Access-group id stamped on create (see useCollection); absent = shared/unassigned. */
+  GroupId?: string;
 }
 
+/**
+ * A monthly spending limit. Originally per-category (the `Category` field);
+ * now generalised so a limit can target any grouping dimension via
+ * `ScopeType` + `ScopeKey`. Legacy rows carry only `Category` and are read as
+ * `{ ScopeType: "category", ScopeKey: Category }`, so nothing needs migrating.
+ */
 export interface CostBudget {
   id: string;
-  Category: string;
+  /** Legacy per-category key. Kept for back-compat; equals ScopeKey when ScopeType is "category". */
+  Category?: string;
+  /** Which dimension this limit applies to (absent = "category"). */
+  ScopeType?: "category" | "categoryGroup" | "ledger" | "accessGroup";
+  /** The specific group within ScopeType, e.g. a category name, group name, ledger, or group id. */
+  ScopeKey?: string;
   MonthlyLimit: number;
 }
 
@@ -235,6 +248,8 @@ export interface CostCategory {
   Name: string;
   /** Optional ledger this category primarily belongs to ("Esterra" | "Personal"). */
   Ledger?: string;
+  /** Optional category-group this belongs to, e.g. "Operations" (Fuel + Tools + …). */
+  Group?: string;
 }
 
 /**

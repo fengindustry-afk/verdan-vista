@@ -1,6 +1,6 @@
 /**
  * Vision-LLM receipt extraction. Sends the receipt image to the
- * `extract-receipt` edge function (Gemini primary → Grok fallback, keys held
+ * `extract-receipt` edge function (Gemini primary → Groq/Llama fallback, keys held
  * server-side in Supabase secrets) and gets the form fields back as JSON —
  * far more accurate on messy thermal receipts than the OCR+heuristic path.
  *
@@ -16,7 +16,7 @@ import { parseReceipt } from "./receipts";
 import { preprocessForOcr } from "./receiptImage";
 import type { Receipt } from "./types";
 
-export type ScanEngine = "gemini" | "grok" | "remote" | "tesseract";
+export type ScanEngine = "gemini" | "groq" | "remote" | "tesseract";
 
 export interface ScanResult {
   /** Parsed form fields, PascalCase to match the Receipt document shape. */
@@ -140,7 +140,7 @@ async function runLlmExtraction(file: Blob): Promise<ScanResult> {
     if (error) throw error;
     const provider = data?.provider as ScanEngine | undefined;
     const fields = data?.fields as LlmFields | undefined;
-    if (!fields || (provider !== "gemini" && provider !== "grok")) {
+    if (!fields || (provider !== "gemini" && provider !== "groq")) {
       throw new Error("Unexpected extraction response");
     }
     return {
@@ -182,7 +182,7 @@ export async function scanReceipt(
 export function engineLabel(engine: ScanEngine): string {
   switch (engine) {
     case "gemini": return "AI · Gemini";
-    case "grok": return "AI · Grok";
+    case "groq": return "AI · Groq";
     case "remote": return "Server OCR";
     case "tesseract": return "On-device OCR";
   }

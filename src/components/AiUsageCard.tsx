@@ -12,16 +12,15 @@ import { Sparkles, AlertTriangle } from "lucide-react";
  */
 
 /** USD per 1M tokens (input, output). Longest-prefix match on the model id, so
- * dated variants like `grok-2-vision-1212` price correctly. */
+ * dated variants like `llama-4-scout-…-1212` price correctly. */
 const PRICES: Array<[prefix: string, inPerM: number, outPerM: number]> = [
   ["gemini-2.5-flash-lite", 0.10, 0.40],
   ["gemini-2.5-flash", 0.30, 2.50],
   ["gemini-2.5-pro", 1.25, 10.0],
   ["gemini-2.0-flash", 0.10, 0.40],
-  ["grok-4", 3.0, 15.0],
-  ["grok-3-mini", 0.30, 0.50],
-  ["grok-3", 3.0, 15.0],
-  ["grok-2-vision", 2.0, 10.0],
+  // Groq (LPU-hosted Llama vision models) — the receipt fallback.
+  ["meta-llama/llama-4-scout", 0.11, 0.34],
+  ["meta-llama/llama-4-maverick", 0.20, 0.60],
 ];
 
 function estimateCost(model: string, inTok: number, outTok: number): number | null {

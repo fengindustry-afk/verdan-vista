@@ -2,15 +2,20 @@
  * extract-receipt — vision-LLM structured extraction for scanned receipts.
  *
  * The browser sends a receipt image (base64); this function asks Gemini
- * (primary) or Grok (fallback) to transcribe it and return the form fields as
+ * (primary) or Groq (fallback) to transcribe it and return the form fields as
  * JSON. API keys live only in Supabase secrets — never in the client bundle.
+ *
+ * NOTE: the fallback is Groq (the LPU inference host at api.groq.com, keys
+ * "gsk_…"), serving a Llama vision model — NOT xAI's Grok (api.x.ai). Easy to
+ * confuse; a Groq key sent to xAI (or vice-versa) is rejected as "incorrect".
  *
  * Secrets (supabase secrets set …):
  *   GEMINI_API_KEY   required for the primary engine
- *   GROK_API_KEY     required for the fallback engine (XAI_API_KEY also accepted)
+ *   GROQ_API_KEY     required for the fallback engine (GROK_API_KEY also accepted)
  *   GEMINI_MODEL     optional, default "gemini-2.0-flash"
  *                    (gemini-2.5-flash is blocked for new API projects)
- *   GROK_MODEL       optional, default "grok-4"
+ *   GROQ_MODEL       optional, default "meta-llama/llama-4-scout-17b-16e-instruct"
+ *                    (must be a Groq VISION model — receipts are images)
  *
  * Every call (success or failure) is logged to public.ai_usage_log via the
  * service role so Settings can meter this app's spend per model.
@@ -105,13 +110,16 @@ async function callGemini(image: string, mime: string): Promise<ProviderResult> 
   };
 }
 
-async function callGrok(image: string, mime: string): Promise<ProviderResult> {
-  // Secret is GROK_API_KEY (matches docs/setup); accept XAI_API_KEY too as an alias.
-  const key = Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY");
-  if (!key) throw new Error("GROK_API_KEY not configured");
-  const model = Deno.env.get("GROK_MODEL") ?? "grok-4";
+async function callGroq(image: string, mime: string): Promise<ProviderResult> {
+  // Groq (api.groq.com, keys "gsk_…"). Accept the older GROK_API_KEY name too,
+  // since the secret was originally set under it.
+  const key = Deno.env.get("GROQ_API_KEY") ?? Deno.env.get("GROK_API_KEY");
+  if (!key) throw new Error("GROQ_API_KEY not configured");
+  // Must be a Groq VISION model; Llama 4 Scout is fast + multimodal + cheap.
+  const model = Deno.env.get("GROQ_MODEL") ?? Deno.env.get("GROK_MODEL") ??
+    "meta-llama/llama-4-scout-17b-16e-instruct";
 
-  const res = await fetch("https://api.x.ai/v1/chat/completions", {
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify({
@@ -121,16 +129,16 @@ async function callGrok(image: string, mime: string): Promise<ProviderResult> {
       messages: [{
         role: "user",
         content: [
-          { type: "image_url", image_url: { url: `data:${mime};base64,${image}`, detail: "high" } },
+          { type: "image_url", image_url: { url: `data:${mime};base64,${image}` } },
           { type: "text", text: PROMPT },
         ],
       }],
     }),
   });
-  if (!res.ok) throw new Error(`Grok ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  if (!res.ok) throw new Error(`Groq ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const data = await res.json();
   const text = data.choices?.[0]?.message?.content;
-  if (!text) throw new Error("Grok returned no content");
+  if (!text) throw new Error("Groq returned no content");
   return {
     fields: JSON.parse(text),
     model,
@@ -176,9 +184,9 @@ Deno.serve(async (req) => {
       if (error) console.error("[usage-log]", error.message);
     });
 
-  const providers: Array<["gemini" | "grok", (i: string, m: string) => Promise<ProviderResult>]> = [
+  const providers: Array<["gemini" | "groq", (i: string, m: string) => Promise<ProviderResult>]> = [
     ["gemini", callGemini],
-    ["grok", callGrok],
+    ["groq", callGroq],
   ];
 
   let lastErr = "no provider configured";
