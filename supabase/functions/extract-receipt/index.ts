@@ -154,7 +154,7 @@ async function callGroq(image: string, mime: string): Promise<ProviderResult> {
   if (!key) throw new Error("GROQ_API_KEY not configured");
   // Must be a Groq VISION model; Llama 4 Scout is fast + multimodal + cheap.
   const model = Deno.env.get("GROQ_MODEL") ?? Deno.env.get("GROK_MODEL") ??
-    "meta-llama/llama-4-scout-17b-16e-instruct";
+    "qwen/qwen3.6-27b";
 
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
