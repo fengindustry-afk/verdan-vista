@@ -38,7 +38,11 @@ export function ImageLightbox({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 animate-in fade-in"
+      // Sits above app dialogs (Radix content/overlay are z-50). `pointer-events-auto`
+      // is required because Radix sets `pointer-events: none` on <body> while a modal
+      // is open, which this portalled child would otherwise inherit — leaving the
+      // zoom uninteractable (and, stacked under the dialog, appearing blank).
+      className="fixed inset-0 z-[200] pointer-events-auto flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-in fade-in"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
