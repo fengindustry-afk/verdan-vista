@@ -152,36 +152,68 @@ async function callGroq(image: string, mime: string): Promise<ProviderResult> {
   // since the secret was originally set under it.
   const key = Deno.env.get("GROQ_API_KEY") ?? Deno.env.get("GROK_API_KEY");
   if (!key) throw new Error("GROQ_API_KEY not configured");
-  // Must be a Groq VISION model; Llama 4 Scout is fast + multimodal + cheap.
+  // Must be a CURRENT Groq VISION model; qwen3.6-27b is fast + multimodal + cheap.
   const model = Deno.env.get("GROQ_MODEL") ?? Deno.env.get("GROK_MODEL") ??
     "qwen/qwen3.6-27b";
+
+  const body: Record<string, unknown> = {
+    model,
+    temperature: 0,
+    // Long, itemised receipts can produce a lot of JSON — cap high enough that
+    // the object is never truncated mid-string (which Groq then rejects as
+    // json_validate_failed).
+    max_completion_tokens: 4096,
+    response_format: { type: "json_object" },
+    messages: [{
+      role: "user",
+      content: [
+        { type: "image_url", image_url: { url: `data:${mime};base64,${image}` } },
+        { type: "text", text: PROMPT },
+      ],
+    }],
+  };
+  // qwen3 is a REASONING model: by default it emits <think>…</think> before the
+  // JSON, which breaks json_object validation (json_validate_failed). Disable
+  // reasoning entirely so the completion is pure JSON. Guarded to qwen so a
+  // differently-configured GROQ_MODEL isn't sent an unsupported param.
+  if (/qwen/i.test(model)) body.reasoning_effort = "none";
 
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-    body: JSON.stringify({
-      model,
-      temperature: 0,
-      response_format: { type: "json_object" },
-      messages: [{
-        role: "user",
-        content: [
-          { type: "image_url", image_url: { url: `data:${mime};base64,${image}` } },
-          { type: "text", text: PROMPT },
-        ],
-      }],
-    }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`Groq ${res.status}: ${(await res.text()).slice(0, 1200)}`);
   const data = await res.json();
   const text = data.choices?.[0]?.message?.content;
   if (!text) throw new Error("Groq returned no content");
   return {
-    fields: JSON.parse(text),
+    fields: parseJsonLoose(text),
     model,
     inputTokens: data.usage?.prompt_tokens ?? 0,
     outputTokens: data.usage?.completion_tokens ?? 0,
   };
+}
+
+/**
+ * Parse a model's JSON reply defensively. With reasoning disabled the content
+ * should be pure JSON, but strip a ```json fence or any stray prose/think text
+ * around the object as a belt-and-braces guard before JSON.parse.
+ */
+function parseJsonLoose(text: string): Record<string, unknown> {
+  try {
+    return JSON.parse(text);
+  } catch {
+    const cleaned = text
+      .replace(/<think>[\s\S]*?<\/think>/gi, "")
+      .replace(/```(?:json)?/gi, "");
+    const start = cleaned.indexOf("{");
+    const end = cleaned.lastIndexOf("}");
+    if (start !== -1 && end > start) {
+      return JSON.parse(cleaned.slice(start, end + 1));
+    }
+    throw new Error("Groq returned non-JSON content");
+  }
 }
 
 Deno.serve(async (req) => {
