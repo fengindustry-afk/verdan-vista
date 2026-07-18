@@ -18,7 +18,9 @@ const PRICES: Array<[prefix: string, inPerM: number, outPerM: number]> = [
   ["gemini-2.5-flash", 0.30, 2.50],
   ["gemini-2.5-pro", 1.25, 10.0],
   ["gemini-2.0-flash", 0.10, 0.40],
-  // Groq (LPU-hosted Llama vision models) — the receipt fallback.
+  // Groq (LPU-hosted vision models) — the receipt fallback.
+  ["qwen/qwen3.6-27b", 0.60, 3.00],
+  // Retained for pricing historical rows; these Llama vision models are decommissioned.
   ["meta-llama/llama-4-scout", 0.11, 0.34],
   ["meta-llama/llama-4-maverick", 0.20, 0.60],
 ];
@@ -103,7 +105,7 @@ export function AiUsageCard() {
       <p className="text-[11px] text-muted-foreground mb-4">
         Vision-model calls made by this app (receipt auto-fill). Counts only Esterra's own
         usage — other apps sharing the same API keys aren't shown here; see the Google AI
-        Studio / xAI consoles for account-wide totals. Costs are estimates from public list
+        Studio / Groq consoles for account-wide totals. Costs are estimates from public list
         prices.
       </p>
 
@@ -132,7 +134,9 @@ export function AiUsageCard() {
               <div key={`${r.provider}/${r.model}`}>
                 <div className="flex items-baseline justify-between gap-2 mb-1">
                   <span className="text-xs font-medium text-foreground truncate">
-                    {r.model}
+                    {/* Failed calls never return a model id — label them plainly
+                        instead of showing a bare "(unknown)". */}
+                    {r.model === "(unknown)" ? "Failed calls" : r.model}
                     <span className="ml-1.5 text-[10px] uppercase text-muted-foreground">{r.provider}</span>
                   </span>
                   <span className="text-[11px] text-muted-foreground whitespace-nowrap">
