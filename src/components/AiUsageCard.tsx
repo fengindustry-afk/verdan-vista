@@ -39,6 +39,22 @@ interface ModelUsage {
   inputTokens: number;
   outputTokens: number;
   cost: number | null;
+  /** Set when this provider's failures are a quota/billing block, not a transient error. */
+  quotaHint: string | null;
+}
+
+/** A provider quota/allocation failure (vs a transient or config error). */
+function isQuotaError(err: string): boolean {
+  return /RESOURCE_EXHAUSTED|quota|\blimit:\s*0\b|\b429\b|insufficient_quota/i.test(err);
+}
+
+/** Actionable one-liner for a quota-blocked provider. */
+function quotaHintFor(provider: string): string {
+  if (provider === "gemini")
+    return "Gemini quota not enabled — turn on billing for this key's Google Cloud project, or add a fresh AI Studio key.";
+  if (provider === "groq" || provider === "grok")
+    return "Groq quota/credits exhausted — check billing in the Groq console.";
+  return `${provider} quota exhausted — check the provider console.`;
 }
 
 const WINDOW_DAYS = 30;
@@ -52,7 +68,7 @@ export function AiUsageCard() {
     const since = new Date(Date.now() - WINDOW_DAYS * 86_400_000).toISOString();
     supabase
       .from("ai_usage_log")
-      .select("provider, model, input_tokens, output_tokens, ok")
+      .select("provider, model, input_tokens, output_tokens, ok, error")
       .gte("created_at", since)
       .limit(10_000)
       .then(({ data, error }) => {
@@ -72,10 +88,14 @@ export function AiUsageCard() {
           const key = `${r.provider}/${model}`;
           const m = byModel.get(key) ?? {
             provider: r.provider as string, model, calls: 0, failures: 0,
-            inputTokens: 0, outputTokens: 0, cost: null,
+            inputTokens: 0, outputTokens: 0, cost: null, quotaHint: null,
           };
           m.calls++;
-          if (!r.ok) m.failures++;
+          if (!r.ok) {
+            m.failures++;
+            const err = (r.error as string | null) ?? "";
+            if (!m.quotaHint && isQuotaError(err)) m.quotaHint = quotaHintFor(m.provider);
+          }
           m.inputTokens += (r.input_tokens as number) ?? 0;
           m.outputTokens += (r.output_tokens as number) ?? 0;
           byModel.set(key, m);
@@ -147,8 +167,13 @@ export function AiUsageCard() {
                   </span>
                 </div>
                 <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                  <div className="h-full bg-primary transition-all" style={{ width: `${pct}%` }} />
+                  <div className={`h-full transition-all ${r.quotaHint ? "bg-amber-400" : "bg-primary"}`} style={{ width: `${pct}%` }} />
                 </div>
+                {r.quotaHint && (
+                  <p className="mt-1 text-[10px] text-amber-400 flex items-start gap-1">
+                    <AlertTriangle className="h-3 w-3 shrink-0 mt-px" /> {r.quotaHint}
+                  </p>
+                )}
               </div>
             );
           })}
