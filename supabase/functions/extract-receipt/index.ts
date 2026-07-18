@@ -14,8 +14,10 @@
  *   GROQ_API_KEY     required for the fallback engine (GROK_API_KEY also accepted)
  *   GEMINI_MODEL     optional, default "gemini-2.0-flash"
  *                    (gemini-2.5-flash is blocked for new API projects)
- *   GROQ_MODEL       optional, default "meta-llama/llama-4-scout-17b-16e-instruct"
- *                    (must be a Groq VISION model — receipts are images)
+ *   GROQ_MODEL       optional, default "qwen/qwen3.6-27b"
+ *                    (must be a CURRENT Groq VISION model — the older
+ *                    llama-4-scout/maverick vision models were decommissioned
+ *                    and now 404 as "model does not exist")
  *
  * Every call (success or failure) is logged to public.ai_usage_log via the
  * service role so Settings can meter this app's spend per model.
@@ -33,17 +35,39 @@ const CORS = {
 const MAX_BASE64_CHARS = 6_000_000;
 
 const PROMPT = `You are reading a photo of a receipt or invoice, most likely Malaysian.
-Transcribe it and extract the structured fields below. Rules:
-- Dates on Malaysian receipts are day-first (dd/mm/yyyy). Output ISO YYYY-MM-DD.
-- Amounts are plain numbers (no currency symbol, no thousands separators).
-- tax_type is "SST", "GST", or "None" (SST is the current Malaysian regime).
-- merchant_tin is the tax ID / SST registration / ROC number if printed.
+Every receipt is laid out differently — do NOT assume a fixed template. Read what
+is actually printed and transcribe it faithfully; never force values into a shape
+the receipt doesn't have.
+
+Extract these structured fields:
+- merchant: the shop/vendor/business name as printed.
+- merchant_tin: the tax ID / SST registration no. / ROC / business registration no.
+  if printed (important for Malaysian LHDN records).
+- receipt_no: the receipt / invoice / bill number if printed.
+- date: the transaction date. Malaysian dates are day-first (dd/mm/yyyy);
+  output ISO YYYY-MM-DD.
+- currency: e.g. "MYR". Default "MYR" if a Malaysian receipt shows no currency.
+- line_items: one entry per purchased line actually shown on the receipt, with
+  { description, qty, unit_price, amount }. Use null for any part not printed.
+  If the receipt shows no itemised lines, return an empty array.
+- subtotal: the pre-tax subtotal if shown (else null).
+- tax_type: the indirect-tax label ACTUALLY printed — usually "SST" (Sales &
+  Service Tax, the current Malaysian regime). Malaysia abolished GST in 2018, so
+  do NOT label tax as GST unless the receipt literally prints "GST". Use "None"
+  when no tax line is shown. Transcribe an unusual printed label verbatim.
+- tax_rate: the tax rate as a percentage number (e.g. 6 for 6%) if shown or
+  derivable, else null.
+- tax_amount: the tax amount charged if shown, else null.
+- total: the final amount payable / grand total.
+- payment_method: e.g. "Cash", "Card", "DuitNow", "e-wallet" if shown.
 - category_hint: one short guess like "Fuel", "Fertilizer", "Tools", "Meals", "Utilities".
-- raw_text: the full text of the receipt, line by line, as printed.
-- Use null for anything not on the receipt. Never invent values.
+- raw_text: the full text of the receipt, line by line, exactly as printed.
+
+Amounts are plain numbers (no currency symbol, no thousands separators).
+Use null for anything not on the receipt. Never invent values.
 Return ONLY a JSON object with keys: merchant, merchant_tin, receipt_no, date,
-currency, subtotal, tax_type, tax_rate, tax_amount, total, payment_method,
-category_hint, raw_text.`;
+currency, line_items, subtotal, tax_type, tax_rate, tax_amount, total,
+payment_method, category_hint, raw_text.`;
 
 /** OpenAPI-subset schema for Gemini's structured output mode. */
 const GEMINI_SCHEMA = {
@@ -54,8 +78,21 @@ const GEMINI_SCHEMA = {
     receipt_no: { type: "STRING", nullable: true },
     date: { type: "STRING", nullable: true, description: "ISO YYYY-MM-DD" },
     currency: { type: "STRING", nullable: true },
+    line_items: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          description: { type: "STRING", nullable: true },
+          qty: { type: "NUMBER", nullable: true },
+          unit_price: { type: "NUMBER", nullable: true },
+          amount: { type: "NUMBER", nullable: true },
+        },
+      },
+    },
     subtotal: { type: "NUMBER", nullable: true },
-    tax_type: { type: "STRING", nullable: true, enum: ["SST", "GST", "None"] },
+    // Free-form: transcribe the printed tax label rather than a fixed enum.
+    tax_type: { type: "STRING", nullable: true },
     tax_rate: { type: "NUMBER", nullable: true },
     tax_amount: { type: "NUMBER", nullable: true },
     total: { type: "NUMBER", nullable: true },
@@ -189,7 +226,10 @@ Deno.serve(async (req) => {
     ["groq", callGroq],
   ];
 
-  let lastErr = "no provider configured";
+  // Collect every provider's failure so the 502 is actionable — otherwise only
+  // the last provider's error surfaces and a skipped/misconfigured primary
+  // (e.g. missing GEMINI_API_KEY) is invisible behind the fallback's error.
+  const failures: string[] = [];
   for (const [provider, call] of providers) {
     const started = Date.now();
     try {
@@ -202,15 +242,16 @@ Deno.serve(async (req) => {
       return json({ fields: result.fields, provider, model: result.model, ms });
     } catch (err) {
       const ms = Date.now() - started;
-      lastErr = err instanceof Error ? err.message : String(err);
-      console.warn(`[extract-receipt] ${provider} failed in ${ms}ms:`, lastErr);
+      const msg = err instanceof Error ? err.message : String(err);
+      failures.push(`${provider}: ${msg}`);
+      console.warn(`[extract-receipt] ${provider} failed in ${ms}ms:`, msg);
       // Don't burn a log row when the provider was simply not configured.
-      if (!lastErr.includes("not configured")) {
-        await log({ provider, model: null, ok: false, ms, error: lastErr.slice(0, 500) });
+      if (!msg.includes("not configured")) {
+        await log({ provider, model: null, ok: false, ms, error: msg.slice(0, 500) });
       }
     }
   }
-  return json({ error: `All providers failed: ${lastErr}` }, 502);
+  return json({ error: `All providers failed — ${failures.join(" | ")}` }, 502);
 });
 
 function json(payload: unknown, status = 200): Response {

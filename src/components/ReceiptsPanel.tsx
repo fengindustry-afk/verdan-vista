@@ -281,6 +281,29 @@ function ReceiptDetailDialog({
             ))}
           </div>
 
+          {receipt.LineItems && receipt.LineItems.length > 0 && (
+            <div className="rounded-lg border border-border overflow-hidden">
+              <div className="bg-muted/40 px-3 py-1.5 text-[11px] font-medium text-muted-foreground">Items read from receipt</div>
+              <ul className="divide-y divide-border">
+                {receipt.LineItems.map((it, i) => (
+                  <li key={i} className="flex items-start justify-between gap-3 px-3 py-1.5 text-xs">
+                    <span className="text-foreground">
+                      {it.Description || "—"}
+                      {(it.Qty != null || it.UnitPrice != null) && (
+                        <span className="text-muted-foreground">
+                          {" "}
+                          {it.Qty != null ? `${it.Qty} ×` : ""}
+                          {it.UnitPrice != null ? ` ${it.UnitPrice.toFixed(2)}` : ""}
+                        </span>
+                      )}
+                    </span>
+                    <span className="shrink-0 tabular-nums text-foreground">{it.Amount != null ? it.Amount.toFixed(2) : "—"}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           <p className="text-[11px] text-muted-foreground">
             Captured by {receipt.CapturedBy || "—"} · {receipt.CapturedAt?.slice(0, 10)} · {formatBytes(receipt.ImageBytes ?? 0)} {receipt.ImageMime?.split("/")[1]?.toUpperCase()}
           </p>

@@ -253,6 +253,17 @@ export interface CostCategory {
 }
 
 /**
+ * One purchased line as printed on a receipt. Receipts vary wildly, so every
+ * part is optional — we keep whatever the scan could read, verbatim.
+ */
+export interface ReceiptLineItem {
+  Description?: string;
+  Qty?: number | null;
+  UnitPrice?: number | null;
+  Amount?: number | null;
+}
+
+/**
  * A digitised paper receipt/invoice for Malaysian tax-audit retention (LHDN
  * requires business records be kept 7 years). Structured fields are extracted
  * from the captured image via OCR, then confirmed by a human. The compressed
@@ -270,8 +281,14 @@ export interface Receipt {
   Date?: string;
   Currency?: string;
   Category?: string;
+  /** Itemised lines as printed on the receipt (may be empty for simple receipts). */
+  LineItems?: ReceiptLineItem[];
   Subtotal?: number | null;
-  /** "SST" | "GST" | "None" — the indirect-tax regime shown on the receipt. */
+  /**
+   * The indirect-tax label printed on the receipt — normally "SST" (current
+   * Malaysian regime) or "None". GST was abolished in Malaysia in 2018 and is
+   * only expected on historical receipts that literally print it.
+   */
   TaxType?: string;
   TaxRate?: number | null;
   TaxAmount?: number | null;

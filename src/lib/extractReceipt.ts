@@ -14,7 +14,7 @@ import { supabase, isSupabaseConfigured } from "./supabase";
 import { runOcr } from "./ocr";
 import { parseReceipt } from "./receipts";
 import { preprocessForOcr } from "./receiptImage";
-import type { Receipt } from "./types";
+import type { Receipt, ReceiptLineItem } from "./types";
 
 export type ScanEngine = "gemini" | "groq" | "remote" | "tesseract";
 
@@ -26,6 +26,14 @@ export interface ScanResult {
   engine: ScanEngine;
 }
 
+/** One line item as returned by the LLM schema (snake_case). */
+interface LlmLineItem {
+  description?: string | null;
+  qty?: number | null;
+  unit_price?: number | null;
+  amount?: number | null;
+}
+
 /** Shape returned by the edge function's LLM schema (snake_case). */
 interface LlmFields {
   merchant?: string | null;
@@ -33,6 +41,7 @@ interface LlmFields {
   receipt_no?: string | null;
   date?: string | null;
   currency?: string | null;
+  line_items?: LlmLineItem[] | null;
   subtotal?: number | null;
   tax_type?: string | null;
   tax_rate?: number | null;
@@ -101,6 +110,21 @@ function num(v: number | null | undefined): number | null {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
+/** Keep only line items that carry at least one readable value. */
+function toLineItems(items: LlmLineItem[] | null | undefined): ReceiptLineItem[] {
+  if (!Array.isArray(items)) return [];
+  return items
+    .map((it) => {
+      const row: ReceiptLineItem = {};
+      if (str(it.description)) row.Description = str(it.description);
+      if (num(it.qty) != null) row.Qty = num(it.qty);
+      if (num(it.unit_price) != null) row.UnitPrice = num(it.unit_price);
+      if (num(it.amount) != null) row.Amount = num(it.amount);
+      return row;
+    })
+    .filter((r) => r.Description || r.Amount != null || r.Qty != null || r.UnitPrice != null);
+}
+
 /** Map the LLM's snake_case output onto the app's PascalCase Receipt fields. */
 function toReceiptFields(f: LlmFields): Partial<Receipt> {
   const out: Partial<Receipt> = {};
@@ -111,8 +135,12 @@ function toReceiptFields(f: LlmFields): Partial<Receipt> {
   // in the <input type="date">.
   if (f.date && /^\d{4}-\d{2}-\d{2}$/.test(f.date)) out.Date = f.date;
   if (str(f.currency)) out.Currency = str(f.currency);
+  const items = toLineItems(f.line_items);
+  if (items.length) out.LineItems = items;
   if (num(f.subtotal) != null) out.Subtotal = num(f.subtotal);
-  if (f.tax_type && ["SST", "GST", "None"].includes(f.tax_type)) out.TaxType = f.tax_type;
+  // Accept whatever tax label the receipt actually printed (SST, None, or an
+  // unusual label) rather than forcing a fixed set — receipts vary.
+  if (str(f.tax_type)) out.TaxType = str(f.tax_type);
   if (num(f.tax_rate) != null) out.TaxRate = num(f.tax_rate);
   if (num(f.tax_amount) != null) out.TaxAmount = num(f.tax_amount);
   if (num(f.total) != null) out.Total = num(f.total);
@@ -137,7 +165,21 @@ async function runLlmExtraction(file: Blob): Promise<ScanResult> {
       body: { image: prepared.base64, mime: prepared.mime },
       signal: controller.signal,
     });
-    if (error) throw error;
+    if (error) {
+      // supabase-js hides the response body on non-2xx (FunctionsHttpError).
+      // Pull the real server message so the console/log is actionable rather
+      // than the opaque "non-2xx status code".
+      let detail = error.message;
+      const ctx = (error as { context?: Response }).context;
+      if (ctx && typeof ctx.text === "function") {
+        try {
+          const body = await ctx.text();
+          const parsed = JSON.parse(body);
+          if (parsed?.error) detail = parsed.error;
+        } catch { /* keep the generic message */ }
+      }
+      throw new Error(detail);
+    }
     const provider = data?.provider as ScanEngine | undefined;
     const fields = data?.fields as LlmFields | undefined;
     if (!fields || (provider !== "gemini" && provider !== "groq")) {

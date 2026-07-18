@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Camera, Loader2, ScanText, Plus, ChevronDown, FileText, X } from "lucide-react";
 import { useUpsert, useCategoryNames } from "@/hooks/useCollection";
 import { Collections } from "@/lib/collections";
-import type { Receipt } from "@/lib/types";
+import type { Receipt, ReceiptLineItem } from "@/lib/types";
 import { compressReceiptImage, formatBytes } from "@/lib/receiptImage";
 import { scanReceipt, engineLabel, type ScanEngine } from "@/lib/extractReceipt";
 import { computeRetentionUntil } from "@/lib/receipts";
@@ -28,6 +28,59 @@ function num(v: string): number | null {
   if (v.trim() === "") return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Tax labels offered by default. GST is intentionally absent — Malaysia
+ * abolished it in 2018 — but any label the scan reads is still preserved. */
+const TAX_TYPES = ["None", "SST"];
+
+/** Money fields whose edits trigger a recompute. */
+const MONEY_KEYS: ReadonlyArray<keyof Form> = ["Subtotal", "TaxRate", "TaxAmount", "TaxType", "Total"];
+
+/**
+ * Keep subtotal / tax / total consistent as the user types. Total is derived
+ * (subtotal + tax) so entering a subtotal fills the total, and a tax rate or
+ * amount flows through. Tax rate and amount are two views of the same thing:
+ * editing the rate (%) computes the amount, editing the amount back-computes
+ * the rate. Editing Total directly is treated as a manual override.
+ */
+function recalcMoney(f: Form, changed: keyof Form): Form {
+  const sub = num(f.Subtotal);
+  const rate = num(f.TaxRate);
+  const amt = num(f.TaxAmount);
+  const taxed = f.TaxType !== "" && f.TaxType !== "None";
+  const next = { ...f };
+
+  if (!taxed) {
+    // No tax regime selected: clear tax fields, total equals subtotal.
+    next.TaxRate = "";
+    next.TaxAmount = "";
+    if (sub != null) next.Total = String(round2(sub));
+    return next;
+  }
+
+  if (changed === "TaxAmount") {
+    if (sub != null && amt != null) {
+      next.Total = String(round2(sub + amt));
+      if (sub > 0) next.TaxRate = String(round2((amt / sub) * 100));
+    }
+    return next;
+  }
+
+  // Subtotal / TaxRate / TaxType changed → prefer deriving the amount from the
+  // rate; otherwise fall back to any known amount, else just the subtotal.
+  if (sub != null && rate != null) {
+    const ta = round2((sub * rate) / 100);
+    next.TaxAmount = String(ta);
+    next.Total = String(round2(sub + ta));
+  } else if (sub != null && amt != null) {
+    next.Total = String(round2(sub + amt));
+  } else if (sub != null) {
+    next.Total = String(round2(sub));
+  }
+  return next;
 }
 
 /**
@@ -68,14 +121,21 @@ export function CaptureReceiptDialog({
   const [rawText, setRawText] = useState("");
   const [showRaw, setShowRaw] = useState(false);
   const [form, setForm] = useState<Form>(emptyForm);
+  const [lineItems, setLineItems] = useState<ReceiptLineItem[]>([]);
   const [saving, setSaving] = useState(false);
 
   const reset = () => {
     setStep("capture"); setPreview(""); setCompressed(null); setPdfFile(null); setOcrPct(0);
-    setOcrEngine(null); setRawText(""); setShowRaw(false); setForm(emptyForm); setSaving(false);
+    setOcrEngine(null); setRawText(""); setShowRaw(false); setForm(emptyForm); setLineItems([]); setSaving(false);
   };
 
-  const set = (k: keyof Form, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  const set = (k: keyof Form, v: string) =>
+    setForm((f) => {
+      const nf = { ...f, [k]: v };
+      // Recompute derived money fields, but never fight a manual Total edit.
+      if (MONEY_KEYS.includes(k) && k !== "Total") return recalcMoney(nf, k);
+      return nf;
+    });
 
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -99,21 +159,27 @@ export function CaptureReceiptDialog({
         const { fields: parsed, rawText: text, engine } = await scanReceipt(file, setOcrPct);
         setOcrEngine(engine);
         setRawText(text);
-        setForm((f) => ({
-          ...f,
-          Merchant: parsed.Merchant ?? "",
-          MerchantTin: parsed.MerchantTin ?? "",
-          ReceiptNo: parsed.ReceiptNo ?? "",
-          Date: parsed.Date ?? "",
-          // Only adopt an AI category suggestion when it matches an existing one.
-          Category: parsed.Category && categoryNames.includes(parsed.Category) ? parsed.Category : f.Category,
-          Subtotal: parsed.Subtotal != null ? String(parsed.Subtotal) : "",
-          TaxType: parsed.TaxType ?? "None",
-          TaxRate: parsed.TaxRate != null ? String(parsed.TaxRate) : "",
-          TaxAmount: parsed.TaxAmount != null ? String(parsed.TaxAmount) : "",
-          Total: parsed.Total != null ? String(parsed.Total) : "",
-          PaymentMethod: parsed.PaymentMethod ?? f.PaymentMethod,
-        }));
+        setLineItems(parsed.LineItems ?? []);
+        setForm((f) => {
+          const filled: Form = {
+            ...f,
+            Merchant: parsed.Merchant ?? "",
+            MerchantTin: parsed.MerchantTin ?? "",
+            ReceiptNo: parsed.ReceiptNo ?? "",
+            Date: parsed.Date ?? "",
+            // Only adopt an AI category suggestion when it matches an existing one.
+            Category: parsed.Category && categoryNames.includes(parsed.Category) ? parsed.Category : f.Category,
+            Subtotal: parsed.Subtotal != null ? String(parsed.Subtotal) : "",
+            TaxType: parsed.TaxType ?? "None",
+            TaxRate: parsed.TaxRate != null ? String(parsed.TaxRate) : "",
+            TaxAmount: parsed.TaxAmount != null ? String(parsed.TaxAmount) : "",
+            Total: parsed.Total != null ? String(parsed.Total) : "",
+            PaymentMethod: parsed.PaymentMethod ?? f.PaymentMethod,
+          };
+          // If the receipt didn't print a total, derive it from subtotal + tax
+          // so the amount box isn't left blank.
+          return filled.Total ? filled : recalcMoney(filled, "Subtotal");
+        });
       } catch (err) {
         console.warn("[receipts] scan failed:", err);
         toast.warning("Couldn't read the text automatically — fill the fields in manually.");
@@ -181,6 +247,7 @@ export function CaptureReceiptDialog({
         Date: form.Date,
         Currency: "MYR",
         Category: form.Category.trim(),
+        LineItems: lineItems.length ? lineItems : undefined,
         Subtotal: num(form.Subtotal),
         TaxType: form.TaxType,
         TaxRate: num(form.TaxRate),
@@ -347,7 +414,7 @@ export function CaptureReceiptDialog({
               <div>
                 <Label className="text-xs">Tax type</Label>
                 <select value={form.TaxType} onChange={(e) => set("TaxType", e.target.value)} className="mt-1 w-full rounded-lg bg-muted border border-border px-3 py-2 text-sm text-foreground">
-                  {["None", "SST", "GST"].map((t) => <option key={t}>{t}</option>)}
+                  {(TAX_TYPES.includes(form.TaxType) ? TAX_TYPES : [...TAX_TYPES, form.TaxType]).map((t) => <option key={t}>{t}</option>)}
                 </select>
               </div>
               <div>
@@ -367,6 +434,34 @@ export function CaptureReceiptDialog({
                 <Input value={form.Notes} onChange={(e) => set("Notes", e.target.value)} placeholder="Optional" className="mt-1" />
               </div>
             </div>
+
+            {lineItems.length > 0 && (
+              <div className="rounded-lg border border-border overflow-hidden">
+                <div className="flex items-center justify-between bg-muted/40 px-3 py-1.5">
+                  <span className="text-[11px] font-medium text-muted-foreground">Items read from receipt</span>
+                  <span className="text-[10px] text-muted-foreground">{lineItems.length} line{lineItems.length > 1 ? "s" : ""}</span>
+                </div>
+                <ul className="divide-y divide-border">
+                  {lineItems.map((it, i) => (
+                    <li key={i} className="flex items-start justify-between gap-3 px-3 py-1.5 text-xs">
+                      <span className="text-foreground">
+                        {it.Description || "—"}
+                        {(it.Qty != null || it.UnitPrice != null) && (
+                          <span className="text-muted-foreground">
+                            {" "}
+                            {it.Qty != null ? `${it.Qty} ×` : ""}
+                            {it.UnitPrice != null ? ` ${it.UnitPrice.toFixed(2)}` : ""}
+                          </span>
+                        )}
+                      </span>
+                      <span className="shrink-0 tabular-nums text-foreground">
+                        {it.Amount != null ? it.Amount.toFixed(2) : "—"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {rawText && (
               <div>
