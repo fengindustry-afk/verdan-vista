@@ -135,7 +135,7 @@ async function callGemini(image: string, mime: string): Promise<ProviderResult> 
       }),
     },
   );
-  if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 1200)}`);
   const data = await res.json();
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text) throw new Error("Gemini returned no content");
@@ -172,7 +172,7 @@ async function callGroq(image: string, mime: string): Promise<ProviderResult> {
       }],
     }),
   });
-  if (!res.ok) throw new Error(`Groq ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  if (!res.ok) throw new Error(`Groq ${res.status}: ${(await res.text()).slice(0, 1200)}`);
   const data = await res.json();
   const text = data.choices?.[0]?.message?.content;
   if (!text) throw new Error("Groq returned no content");
@@ -247,7 +247,7 @@ Deno.serve(async (req) => {
       console.warn(`[extract-receipt] ${provider} failed in ${ms}ms:`, msg);
       // Don't burn a log row when the provider was simply not configured.
       if (!msg.includes("not configured")) {
-        await log({ provider, model: null, ok: false, ms, error: msg.slice(0, 500) });
+        await log({ provider, model: null, ok: false, ms, error: msg.slice(0, 2000) });
       }
     }
   }
