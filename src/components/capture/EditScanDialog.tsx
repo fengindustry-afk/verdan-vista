@@ -7,7 +7,8 @@ import { useUpsert, useDelete } from "@/hooks/useCollection";
 import { Collections } from "@/lib/collections";
 import type { TreeScan } from "@/lib/types";
 import { resolveImageUrl, Buckets } from "@/lib/storage";
-import { analyzeTreeHealth, healthTone, type HealthResult } from "@/lib/health";
+import { healthTone, type HealthResult } from "@/lib/health";
+import { analyzeTreeScan, scanEngineLabel, type ScanAnalysisEngine } from "@/lib/treeScanAI";
 import { ImageLightbox } from "@/components/ImageLightbox";
 import { toast } from "sonner";
 
@@ -30,6 +31,7 @@ export function EditScanDialog({ scan, open, onOpenChange }: Props) {
   const [triedFallback, setTriedFallback] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [zoom, setZoom] = useState(false);
+  const [engine, setEngine] = useState<ScanAnalysisEngine | null>(null);
   const [health, setHealth] = useState<HealthResult | null>(
     scan.HealthStatus
       ? { status: scan.HealthStatus as HealthResult["status"], score: scan.HealthScore ?? 0, note: scan.HealthNote ?? "" }
@@ -64,10 +66,11 @@ export function EditScanDialog({ scan, open, onOpenChange }: Props) {
     if (!url) return toast.error("No image available to analyze.");
     setAnalyzing(true);
     try {
-      const result = await analyzeTreeHealth(url);
+      const result = await analyzeTreeScan(url);
       setHealth(result);
+      setEngine(result.engine);
       if (result.status === "Unknown") toast.error(result.note);
-      else toast.success(`Assessed: ${result.status}`);
+      else toast.success(`Assessed: ${result.status} · ${scanEngineLabel(result.engine)}`);
     } finally {
       setAnalyzing(false);
     }
@@ -137,12 +140,18 @@ export function EditScanDialog({ scan, open, onOpenChange }: Props) {
                     {health.status}
                   </span>
                   <span className="text-xs text-muted-foreground">Vigor {health.score}/100</span>
+                  {engine && (
+                    <span className="ml-auto text-[10px] text-muted-foreground border border-border rounded px-1.5 py-0.5">
+                      {scanEngineLabel(engine)}
+                    </span>
+                  )}
                 </div>
                 <p className="text-[11px] text-muted-foreground leading-relaxed">{health.note}</p>
               </div>
             ) : (
               <p className="text-[11px] text-muted-foreground">
-                Run the on-image assessment to estimate canopy health. Full ML detection ships in the mobile app.
+                Run the AI vision assessment of canopy health. Falls back to an on-device
+                greenness estimate when offline.
               </p>
             )}
           </div>
