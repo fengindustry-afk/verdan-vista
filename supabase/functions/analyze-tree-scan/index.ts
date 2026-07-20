@@ -16,6 +16,10 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import {
+  GEMINI_VISION_DEFAULTS, GROQ_VISION_DEFAULTS, ModelUnavailableError,
+  discoverGroqVisionModels, isModelUnavailable, modelCandidates, withModelFallback,
+} from "../_shared/models.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -67,8 +71,9 @@ interface ProviderResult {
 async function callGemini(image: string, mime: string): Promise<ProviderResult> {
   const key = Deno.env.get("GEMINI_API_KEY");
   if (!key) throw new Error("GEMINI_API_KEY not configured");
-  const model = Deno.env.get("GEMINI_MODEL") ?? "gemini-2.0-flash";
+  const models = modelCandidates(["GEMINI_MODEL"], GEMINI_VISION_DEFAULTS);
 
+  return await withModelFallback(models, async (model) => {
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
     {
@@ -89,7 +94,11 @@ async function callGemini(image: string, mime: string): Promise<ProviderResult> 
       }),
     },
   );
-  if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 1200)}`);
+  if (!res.ok) {
+    const detail = (await res.text()).slice(0, 1200);
+    if (isModelUnavailable(res.status, detail)) throw new ModelUnavailableError(model, detail);
+    throw new Error(`Gemini ${res.status}: ${detail}`);
+  }
   const data = await res.json();
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text) throw new Error("Gemini returned no content");
@@ -99,13 +108,15 @@ async function callGemini(image: string, mime: string): Promise<ProviderResult> 
     inputTokens: data.usageMetadata?.promptTokenCount ?? 0,
     outputTokens: data.usageMetadata?.candidatesTokenCount ?? 0,
   };
+  });
 }
 
 async function callGroq(image: string, mime: string): Promise<ProviderResult> {
   const key = Deno.env.get("GROQ_API_KEY") ?? Deno.env.get("GROK_API_KEY");
   if (!key) throw new Error("GROQ_API_KEY not configured");
-  const model = Deno.env.get("GROQ_MODEL") ?? Deno.env.get("GROK_MODEL") ??
-    "qwen/qwen3.6-27b";
+  const models = modelCandidates(["GROQ_MODEL", "GROK_MODEL"], GROQ_VISION_DEFAULTS);
+
+  return await withModelFallback(models, async (model) => {
 
   const body: Record<string, unknown> = {
     model,
@@ -129,7 +140,11 @@ async function callGroq(image: string, mime: string): Promise<ProviderResult> {
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`Groq ${res.status}: ${(await res.text()).slice(0, 1200)}`);
+  if (!res.ok) {
+    const detail = (await res.text()).slice(0, 1200);
+    if (isModelUnavailable(res.status, detail)) throw new ModelUnavailableError(model, detail);
+    throw new Error(`Groq ${res.status}: ${detail}`);
+  }
   const data = await res.json();
   const text = data.choices?.[0]?.message?.content;
   if (!text) throw new Error("Groq returned no content");
@@ -139,6 +154,7 @@ async function callGroq(image: string, mime: string): Promise<ProviderResult> {
     inputTokens: data.usage?.prompt_tokens ?? 0,
     outputTokens: data.usage?.completion_tokens ?? 0,
   };
+  }, () => discoverGroqVisionModels(key));
 }
 
 function parseJsonLoose(text: string): Record<string, unknown> {
