@@ -26,7 +26,9 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import {
   GEMINI_VISION_DEFAULTS, GROQ_VISION_DEFAULTS, ModelUnavailableError,
-  discoverGroqVisionModels, isModelUnavailable, modelCandidates, withModelFallback,
+  ModelBusyError, discoverGeminiVisionModels, discoverGroqVisionModels,
+  isModelBusy, isModelUnavailable,
+  modelCandidates, withModelFallback,
 } from "../_shared/models.ts";
 
 const CORS = {
@@ -143,6 +145,7 @@ async function callGemini(image: string, mime: string): Promise<ProviderResult> 
   if (!res.ok) {
     const detail = (await res.text()).slice(0, 1200);
     if (isModelUnavailable(res.status, detail)) throw new ModelUnavailableError(model, detail);
+    if (isModelBusy(res.status, detail)) throw new ModelBusyError(model, detail);
     throw new Error(`Gemini ${res.status}: ${detail}`);
   }
   const data = await res.json();
@@ -154,7 +157,7 @@ async function callGemini(image: string, mime: string): Promise<ProviderResult> 
     inputTokens: data.usageMetadata?.promptTokenCount ?? 0,
     outputTokens: data.usageMetadata?.candidatesTokenCount ?? 0,
   };
-  });
+  }, () => discoverGeminiVisionModels(key));
 }
 
 async function callGroq(image: string, mime: string): Promise<ProviderResult> {
@@ -197,6 +200,7 @@ async function callGroq(image: string, mime: string): Promise<ProviderResult> {
   if (!res.ok) {
     const detail = (await res.text()).slice(0, 1200);
     if (isModelUnavailable(res.status, detail)) throw new ModelUnavailableError(model, detail);
+    if (isModelBusy(res.status, detail)) throw new ModelBusyError(model, detail);
     throw new Error(`Groq ${res.status}: ${detail}`);
   }
   const data = await res.json();

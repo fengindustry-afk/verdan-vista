@@ -4,7 +4,9 @@
  * or, without Deno:
  *   npx esbuild supabase/functions/_shared/models.test.ts --format=esm --outfile=/tmp/t.mjs && node /tmp/t.mjs
  */
-import { ModelUnavailableError, isModelUnavailable, withModelFallback } from "./models.ts";
+import {
+  ModelBusyError, ModelUnavailableError, isModelBusy, isModelUnavailable, withModelFallback,
+} from "./models.ts";
 
 const assert = (cond: unknown, msg: string) => {
   if (!cond) throw new Error(`FAIL: ${msg}`);
@@ -61,6 +63,25 @@ export async function demo() {
   const revived = await withModelFallback(["offplan"], async (m) => `ok:${m}`);
   assert(revived === "ok:offplan", "a recovered model is never locked out by its own cache");
 
+  // Busy advances to the next model (per-model capacity limits) but leaves no
+  // cooldown — the model is fine, it was just loaded at that moment.
+  let busyCalls = 0;
+  const busyThenGood = async (m: string) => {
+    if (m === "busy") { busyCalls++; throw new ModelBusyError(m, "over capacity"); }
+    return `ok:${m}`;
+  };
+  assert(await withModelFallback(["busy", "good"], busyThenGood) === "ok:good", "busy falls through");
+  await withModelFallback(["busy", "good"], busyThenGood);
+  assert(busyCalls === 2, "a busy model is retried next time, not cooled down");
+
+  // An account-wide quota error must not walk a 39-model discovery list.
+  let allBusyCalls = 0;
+  await withModelFallback(
+    ["m1", "m2", "m3", "m4", "m5", "m6", "m7", "m8"],
+    async (m) => { allBusyCalls++; throw new ModelBusyError(m, "quota exceeded"); },
+  ).then(() => assert(false, "unreachable"), () => {});
+  assert(allBusyCalls === 3, `saturated provider gives up after 3 tries, not 8 (got ${allBusyCalls})`);
+
   // Classifier: availability vs everything else.
   assert(isModelUnavailable(404, ""), "404 is unavailable");
   assert(isModelUnavailable(400, "model_decommissioned"), "decommissioned 400 is unavailable");
@@ -68,6 +89,10 @@ export async function demo() {
   assert(!isModelUnavailable(429, "rate limit"), "429 is not a model problem");
   assert(isModelUnavailable(403, "model_not_authorized"), "off-plan model is unavailable");
   assert(isModelUnavailable(400, "you do not have access to model x"), "no-access 400 is unavailable");
+  assert(isModelBusy(503, "is currently over capacity"), "503 is busy");
+  assert(isModelBusy(429, "rate limit reached"), "per-model 429 is busy");
+  assert(!isModelBusy(401, "invalid_api_key"), "401 is not busy");
+  assert(!isModelUnavailable(503, "over capacity"), "busy is not the same as gone");
 
   console.log("models.ts: all checks passed");
 }
