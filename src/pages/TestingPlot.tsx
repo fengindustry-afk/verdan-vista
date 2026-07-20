@@ -559,8 +559,9 @@ function Cell({
   return (
     <input
       type="number"
-      step="0.1"
-      defaultValue={value == null ? "" : Number(value.toFixed(1))}
+      step="any"
+      min="0"
+      defaultValue={value == null ? "" : Number(value)}
       key={`${manual}-${value ?? ""}`}
       onBlur={(e) => onSave(e.target.value)}
       placeholder="—"
