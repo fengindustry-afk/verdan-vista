@@ -10,8 +10,8 @@
  * Mirrors extract-receipt: same provider order, auth gate, usage logging, and
  * the qwen reasoning_effort fix (reasoning models otherwise break json_object).
  *
- * Providers are tried in order: Groq, then Gemini.
- * Secrets: GROQ_API_KEY (GROK_API_KEY accepted) / GEMINI_API_KEY, optional
+ * Providers are tried in order: Gemini, then Groq.
+ * Secrets: GEMINI_API_KEY / GROQ_API_KEY (GROK_API_KEY accepted), optional
  * GEMINI_MODEL (default gemini-2.0-flash) / GROQ_MODEL (default qwen/qwen3.6-27b).
  */
 
@@ -207,10 +207,12 @@ Deno.serve(async (req) => {
       if (error) console.error("[usage-log]", error.message);
     });
 
-  // Groq first, Gemini as the fallback.
+  // Gemini first, Groq as the fallback — matching extract-receipt. Groq serves
+  // exactly one vision model (qwen3.6-27b) and it is frequently over capacity,
+  // so leading with it spends a failed round trip on most scans.
   const providers: Array<["gemini" | "groq", (i: string, m: string) => Promise<ProviderResult>]> = [
-    ["groq", callGroq],
     ["gemini", callGemini],
+    ["groq", callGroq],
   ];
 
   const failures: string[] = [];
