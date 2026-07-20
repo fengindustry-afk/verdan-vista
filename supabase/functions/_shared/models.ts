@@ -141,8 +141,40 @@ export async function discoverGroqVisionModels(key: string): Promise<string[]> {
     return (data.data ?? [])
       .map((m: { id?: string }) => m.id)
       .filter((id: unknown): id is string =>
-        typeof id === "string" && /vision|scout|maverick|qwen|llava|vl\b/i.test(id)
+        typeof id === "string" && !NON_VISION_CHAT.test(id)
       );
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Ask Gemini which models the key can currently call, keeping the ones that can
+ * serve a vision chat request. Same last-resort role as the Groq version.
+ *
+ * Google's ListModels reports capability directly (`supportedGenerationMethods`),
+ * so this filters on fact rather than on the shape of a name — then drops the
+ * families that take generateContent but can't take an image (TTS, image
+ * generators). Flash models sort first: cheaper, faster, and the free tier is
+ * far more generous with them.
+ */
+export async function discoverGeminiVisionModels(key: string): Promise<string[]> {
+  try {
+    const res = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/models?pageSize=200",
+      { headers: { "x-goog-api-key": key } },
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    const ids = (data.models ?? [])
+      .filter((m: { supportedGenerationMethods?: string[] }) =>
+        (m.supportedGenerationMethods ?? []).includes("generateContent")
+      )
+      .map((m: { name?: string }) => (m.name ?? "").replace(/^models\//, ""))
+      .filter((id: string) => id && !NON_VISION_CHAT.test(id));
+    return ids.sort((a: string, b: string) =>
+      Number(b.includes("flash")) - Number(a.includes("flash"))
+    );
   } catch {
     return [];
   }
