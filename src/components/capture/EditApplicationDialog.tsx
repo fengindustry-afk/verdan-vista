@@ -18,6 +18,7 @@ type Props = {
 const NUM: { key: keyof PlotApplication; label: string }[] = [
   { key: "RatePerTreeKg", label: "Kadar (kg/pokok)" },
   { key: "TreeCount", label: "Bilangan pokok" },
+  { key: "BiocharKg", label: "Total kadar aplikasi biochar (kg)" },
   { key: "UnitPrice", label: "Harga seunit (RM/kg)" },
 ];
 
@@ -50,27 +51,25 @@ export function EditApplicationDialog({ application, open, onOpenChange }: Props
     setForm((f) => ({ ...f, [k]: v === "" ? null : Number(v) }));
   };
 
-  // Derived, shown live: total kg applied and total cost.
-  const rate = typeof form.RatePerTreeKg === "number" ? form.RatePerTreeKg : null;
-  const count = typeof form.TreeCount === "number" ? form.TreeCount : null;
+  // Cost is charged on the biochar content, not the total fertiliser applied.
   const price = typeof form.UnitPrice === "number" ? form.UnitPrice : null;
-  const totalKg = rate != null && count != null ? rate * count : null;
-  const totalCost = totalKg != null && price != null ? totalKg * price : null;
+  const biocharKg = typeof form.BiocharKg === "number" ? form.BiocharKg : null;
+  const totalCost = biocharKg != null && price != null ? biocharKg * price : null;
 
   const save = async () => {
-    if (!form.Date?.trim()) return toast.error("Date is required.");
+    if (!form.Date?.trim()) return toast.error("Tarikh wajib diisi.");
     const id = application?.id ?? `app_${Date.now().toString(36)}`;
     const doc: PlotApplication = { ...application, ...form, id };
     const saved = await upsert.mutateAsync(doc).catch(() => null);
     if (!saved) return; // useUpsert already toasted why it wasn't saved
-    toast.success(editing ? "Application updated" : "Application added");
+    toast.success(editing ? "Aplikasi dikemas kini" : "Aplikasi ditambah");
     onOpenChange(false);
   };
 
   const remove = async () => {
     if (!application) return;
     await del.mutateAsync(application.id);
-    toast.success("Application deleted");
+    toast.success("Aplikasi dipadam");
     onOpenChange(false);
   };
 
@@ -78,7 +77,7 @@ export function EditApplicationDialog({ application, open, onOpenChange }: Props
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{editing ? "Edit application" : "Add application"} · Section H</DialogTitle>
+          <DialogTitle>{editing ? "Kemas kini aplikasi" : "Tambah aplikasi"} · Seksyen H</DialogTitle>
         </DialogHeader>
         <div className="grid sm:grid-cols-2 gap-3 py-2">
           <div className="sm:col-span-2">
@@ -98,7 +97,7 @@ export function EditApplicationDialog({ application, open, onOpenChange }: Props
             </div>
           ))}
           <div className="sm:col-span-2 rounded-lg bg-muted/50 border border-border px-3 py-2 text-xs text-muted-foreground flex items-center justify-between">
-            <span>Total kadar aplikasi: <span className="text-foreground font-medium">{totalKg != null ? `${fmt(totalKg, 1)} kg` : "—"}</span></span>
+            <span>Biochar: <span className="text-foreground font-medium">{biocharKg != null ? `${fmt(biocharKg, 1)} kg` : "—"}</span></span>
             <span>Total cost: <span className="text-foreground font-medium">{totalCost != null ? `RM ${fmt(totalCost, 2)}` : "—"}</span></span>
           </div>
         </div>
@@ -117,7 +116,7 @@ export function EditApplicationDialog({ application, open, onOpenChange }: Props
             disabled={upsert.isPending}
             className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-4 py-2 text-sm font-semibold hover:bg-primary/90 disabled:opacity-60"
           >
-            {upsert.isPending && <Loader2 className="h-4 w-4 animate-spin" />} {editing ? "Save changes" : "Add application"}
+            {upsert.isPending && <Loader2 className="h-4 w-4 animate-spin" />} {editing ? "Simpan" : "Tambah aplikasi"}
           </button>
         </DialogFooter>
       </DialogContent>

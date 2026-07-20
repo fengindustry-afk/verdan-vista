@@ -94,6 +94,11 @@ export interface BiomassData {
 export interface Tree {
   id: string;
   TreeCode: string;
+  /**
+   * Manual display position, set by dragging cards in Section A. Trees without
+   * one fall back to natural TreeCode order (P1, P2, … P10).
+   */
+  SortOrder?: number | null;
   Species?: string;
   PlotLocation?: string;
   TreatmentGroup?: string;
@@ -175,11 +180,17 @@ export interface PlotApplication {
   Date?: string;
   /** PRODUK — product name/grade. */
   Product?: string;
-  /** KADAR (KG/POKOK) — application rate per tree. */
+  /** KADAR (KG/POKOK) — total fertiliser applied per tree. */
   RatePerTreeKg?: number | null;
   /** BILANGAN POKOK — number of trees treated. */
   TreeCount?: number | null;
-  /** PRICE LIST (RAW MATERIAL) — unit price per kg (MYR). */
+  /**
+   * TOTAL KADAR APLIKASI (KG) — biochar content within the fertiliser applied.
+   * Recorded directly (it is not rate x trees), and the figure the cost is
+   * charged on.
+   */
+  BiocharKg?: number | null;
+  /** PRICE LIST (RAW MATERIAL) — biochar price per kg (MYR). */
   UnitPrice?: number | null;
   /** KAEDAH APLIKASI — application method (e.g. MENABUR). */
   Method?: string;

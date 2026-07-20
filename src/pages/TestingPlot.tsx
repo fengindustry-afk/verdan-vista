@@ -3,7 +3,7 @@ import {
   useTrees, useReadings, useSoilSamples, usePlotObservations, usePlotApplications,
   usePlotComparisons, useUpsert,
 } from "@/hooks/useCollection";
-import { TreePine, Loader2, Plus, Pencil, User, Calendar } from "lucide-react";
+import { TreePine, Loader2, Plus, Pencil, User, Calendar, GripVertical } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useMemo, useState } from "react";
@@ -19,7 +19,7 @@ import {
   PLOT_SECTIONS, GROWTH_COLUMNS, HEALTH_COLUMNS, YIELD_COLUMNS,
   buildSectionRows, groupReadingsByTree, type PlotSectionDef,
 } from "@/lib/testingPlotSections";
-import type { SoilSample, PlotObservation, PlotApplication, PlotComparison } from "@/lib/types";
+import type { Tree, SoilSample, PlotObservation, PlotApplication, PlotComparison } from "@/lib/types";
 import { Collections } from "@/lib/collections";
 import { fmt } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
@@ -138,12 +138,15 @@ function SectionHeader({ def, action }: { def: PlotSectionDef; action?: React.Re
 function SectionA({
   trees, readingsByTree, canEdit,
 }: {
-  trees: import("@/lib/types").Tree[];
+  trees: Tree[];
   readingsByTree: Map<string, import("@/lib/types").TreeReading[]>;
   canEdit: boolean;
 }) {
+  const upsert = useUpsert<Tree>(Collections.trees, { surfaceErrors: true });
+  const [dragging, setDragging] = useState<string | null>(null);
+
   const groups = useMemo(() => {
-    const byGroup = new Map<string, typeof trees>();
+    const byGroup = new Map<string, Tree[]>();
     trees.forEach((t) => {
       const g = t.TreatmentGroup || "Ungrouped";
       byGroup.set(g, [...(byGroup.get(g) ?? []), t]);
@@ -151,36 +154,80 @@ function SectionA({
     return Array.from(byGroup.entries());
   }, [trees]);
 
-  if (trees.length === 0) return <p className="text-sm text-muted-foreground py-10 text-center">No trees recorded.</p>;
+  /**
+   * Drop `dragging` onto `target`'s slot within one group, then persist the new
+   * SortOrder for every tree in that group (positions shift, so all of them
+   * change). Order is global across groups via the useTrees sort.
+   */
+  const reorder = (groupTrees: Tree[], targetId: string) => {
+    if (!dragging || dragging === targetId) return;
+    const from = groupTrees.findIndex((t) => t.id === dragging);
+    const to = groupTrees.findIndex((t) => t.id === targetId);
+    if (from < 0 || to < 0) return;
+    const next = [...groupTrees];
+    next.splice(to, 0, ...next.splice(from, 1));
+    const base = Math.min(...groupTrees.map((t) => t.SortOrder ?? Number.MAX_SAFE_INTEGER), 0);
+    next.forEach((t, i) => {
+      void upsert.mutateAsync({ ...t, SortOrder: base + i }).catch(() => null); // useUpsert toasts failures
+    });
+  };
+
+  if (trees.length === 0) return <p className="text-sm text-muted-foreground py-10 text-center">Tiada pokok direkodkan.</p>;
 
   return (
     <div className="space-y-5">
+      {canEdit && (
+        <p className="text-[11px] text-muted-foreground">
+          Seret <GripVertical className="inline h-3 w-3" /> untuk menyusun semula pokok. Susunan ini digunakan oleh semua seksyen.
+        </p>
+      )}
       {groups.map(([group, groupTrees]) => (
         <div key={group} className="space-y-3">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            {group} · {groupTrees.length} trees
+            {group} · {groupTrees.length} pokok
           </h3>
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {groupTrees.map((t, i) => (
-              <BentoCard key={t.id} delay={i * 0.03} className="relative h-full cursor-pointer group">
-                <Link to={`/testing-plot/${encodeURIComponent(t.id)}`} aria-label={`View ${t.TreeCode}`} className="absolute inset-0 z-0 rounded-[inherit]" />
-                <div className="relative z-10 pointer-events-none">
-                  <div className="flex items-start justify-between mb-1">
-                    <h3 className="text-sm font-semibold text-foreground flex items-center gap-1.5 group-hover:text-primary transition-colors">
-                      <TreePine className="h-3.5 w-3.5 text-primary" /> {t.TreeCode}
-                    </h3>
-                    <div className="flex items-center gap-1.5">
-                      <Badge variant="outline" className="text-[10px]">{readingsByTree.get(t.id)?.length ?? 0} readings</Badge>
-                      {canEdit && <span className="pointer-events-auto"><EditTreeDialog tree={t} /></span>}
+              <div
+                key={t.id}
+                onDragOver={(e) => canEdit && e.preventDefault()}
+                onDrop={() => {
+                  reorder(groupTrees, t.id);
+                  setDragging(null);
+                }}
+                className={dragging === t.id ? "opacity-40" : ""}
+              >
+                <BentoCard delay={i * 0.03} className="relative h-full cursor-pointer group">
+                  <Link to={`/testing-plot/${encodeURIComponent(t.id)}`} aria-label={`Lihat ${t.TreeCode}`} className="absolute inset-0 z-0 rounded-[inherit]" />
+                  <div className="relative z-10 pointer-events-none">
+                    <div className="flex items-start justify-between mb-1">
+                      <h3 className="text-sm font-semibold text-foreground flex items-center gap-1.5 group-hover:text-primary transition-colors">
+                        {canEdit && (
+                          <span
+                            draggable
+                            onDragStart={() => setDragging(t.id)}
+                            onDragEnd={() => setDragging(null)}
+                            title="Seret untuk menyusun semula"
+                            className="pointer-events-auto cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground"
+                          >
+                            <GripVertical className="h-3.5 w-3.5" />
+                          </span>
+                        )}
+                        <TreePine className="h-3.5 w-3.5 text-primary" /> {t.TreeCode}
+                      </h3>
+                      <div className="flex items-center gap-1.5">
+                        <Badge variant="outline" className="text-[10px]">{readingsByTree.get(t.id)?.length ?? 0} bacaan</Badge>
+                        {canEdit && <span className="pointer-events-auto"><EditTreeDialog tree={t} /></span>}
+                      </div>
                     </div>
+                    <p className="text-[11px] text-muted-foreground">{t.Species}</p>
+                    <p className="text-[11px] text-muted-foreground mt-1">{t.PlotName} · {t.CropAge}</p>
+                    {t.Treatment && t.Treatment !== "None" && (
+                      <p className="text-[11px] text-cyan-400 mt-1">Rawatan: {t.Treatment}</p>
+                    )}
                   </div>
-                  <p className="text-[11px] text-muted-foreground">{t.Species}</p>
-                  <p className="text-[11px] text-muted-foreground mt-1">{t.PlotName} · {t.CropAge}</p>
-                  {t.Treatment && t.Treatment !== "None" && (
-                    <p className="text-[11px] text-cyan-400 mt-1">Treatment: {t.Treatment}</p>
-                  )}
-                </div>
-              </BentoCard>
+                </BentoCard>
+              </div>
             ))}
           </div>
         </div>
@@ -199,6 +246,13 @@ function SectionE({
 }) {
   const [editing, setEditing] = useState<SoilSample | null>(null);
   const [adding, setAdding] = useState(false);
+  // Same natural order as the tree list (P1, P2, … P10), then by parameter.
+  const sorted = useMemo(() => {
+    const c = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+    return [...soilSamples].sort(
+      (a, b) => c.compare(a.TreeId ?? "", b.TreeId ?? "") || c.compare(a.Parameter, b.Parameter)
+    );
+  }, [soilSamples]);
   return (
     <>
       <SectionHeader
@@ -222,7 +276,7 @@ function SectionE({
               </tr>
             </thead>
             <tbody>
-              {soilSamples.map((s) => {
+              {sorted.map((s) => {
                 const pct = soilPercentChange(s);
                 return (
                   <tr
@@ -534,12 +588,9 @@ function SectionH({ applications, canEdit }: { applications: PlotApplication[]; 
     () => [...applications].sort((a, b) => (b.Date ?? "").localeCompare(a.Date ?? "")),
     [applications]
   );
-  const totalKg = (a: PlotApplication) =>
-    a.RatePerTreeKg != null && a.TreeCount != null ? a.RatePerTreeKg * a.TreeCount : null;
-  const totalCost = (a: PlotApplication) => {
-    const kg = totalKg(a);
-    return kg != null && a.UnitPrice != null ? kg * a.UnitPrice : null;
-  };
+  // Cost is charged on the biochar content, which is recorded per application.
+  const totalCost = (a: PlotApplication) =>
+    a.BiocharKg != null && a.UnitPrice != null ? a.BiocharKg * a.UnitPrice : null;
 
   return (
     <>
@@ -558,7 +609,7 @@ function SectionH({ applications, canEdit }: { applications: PlotApplication[]; 
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-border/50 bg-muted/40 text-muted-foreground">
-                {["Tarikh", "Produk", "Kadar (kg/pokok)", "Bilangan pokok", "Total kadar (kg)", "Harga (RM/kg)", "Total cost (RM)", "Kaedah", "Pegawai", "Supervisor", ""].map((h) => (
+                {["Tarikh", "Produk", "Kadar (kg/pokok)", "Bilangan pokok", "Total kadar aplikasi biochar (kg)", "Harga biochar (RM/kg)", "Total cost (RM)", "Kaedah", "Pegawai", "Supervisor", ""].map((h) => (
                   <th key={h} className="text-left font-medium px-3 py-2 whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -570,7 +621,7 @@ function SectionH({ applications, canEdit }: { applications: PlotApplication[]; 
                   <td className="px-3 py-2 whitespace-nowrap text-foreground">{a.Product ?? "—"}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{a.RatePerTreeKg ?? "—"}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{a.TreeCount ?? "—"}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{totalKg(a) != null ? fmt(totalKg(a)!, 1) : "—"}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{a.BiocharKg ?? "—"}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{a.UnitPrice ?? "—"}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-foreground">{totalCost(a) != null ? fmt(totalCost(a)!, 2) : "—"}</td>
                   <td className="px-3 py-2 whitespace-nowrap">{a.Method ?? "—"}</td>

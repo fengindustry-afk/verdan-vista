@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { getCollection, upsertDocument, deleteDocument, WriteNotAuthorizedError, TableNotFoundError } from "@/lib/data";
@@ -46,7 +47,29 @@ export const useLocations = () => useCollection<LocationData>(Collections.locati
 export const usePhotos = () => useCollection<GeotaggedPhoto>(Collections.photos);
 export const useUsers = () => useCollection<UserProfile>(Collections.users);
 export const useGroups = () => useCollection<Group>(Collections.groups);
-export const useTrees = () => useCollection<Tree>(Collections.trees);
+/**
+ * Trees, ordered by their manual SortOrder when set, otherwise naturally by
+ * code (P1, P2, … P10) rather than lexically (P1, P10, P2). Every section that
+ * lists trees reads through this hook, so Section A's arrangement carries.
+ */
+const treeCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+export const useTrees = () => {
+  const q = useCollection<Tree>(Collections.trees);
+  return {
+    ...q,
+    data: useMemo(
+      () =>
+        q.data
+          ? [...q.data].sort(
+              (a, b) =>
+                (a.SortOrder ?? Number.MAX_SAFE_INTEGER) - (b.SortOrder ?? Number.MAX_SAFE_INTEGER) ||
+                treeCollator.compare(a.TreeCode ?? "", b.TreeCode ?? "")
+            )
+          : q.data,
+      [q.data]
+    ),
+  };
+};
 export const useReadings = () => useCollection<TreeReading>(Collections.readings);
 export const useSoilSamples = () => useCollection<SoilSample>(Collections.soilSamples);
 export const usePlotObservations = () => useCollection<PlotObservation>(Collections.plotObservations);

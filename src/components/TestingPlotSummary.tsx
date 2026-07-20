@@ -52,18 +52,15 @@ export function TestingPlotSummary({
   const overview = useMemo(() => {
     const nonBiochar = (g?: string) => /control|kawalan|tanpa|non[- ]?biochar|without/i.test(g ?? "");
     const dates = readings.map((r) => r.Date).filter((d): d is string => !!d).sort();
-    const totalCost = applications.reduce((sum, a) => {
-      const kg = a.RatePerTreeKg != null && a.TreeCount != null ? a.RatePerTreeKg * a.TreeCount : null;
-      return sum + (kg != null && a.UnitPrice != null ? kg * a.UnitPrice : 0);
-    }, 0);
+    const totalCost = applications.reduce(
+      (sum, a) => sum + (a.BiocharKg != null && a.UnitPrice != null ? a.BiocharKg * a.UnitPrice : 0), 0);
     return {
       crop: trees.find((t) => t.Species)?.Species ?? "—",
       treated: trees.filter((t) => !nonBiochar(t.TreatmentGroup)).length,
       control: trees.filter((t) => nonBiochar(t.TreatmentGroup)).length,
       period: dates.length ? `${dates[0]} – ${dates[dates.length - 1]}` : "—",
       products: Array.from(new Set(applications.map((a) => a.Product).filter(Boolean))).join(", ") || "—",
-      totalKg: applications.reduce(
-        (sum, a) => sum + (a.RatePerTreeKg != null && a.TreeCount != null ? a.RatePerTreeKg * a.TreeCount : 0), 0),
+      totalBiocharKg: applications.reduce((sum, a) => sum + (a.BiocharKg ?? 0), 0),
       totalCost,
     };
   }, [trees, readings, applications]);
@@ -84,8 +81,8 @@ export function TestingPlotSummary({
           <InfoRow label="Bilangan pokok kawalan" value={String(overview.control)} />
           <InfoRow label="Tempoh ujian" value={overview.period} />
           <InfoRow label="Produk digunakan" value={overview.products} />
-          <InfoRow label="Jumlah aplikasi" value={`${fmt(overview.totalKg, 1)} kg`} />
-          <InfoRow label="Jumlah kos produk" value={`RM ${fmt(overview.totalCost, 2)}`} />
+          <InfoRow label="Jumlah biochar digunakan" value={`${fmt(overview.totalBiocharKg, 1)} kg`} />
+          <InfoRow label="Jumlah kos biochar" value={`RM ${fmt(overview.totalCost, 2)}`} />
         </dl>
       </BentoCard>
       {!hasData && (
