@@ -20,6 +20,7 @@ export const Collections = {
   labels: "labels",
   plotObservations: "plot_observations",
   plotApplications: "plot_applications",
+  plotComparisons: "plot_comparisons",
   costEntries: "cost_entries",
   costBudgets: "cost_budgets",
   costCategories: "cost_categories",

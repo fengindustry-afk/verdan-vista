@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { BentoCard } from "@/components/BentoCard";
 import { TrendingUp, TrendingDown, Minus } from "lucide-react";
-import type { Tree, TreeReading, SoilSample } from "@/lib/types";
+import type { Tree, TreeReading, SoilSample, PlotApplication } from "@/lib/types";
 import {
   summarizeTestingPlot,
   summarizeSoil,
@@ -20,10 +20,12 @@ export function TestingPlotSummary({
   trees,
   readings,
   soilSamples = [],
+  applications = [],
 }: {
   trees: Tree[];
   readings: TreeReading[];
   soilSamples?: SoilSample[];
+  applications?: PlotApplication[];
 }) {
   const summaries = useMemo(() => summarizeTestingPlot(trees, readings), [trees, readings]);
   const soil = useMemo(() => summarizeSoil(soilSamples), [soilSamples]);
@@ -46,16 +48,49 @@ export function TestingPlotSummary({
     return merged;
   }, [summaries, soil]);
 
+  // Plot header + cost, rolled up from the same records the sections show.
+  const overview = useMemo(() => {
+    const nonBiochar = (g?: string) => /control|kawalan|tanpa|non[- ]?biochar|without/i.test(g ?? "");
+    const dates = readings.map((r) => r.Date).filter((d): d is string => !!d).sort();
+    const totalCost = applications.reduce((sum, a) => {
+      const kg = a.RatePerTreeKg != null && a.TreeCount != null ? a.RatePerTreeKg * a.TreeCount : null;
+      return sum + (kg != null && a.UnitPrice != null ? kg * a.UnitPrice : 0);
+    }, 0);
+    return {
+      crop: trees.find((t) => t.Species)?.Species ?? "—",
+      treated: trees.filter((t) => !nonBiochar(t.TreatmentGroup)).length,
+      control: trees.filter((t) => nonBiochar(t.TreatmentGroup)).length,
+      period: dates.length ? `${dates[0]} – ${dates[dates.length - 1]}` : "—",
+      products: Array.from(new Set(applications.map((a) => a.Product).filter(Boolean))).join(", ") || "—",
+      totalKg: applications.reduce(
+        (sum, a) => sum + (a.RatePerTreeKg != null && a.TreeCount != null ? a.RatePerTreeKg * a.TreeCount : 0), 0),
+      totalCost,
+    };
+  }, [trees, readings, applications]);
+
   const hasData = cards.some(
     (c) => c.growth.some((r) => r.percent !== null) || c.soil.some((r) => r.percent !== null)
   );
-  if (!hasData) return null;
 
   return (
     <div className="space-y-4">
       <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-        Testing Site Summary
+        Ringkasan Tapak Ujian
       </h2>
+      <BentoCard>
+        <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2 text-xs">
+          <InfoRow label="Jenis tanaman" value={overview.crop} />
+          <InfoRow label="Bilangan pokok ujian" value={String(overview.treated)} />
+          <InfoRow label="Bilangan pokok kawalan" value={String(overview.control)} />
+          <InfoRow label="Tempoh ujian" value={overview.period} />
+          <InfoRow label="Produk digunakan" value={overview.products} />
+          <InfoRow label="Jumlah aplikasi" value={`${fmt(overview.totalKg, 1)} kg`} />
+          <InfoRow label="Jumlah kos produk" value={`RM ${fmt(overview.totalCost, 2)}`} />
+        </dl>
+      </BentoCard>
+      {!hasData && (
+        <p className="text-xs text-muted-foreground">Belum ada bacaan berpasangan untuk mengira peratus perubahan.</p>
+      )}
       <div className="grid gap-4 lg:grid-cols-2">
         {cards
           .filter((c) => c.growth.some((r) => r.percent !== null) || c.soil.some((r) => r.percent !== null))
@@ -63,7 +98,7 @@ export function TestingPlotSummary({
             <BentoCard key={c.group} delay={ci * 0.05}>
               <div className="flex items-baseline justify-between mb-4">
                 <h3 className="text-sm font-semibold text-foreground">{c.group}</h3>
-                <span className="text-[11px] text-muted-foreground">{c.treeCount} trees</span>
+                <span className="text-[11px] text-muted-foreground">{c.treeCount} pokok</span>
               </div>
               <dl className="space-y-2.5">
                 {c.growth.map((r) => (
@@ -87,6 +122,15 @@ export function TestingPlotSummary({
             </BentoCard>
           ))}
       </div>
+    </div>
+  );
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 border-b border-border/30 pb-1.5">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="font-medium text-foreground text-right">{value}</dd>
     </div>
   );
 }

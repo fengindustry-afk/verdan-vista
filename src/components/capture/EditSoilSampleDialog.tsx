@@ -19,7 +19,7 @@ type Props = {
 
 /** Add or edit a soil-analysis sample (Section E). Controlled via `open`. */
 export function EditSoilSampleDialog({ sample, groups = [], open, onOpenChange }: Props) {
-  const upsert = useUpsert<SoilSample>(Collections.soilSamples);
+  const upsert = useUpsert<SoilSample>(Collections.soilSamples, { surfaceErrors: true });
   const del = useDelete(Collections.soilSamples);
   const editing = !!sample;
   const [form, setForm] = useState<Partial<SoilSample>>({});
@@ -39,19 +39,20 @@ export function EditSoilSampleDialog({ sample, groups = [], open, onOpenChange }
   };
 
   const save = async () => {
-    if (!form.Parameter?.trim()) return toast.error("Parameter is required.");
-    if (!form.TreatmentGroup?.trim()) return toast.error("Treatment group is required.");
+    if (!form.Parameter?.trim()) return toast.error("Parameter wajib diisi.");
+    if (!form.TreatmentGroup?.trim()) return toast.error("Kumpulan rawatan wajib diisi.");
     const id = sample?.id ?? `soil_${Date.now().toString(36)}`;
     const doc: SoilSample = { ...sample, ...form, id, Parameter: form.Parameter };
-    await upsert.mutateAsync(doc);
-    toast.success(editing ? "Soil sample updated" : "Soil sample added");
+    const saved = await upsert.mutateAsync(doc).catch(() => null);
+    if (!saved) return; // useUpsert already toasted why it wasn't saved
+    toast.success(editing ? "Sampel tanah dikemas kini" : "Sampel tanah ditambah");
     onOpenChange(false);
   };
 
   const remove = async () => {
     if (!sample) return;
     await del.mutateAsync(sample.id);
-    toast.success("Soil sample deleted");
+    toast.success("Sampel tanah dipadam");
     onOpenChange(false);
   };
 
@@ -59,9 +60,28 @@ export function EditSoilSampleDialog({ sample, groups = [], open, onOpenChange }
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{editing ? "Edit soil sample" : "Add soil sample"}</DialogTitle>
+          <DialogTitle>{editing ? "Kemas kini sampel tanah" : "Tambah sampel tanah"}</DialogTitle>
         </DialogHeader>
         <div className="grid sm:grid-cols-2 gap-3 py-2">
+          <div>
+            <Label className="text-xs">Bil pokok</Label>
+            <Input
+              type="number"
+              inputMode="numeric"
+              value={form.TreeNo == null ? "" : String(form.TreeNo)}
+              onChange={setNum("TreeNo")}
+              className="mt-1"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">ID pokok</Label>
+            <Input
+              value={form.TreeId ?? ""}
+              onChange={(e) => setForm((f) => ({ ...f, TreeId: e.target.value }))}
+              placeholder="P1"
+              className="mt-1"
+            />
+          </div>
           <div>
             <Label className="text-xs">Parameter</Label>
             <select
@@ -75,7 +95,7 @@ export function EditSoilSampleDialog({ sample, groups = [], open, onOpenChange }
             </select>
           </div>
           <div>
-            <Label className="text-xs">Treatment group</Label>
+            <Label className="text-xs">Kumpulan rawatan</Label>
             <Input
               list="soil-groups"
               value={form.TreatmentGroup ?? ""}
@@ -88,7 +108,7 @@ export function EditSoilSampleDialog({ sample, groups = [], open, onOpenChange }
             </datalist>
           </div>
           <div>
-            <Label className="text-xs">Initial reading (awal)</Label>
+            <Label className="text-xs">Bacaan awal</Label>
             <Input
               type="number"
               inputMode="decimal"
@@ -98,7 +118,7 @@ export function EditSoilSampleDialog({ sample, groups = [], open, onOpenChange }
             />
           </div>
           <div>
-            <Label className="text-xs">Final reading (akhir)</Label>
+            <Label className="text-xs">Bacaan akhir</Label>
             <Input
               type="number"
               inputMode="decimal"
@@ -108,7 +128,7 @@ export function EditSoilSampleDialog({ sample, groups = [], open, onOpenChange }
             />
           </div>
           <div>
-            <Label className="text-xs">Date</Label>
+            <Label className="text-xs">Tarikh</Label>
             <Input
               type="date"
               value={form.Date ?? ""}
@@ -117,11 +137,11 @@ export function EditSoilSampleDialog({ sample, groups = [], open, onOpenChange }
             />
           </div>
           <div>
-            <Label className="text-xs">Note</Label>
+            <Label className="text-xs">Catatan</Label>
             <Input
               value={form.Note ?? ""}
               onChange={(e) => setForm((f) => ({ ...f, Note: e.target.value }))}
-              placeholder="Lab / observations…"
+              placeholder="Makmal / pemerhatian…"
               className="mt-1"
             />
           </div>
@@ -141,7 +161,7 @@ export function EditSoilSampleDialog({ sample, groups = [], open, onOpenChange }
             disabled={upsert.isPending}
             className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-4 py-2 text-sm font-semibold hover:bg-primary/90 disabled:opacity-60"
           >
-            {upsert.isPending && <Loader2 className="h-4 w-4 animate-spin" />} {editing ? "Save changes" : "Add sample"}
+            {upsert.isPending && <Loader2 className="h-4 w-4 animate-spin" />} {editing ? "Simpan" : "Tambah sampel"}
           </button>
         </DialogFooter>
       </DialogContent>

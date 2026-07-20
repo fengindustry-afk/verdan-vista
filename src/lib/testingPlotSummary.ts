@@ -119,6 +119,8 @@ export const SOIL_PARAMS = [
   "Moisture Content (%)",
   "CEC (cmol/kg)",
   "Available Nitrogen (%)",
+  "Available Phosphorus (ppm)",
+  "Available Potassium (ppm)",
 ] as const;
 
 export interface SoilResult {

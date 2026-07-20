@@ -30,7 +30,7 @@ const TEXT: { key: keyof PlotApplication; label: string; placeholder?: string }[
 
 /** Section H – add or edit a product application record. */
 export function EditApplicationDialog({ application, open, onOpenChange }: Props) {
-  const upsert = useUpsert<PlotApplication>(Collections.plotApplications);
+  const upsert = useUpsert<PlotApplication>(Collections.plotApplications, { surfaceErrors: true });
   const del = useDelete(Collections.plotApplications);
   const editing = !!application;
   const [form, setForm] = useState<Partial<PlotApplication>>({});
@@ -61,7 +61,8 @@ export function EditApplicationDialog({ application, open, onOpenChange }: Props
     if (!form.Date?.trim()) return toast.error("Date is required.");
     const id = application?.id ?? `app_${Date.now().toString(36)}`;
     const doc: PlotApplication = { ...application, ...form, id };
-    await upsert.mutateAsync(doc);
+    const saved = await upsert.mutateAsync(doc).catch(() => null);
+    if (!saved) return; // useUpsert already toasted why it wasn't saved
     toast.success(editing ? "Application updated" : "Application added");
     onOpenChange(false);
   };

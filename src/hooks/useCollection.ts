@@ -19,6 +19,7 @@ import type {
   Receipt,
   PlotObservation,
   PlotApplication,
+  PlotComparison,
 } from "@/lib/types";
 import type { Group } from "@/lib/types";
 import type { SensorReading } from "@/lib/sensors";
@@ -50,6 +51,7 @@ export const useReadings = () => useCollection<TreeReading>(Collections.readings
 export const useSoilSamples = () => useCollection<SoilSample>(Collections.soilSamples);
 export const usePlotObservations = () => useCollection<PlotObservation>(Collections.plotObservations);
 export const usePlotApplications = () => useCollection<PlotApplication>(Collections.plotApplications);
+export const usePlotComparisons = () => useCollection<PlotComparison>(Collections.plotComparisons);
 export const useScans = () => useCollection<TreeScan>(Collections.scans);
 export const useBiomass = () => useCollection<BiomassData>(Collections.esaBiomass);
 export const useGroundTruth = () => useCollection<BiomassData>(Collections.groundTruth);

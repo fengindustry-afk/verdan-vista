@@ -18,7 +18,7 @@ type Props = {
 
 /** Section F – add or edit a dated visual observation of the plot. */
 export function EditObservationDialog({ observation, groups, open, onOpenChange }: Props) {
-  const upsert = useUpsert<PlotObservation>(Collections.plotObservations);
+  const upsert = useUpsert<PlotObservation>(Collections.plotObservations, { surfaceErrors: true });
   const del = useDelete(Collections.plotObservations);
   const { user } = useAuth();
   const editing = !!observation;
@@ -44,7 +44,8 @@ export function EditObservationDialog({ observation, groups, open, onOpenChange 
       id,
       RecordedBy: observation?.RecordedBy ?? user?.FullName ?? user?.Email ?? "Operator",
     };
-    await upsert.mutateAsync(doc);
+    const saved = await upsert.mutateAsync(doc).catch(() => null);
+    if (!saved) return; // useUpsert already toasted why it wasn't saved
     toast.success(editing ? "Observation updated" : "Observation added");
     onOpenChange(false);
   };

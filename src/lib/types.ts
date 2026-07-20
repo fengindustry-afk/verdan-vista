@@ -130,6 +130,10 @@ export interface TreeReading {
  */
 export interface SoilSample {
   id: string;
+  /** BIL POKOK — running number of the sampled tree in the section. */
+  TreeNo?: number | null;
+  /** ID POKOK — the tree the sample was taken from (e.g. "P1"). */
+  TreeId?: string;
   /** Treatment group this sample belongs to (e.g. "ESTERRA", "Control"). */
   TreatmentGroup?: string;
   /** One of SOIL_PARAMS (pH, EC, Organic Carbon, …). */
@@ -183,6 +187,22 @@ export interface PlotApplication {
   Officer?: string;
   /** SUPERVISOR. */
   Supervisor?: string;
+  Notes?: string;
+}
+
+/**
+ * Section G – Biochar vs Non-Biochar. One row per parameter, holding *manual*
+ * overrides: whatever is left null falls back to the value computed from the
+ * Section B–D readings, which stays the primary source.
+ */
+export interface PlotComparison {
+  id: string;
+  /** Parameter key, matching SUMMARY_PARAMS (e.g. "HeightCm"). */
+  Parameter: string;
+  Date?: string;
+  CropType?: string;
+  NonBiocharPct?: number | null;
+  BiocharPct?: number | null;
   Notes?: string;
 }
 
