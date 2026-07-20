@@ -3,7 +3,7 @@ import {
   useTrees, useReadings, useSoilSamples, usePlotObservations, usePlotApplications,
   usePlotComparisons, useUpsert,
 } from "@/hooks/useCollection";
-import { TreePine, Loader2, Plus, Pencil, User, Calendar, GripVertical } from "lucide-react";
+import { TreePine, Loader2, Plus, Pencil, GripVertical } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useMemo, useState } from "react";
@@ -21,7 +21,7 @@ import {
 } from "@/lib/testingPlotSections";
 import type { Tree, SoilSample, PlotObservation, PlotApplication, PlotComparison } from "@/lib/types";
 import { Collections } from "@/lib/collections";
-import { fmt } from "@/lib/format";
+import { fmt, fmtPrice } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
 import { hasPermission, Permission } from "@/lib/rbac";
 
@@ -341,29 +341,35 @@ function SectionF({
       {sorted.length === 0 ? (
         <p className="text-xs text-muted-foreground">Tiada pemerhatian direkodkan.{canEdit && " Tambah catatan lapangan bertarikh yang pertama."}</p>
       ) : (
-        <div className="space-y-3">
-          {sorted.map((o) => (
-            <BentoCard key={o.id} className="!p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1 space-y-1">
-                  <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                    <Calendar className="h-3 w-3" /> {o.Date ?? "—"}
-                    {o.TreatmentGroup && <Badge variant="outline" className="text-[10px]">{o.TreatmentGroup}</Badge>}
-                  </div>
-                  <Field label="Keadaan daun" value={o.LeafCondition} />
-                  <Field label="Keadaan batang" value={o.StemCondition} />
-                  <Field label="Keadaan tanah" value={o.SoilCondition} />
-                  {o.Notes && <Field label="Catatan" value={o.Notes} />}
-                  {o.RecordedBy && <p className="text-[10px] text-muted-foreground flex items-center gap-1 pt-0.5"><User className="h-2.5 w-2.5" /> {o.RecordedBy}</p>}
-                </div>
-                {canEdit && (
-                  <button onClick={() => setEditing(o)} className="shrink-0 rounded-md p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors" aria-label="Kemas kini pemerhatian">
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
-            </BentoCard>
-          ))}
+        <div className="overflow-x-auto rounded-xl border border-border/50">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-border/50 bg-muted/40 text-muted-foreground">
+                {["Tarikh", "Kumpulan", "Keadaan daun", "Keadaan batang", "Keadaan tanah", "Catatan", "Direkod oleh"].map((h) => (
+                  <th key={h} className="text-left font-medium px-3 py-2 whitespace-nowrap">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((o) => (
+                <tr
+                  key={o.id}
+                  onClick={() => canEdit && setEditing(o)}
+                  className={`border-b border-border/30 hover:bg-muted/20 ${canEdit ? "cursor-pointer" : ""}`}
+                >
+                  <td className="px-3 py-2 whitespace-nowrap text-foreground">{o.Date ?? "—"}</td>
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    {o.TreatmentGroup ? <Badge variant="outline" className="text-[10px]">{o.TreatmentGroup}</Badge> : "—"}
+                  </td>
+                  <td className="px-3 py-2">{o.LeafCondition || "—"}</td>
+                  <td className="px-3 py-2">{o.StemCondition || "—"}</td>
+                  <td className="px-3 py-2">{o.SoilCondition || "—"}</td>
+                  <td className="px-3 py-2">{o.Notes || "—"}</td>
+                  <td className="px-3 py-2 whitespace-nowrap">{o.RecordedBy || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
       {canEdit && (
@@ -373,15 +379,6 @@ function SectionF({
         </>
       )}
     </>
-  );
-}
-
-function Field({ label, value }: { label: string; value?: string }) {
-  if (!value) return null;
-  return (
-    <p className="text-xs text-foreground">
-      <span className="text-muted-foreground">{label}: </span>{value}
-    </p>
   );
 }
 
@@ -622,8 +619,8 @@ function SectionH({ applications, canEdit }: { applications: PlotApplication[]; 
                   <td className="px-3 py-2 text-right tabular-nums">{a.RatePerTreeKg ?? "—"}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{a.TreeCount ?? "—"}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{a.BiocharKg ?? "—"}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{a.UnitPrice ?? "—"}</td>
-                  <td className="px-3 py-2 text-right tabular-nums text-foreground">{totalCost(a) != null ? fmt(totalCost(a)!, 2) : "—"}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{a.UnitPrice != null ? fmtPrice(a.UnitPrice) : "—"}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-foreground">{totalCost(a) != null ? fmtPrice(totalCost(a)!) : "—"}</td>
                   <td className="px-3 py-2 whitespace-nowrap">{a.Method ?? "—"}</td>
                   <td className="px-3 py-2 whitespace-nowrap">{a.Officer ?? "—"}</td>
                   <td className="px-3 py-2 whitespace-nowrap">{a.Supervisor ?? "—"}</td>

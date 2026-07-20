@@ -18,6 +18,14 @@ export function fmt(n: number, digits = 0): string {
   });
 }
 
+/**
+ * Prices and costs vary in magnitude (RM 0.0005/kg up to thousands), so show at
+ * least 2 decimals and keep up to 6 rather than rounding small values to zero.
+ */
+export function fmtPrice(n: number): string {
+  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 });
+}
+
 /** The app's display currency. All monetary values are shown in Malaysian Ringgit. */
 export const CURRENCY_CODE = "MYR";
 export const CURRENCY_SYMBOL = "RM";

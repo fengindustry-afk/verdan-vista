@@ -84,6 +84,7 @@ export function EditReadingDialog({ treeId, reading, open, onOpenChange }: Props
               <Label className="text-xs">{label}</Label>
               <Input
                 type="number"
+                step="any"
                 inputMode="decimal"
                 value={form[key] == null ? "" : String(form[key])}
                 onChange={setNum(key)}

@@ -6,7 +6,7 @@ import { Loader2, Trash2 } from "lucide-react";
 import { useUpsert, useDelete } from "@/hooks/useCollection";
 import { Collections } from "@/lib/collections";
 import type { PlotApplication } from "@/lib/types";
-import { fmt } from "@/lib/format";
+import { fmt, fmtPrice } from "@/lib/format";
 import { toast } from "sonner";
 
 type Props = {
@@ -93,12 +93,13 @@ export function EditApplicationDialog({ application, open, onOpenChange }: Props
           {NUM.map(({ key, label }) => (
             <div key={key}>
               <Label className="text-xs">{label}</Label>
-              <Input type="number" inputMode="decimal" value={form[key] == null ? "" : String(form[key])} onChange={setNum(key)} className="mt-1" />
+              {/* step="any" — prices go down to fractions of a sen (e.g. 0.0005/kg). */}
+              <Input type="number" step="any" inputMode="decimal" value={form[key] == null ? "" : String(form[key])} onChange={setNum(key)} className="mt-1" />
             </div>
           ))}
           <div className="sm:col-span-2 rounded-lg bg-muted/50 border border-border px-3 py-2 text-xs text-muted-foreground flex items-center justify-between">
             <span>Biochar: <span className="text-foreground font-medium">{biocharKg != null ? `${fmt(biocharKg, 1)} kg` : "—"}</span></span>
-            <span>Total cost: <span className="text-foreground font-medium">{totalCost != null ? `RM ${fmt(totalCost, 2)}` : "—"}</span></span>
+            <span>Total cost: <span className="text-foreground font-medium">{totalCost != null ? `RM ${fmtPrice(totalCost)}` : "—"}</span></span>
           </div>
         </div>
         <DialogFooter className="sm:justify-between">

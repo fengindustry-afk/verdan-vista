@@ -8,7 +8,7 @@ import {
   type ParamResult,
   type SoilResult,
 } from "@/lib/testingPlotSummary";
-import { fmt } from "@/lib/format";
+import { fmt, fmtPrice } from "@/lib/format";
 
 /**
  * ESTERRA "Testing Site Summary" — averages each growth/health parameter's
@@ -82,7 +82,7 @@ export function TestingPlotSummary({
           <InfoRow label="Tempoh ujian" value={overview.period} />
           <InfoRow label="Produk digunakan" value={overview.products} />
           <InfoRow label="Jumlah biochar digunakan" value={`${fmt(overview.totalBiocharKg, 1)} kg`} />
-          <InfoRow label="Jumlah kos biochar" value={`RM ${fmt(overview.totalCost, 2)}`} />
+          <InfoRow label="Jumlah kos biochar" value={`RM ${fmtPrice(overview.totalCost)}`} />
         </dl>
       </BentoCard>
       {!hasData && (

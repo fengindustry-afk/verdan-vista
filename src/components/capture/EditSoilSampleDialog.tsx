@@ -111,6 +111,7 @@ export function EditSoilSampleDialog({ sample, groups = [], open, onOpenChange }
             <Label className="text-xs">Bacaan awal</Label>
             <Input
               type="number"
+              step="any"
               inputMode="decimal"
               value={form.InitialReading == null ? "" : String(form.InitialReading)}
               onChange={setNum("InitialReading")}
@@ -121,6 +122,7 @@ export function EditSoilSampleDialog({ sample, groups = [], open, onOpenChange }
             <Label className="text-xs">Bacaan akhir</Label>
             <Input
               type="number"
+              step="any"
               inputMode="decimal"
               value={form.FinalReading == null ? "" : String(form.FinalReading)}
               onChange={setNum("FinalReading")}
