@@ -46,11 +46,28 @@ export async function demo() {
   );
   assert(discovered === "ok:fresh-from-api", "recovers via live discovery");
 
+  // A model that is off-plan goes on cooldown, so the NEXT call skips it
+  // outright rather than paying another failed round trip.
+  let deadCalls = 0;
+  const offPlan = async (m: string) => {
+    if (m === "offplan") { deadCalls++; throw gone(m); }
+    return `ok:${m}`;
+  };
+  await withModelFallback(["offplan", "good"], offPlan);
+  await withModelFallback(["offplan", "good"], offPlan);
+  assert(deadCalls === 1, "cooled-down model is not retried on the next call");
+
+  // …but if nothing else works, the cooldown is ignored rather than failing.
+  const revived = await withModelFallback(["offplan"], async (m) => `ok:${m}`);
+  assert(revived === "ok:offplan", "a recovered model is never locked out by its own cache");
+
   // Classifier: availability vs everything else.
   assert(isModelUnavailable(404, ""), "404 is unavailable");
   assert(isModelUnavailable(400, "model_decommissioned"), "decommissioned 400 is unavailable");
   assert(!isModelUnavailable(401, "invalid_api_key"), "401 is not a model problem");
   assert(!isModelUnavailable(429, "rate limit"), "429 is not a model problem");
+  assert(isModelUnavailable(403, "model_not_authorized"), "off-plan model is unavailable");
+  assert(isModelUnavailable(400, "you do not have access to model x"), "no-access 400 is unavailable");
 
   console.log("models.ts: all checks passed");
 }

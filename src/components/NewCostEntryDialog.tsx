@@ -176,7 +176,7 @@ export function NewCostEntryDialog({
   };
 
   const saveScannedReceipt = async (r: ScannedReceipt, resolvedCategory: string): Promise<Receipt> => {
-    const id = `rcpt_${Date.now().toString(36)}`;
+    const id = `rcpt_${crypto.randomUUID()}`;
     const ext = r.compressed.mime === "image/webp" ? "webp" : "jpg";
     const stored = await uploadImage(Buckets.receipts, `${id}.${ext}`, r.compressed.blob);
     const capturedAt = new Date().toISOString();

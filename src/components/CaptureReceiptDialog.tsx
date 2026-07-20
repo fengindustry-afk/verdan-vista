@@ -247,7 +247,7 @@ export function CaptureReceiptDialog({
     if (!compressed && !pdfFile) return;
     setSaving(true);
     try {
-      const id = `rcpt_${Date.now().toString(36)}`;
+      const id = `rcpt_${crypto.randomUUID()}`;
       const stored = compressed
         ? await uploadImage(Buckets.receipts, `${id}.${compressed.mime === "image/webp" ? "webp" : "jpg"}`, compressed.blob)
         : { path: "", dataUrl: "" };

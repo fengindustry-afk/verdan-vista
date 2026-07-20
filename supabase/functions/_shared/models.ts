@@ -10,6 +10,10 @@
  * Only *availability* errors advance to the next candidate. A 401, a 429 or a
  * malformed reply is not a reason to try another model — those get thrown so
  * the provider-level fallback (and the log) sees the real cause.
+ *
+ * A model that reports itself retired or off-plan goes on a timed cooldown, so
+ * later requests skip it instead of re-paying a failed round trip. The cooldown
+ * expires by itself; nothing needs clearing by hand.
  */
 
 /** Groq vision models, newest first. Overridden by GROQ_MODEL (comma-separated). */
@@ -46,8 +50,34 @@ export function modelCandidates(envVars: string[], defaults: string[]): string[]
  */
 export function isModelUnavailable(status: number, body: string): boolean {
   if (status === 404) return true;
-  return status === 400 &&
-    /model_not_found|model_decommissioned|does not exist|is not supported|has been deprecated|not found/i.test(body);
+  // 403 / access errors: the key is fine, this model just isn't on the plan —
+  // which is how a model dropping out of the free tier shows up.
+  if (status === 403) return true;
+  return (status === 400 || status === 422) &&
+    /model_not_found|model_decommissioned|model_not_authorized|does not exist|do(es)? not have access|not authorized to use|is not supported|has been deprecated|not found/i
+      .test(body);
+}
+
+/**
+ * Models known to be unavailable, with the time their cooldown expires.
+ *
+ * Once a model answers with "retired" or "not on your plan", that verdict holds
+ * for a while — so we stop paying a failed round trip per request to rediscover
+ * it. The entry expires on its own, which is what lets a model that comes back
+ * (or a plan that gets upgraded) start working again with nobody clearing
+ * anything by hand. Module scope, so it lives as long as the isolate.
+ */
+const cooldowns = new Map<string, number>();
+const COOLDOWN_MS = 30 * 60 * 1000;
+
+function onCooldown(model: string): boolean {
+  const until = cooldowns.get(model);
+  if (until === undefined) return false;
+  if (Date.now() >= until) {
+    cooldowns.delete(model);
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -85,15 +115,19 @@ export async function withModelFallback<T>(
   const tried: string[] = [];
   let lastError: unknown = new Error("No models configured");
 
-  const run = async (models: string[]): Promise<T | typeof NOT_FOUND> => {
+  const run = async (models: string[], ignoreCooldown = false): Promise<T | typeof NOT_FOUND> => {
     for (const model of models) {
       if (tried.includes(model)) continue;
+      if (!ignoreCooldown && onCooldown(model)) continue;
       tried.push(model);
       try {
-        return await attempt(model);
+        const result = await attempt(model);
+        cooldowns.delete(model); // it works — clear any stale verdict
+        return result;
       } catch (err) {
         lastError = err;
         if (!(err instanceof ModelUnavailableError)) throw err;
+        cooldowns.set(model, Date.now() + COOLDOWN_MS);
       }
     }
     return NOT_FOUND;
@@ -107,6 +141,10 @@ export async function withModelFallback<T>(
     const second = await run(discovered);
     if (second !== NOT_FOUND) return second;
   }
+  // Nothing left to try: take one pass ignoring cooldowns rather than failing on
+  // a stale verdict, so a recovered model is never locked out by its own cache.
+  const retry = await run([...candidates], true);
+  if (retry !== NOT_FOUND) return retry;
   throw lastError;
 }
 

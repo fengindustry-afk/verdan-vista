@@ -607,7 +607,7 @@ function SectionH({ applications, canEdit }: { applications: PlotApplication[]; 
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-border/50 bg-muted/40 text-muted-foreground">
-                {["Tarikh", "Produk", "Kadar (kg/pokok)", "Bilangan pokok", "Total kadar aplikasi biochar (kg)", "Harga biochar (RM/kg)", "Total cost (RM)", "Kaedah", "Pegawai", "Supervisor", ""].map((h) => (
+                {["Tarikh", "Produk", "Kadar (kg/ml/pokok)", "Bilangan pokok", "Total Application (kg/ml)", "Total Application Cost (RM/kg/ml)", "Total cost (RM)", "Kaedah", "Pegawai", "Supervisor", ""].map((h) => (
                   <th key={h} className="text-left font-medium px-3 py-2 whitespace-nowrap">{h}</th>
                 ))}
               </tr>

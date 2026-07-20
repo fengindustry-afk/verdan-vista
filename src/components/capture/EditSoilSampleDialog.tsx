@@ -42,7 +42,7 @@ export function EditSoilSampleDialog({ sample, groups = [], open, onOpenChange }
   const save = async () => {
     if (!form.Parameter?.trim()) return toast.error("Parameter wajib diisi.");
     if (!form.TreatmentGroup?.trim()) return toast.error("Kumpulan rawatan wajib diisi.");
-    const id = sample?.id ?? `soil_${Date.now().toString(36)}`;
+    const id = sample?.id ?? `soil_${crypto.randomUUID()}`;
     const doc: SoilSample = { ...sample, ...form, id, Parameter: form.Parameter };
     const saved = await upsert.mutateAsync(doc).catch(() => null);
     if (!saved) return; // useUpsert already toasted why it wasn't saved

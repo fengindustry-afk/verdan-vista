@@ -59,7 +59,7 @@ export function EditApplicationDialog({ application, open, onOpenChange }: Props
 
   const save = async () => {
     if (!form.Date?.trim()) return toast.error("Tarikh wajib diisi.");
-    const id = application?.id ?? `app_${Date.now().toString(36)}`;
+    const id = application?.id ?? `app_${crypto.randomUUID()}`;
     const doc: PlotApplication = { ...application, ...form, id };
     const saved = await upsert.mutateAsync(doc).catch(() => null);
     if (!saved) return; // useUpsert already toasted why it wasn't saved

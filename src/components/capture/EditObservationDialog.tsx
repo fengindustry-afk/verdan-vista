@@ -37,7 +37,7 @@ export function EditObservationDialog({ observation, groups, open, onOpenChange 
 
   const save = async () => {
     if (!form.Date?.trim()) return toast.error("Date is required.");
-    const id = observation?.id ?? `obs_${Date.now().toString(36)}`;
+    const id = observation?.id ?? `obs_${crypto.randomUUID()}`;
     const doc: PlotObservation = {
       ...observation,
       ...form,

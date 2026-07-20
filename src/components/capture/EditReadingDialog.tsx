@@ -50,7 +50,7 @@ export function EditReadingDialog({ treeId, reading, open, onOpenChange }: Props
 
   const save = async () => {
     if (!form.Date?.trim()) return toast.error("Date is required.");
-    const id = reading?.id ?? `read_${Date.now().toString(36)}`;
+    const id = reading?.id ?? `read_${crypto.randomUUID()}`;
     const doc: TreeReading = { ...reading, ...form, id, TreeId: treeId, Date: form.Date };
     await upsert.mutateAsync(doc);
     toast.success(editing ? "Reading updated" : "Reading added");

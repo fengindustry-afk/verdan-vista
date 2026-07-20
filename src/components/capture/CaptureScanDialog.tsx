@@ -52,7 +52,7 @@ export function CaptureScanDialog({ treeId }: { treeId: string }) {
     if (!blob) return toast.error("Capture a scan image first.");
     setSaving(true);
     try {
-      const id = `scan_${Date.now().toString(36)}`;
+      const id = `scan_${crypto.randomUUID()}`;
       // keepDataUrl: retain a compact base64 fallback alongside the storage path
       // so the scan thumbnail always renders, even if a signed URL can't be
       // produced in this environment (the "new scan shows empty" bug).
