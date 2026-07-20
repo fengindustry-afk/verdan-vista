@@ -7,6 +7,7 @@ import { useUpsert, useDelete } from "@/hooks/useCollection";
 import { Collections } from "@/lib/collections";
 import type { PlotApplication } from "@/lib/types";
 import { fmt, fmtPrice } from "@/lib/format";
+import { useNumericField } from "@/hooks/useNumericField";
 import { toast } from "sonner";
 
 type Props = {
@@ -18,7 +19,7 @@ type Props = {
 const NUM: { key: keyof PlotApplication; label: string }[] = [
   { key: "RatePerTreeKg", label: "Kadar (kg/pokok)" },
   { key: "TreeCount", label: "Bilangan pokok" },
-  { key: "BiocharKg", label: "Total kadar aplikasi biochar (kg)" },
+  { key: "BiocharKg", label: "Total kadar aplikasi biochar (kg/L)" },
   { key: "UnitPrice", label: "Harga seunit (RM/kg)" },
 ];
 
@@ -35,10 +36,12 @@ export function EditApplicationDialog({ application, open, onOpenChange }: Props
   const del = useDelete(Collections.plotApplications);
   const editing = !!application;
   const [form, setForm] = useState<Partial<PlotApplication>>({});
+  const num = useNumericField();
 
   const [seenOpen, setSeenOpen] = useState(false);
   if (open && !seenOpen) {
     setForm(application ?? { Date: new Date().toISOString().slice(0, 10) });
+    num.reset();
     setSeenOpen(true);
   } else if (!open && seenOpen) {
     setSeenOpen(false);
@@ -46,10 +49,8 @@ export function EditApplicationDialog({ application, open, onOpenChange }: Props
 
   const setText = (k: keyof PlotApplication) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
-  const setNum = (k: keyof PlotApplication) => (e: React.ChangeEvent<HTMLInputElement>) => {
-    const v = e.target.value;
-    setForm((f) => ({ ...f, [k]: v === "" ? null : Number(v) }));
-  };
+  const setNum = (k: keyof PlotApplication) =>
+    num.onChange(k, (v) => setForm((f) => ({ ...f, [k]: v })));
 
   // Cost is charged on the biochar content, not the total fertiliser applied.
   const price = typeof form.UnitPrice === "number" ? form.UnitPrice : null;
@@ -94,7 +95,7 @@ export function EditApplicationDialog({ application, open, onOpenChange }: Props
             <div key={key}>
               <Label className="text-xs">{label}</Label>
               {/* step="any" — prices go down to fractions of a sen (e.g. 0.0005/kg). */}
-              <Input type="number" step="any" inputMode="decimal" value={form[key] == null ? "" : String(form[key])} onChange={setNum(key)} className="mt-1" />
+              <Input type="number" step="any" inputMode="decimal" value={num.display(key, form[key])} onChange={setNum(key)} className="mt-1" />
             </div>
           ))}
           <div className="sm:col-span-2 rounded-lg bg-muted/50 border border-border px-3 py-2 text-xs text-muted-foreground flex items-center justify-between">

@@ -7,6 +7,7 @@ import { useUpsert, useDelete } from "@/hooks/useCollection";
 import { Collections } from "@/lib/collections";
 import { SOIL_PARAMS } from "@/lib/testingPlotSummary";
 import type { SoilSample } from "@/lib/types";
+import { useNumericField } from "@/hooks/useNumericField";
 import { toast } from "sonner";
 
 type Props = {
@@ -23,20 +24,20 @@ export function EditSoilSampleDialog({ sample, groups = [], open, onOpenChange }
   const del = useDelete(Collections.soilSamples);
   const editing = !!sample;
   const [form, setForm] = useState<Partial<SoilSample>>({});
+  const num = useNumericField();
 
   // Reset local form each time the dialog opens.
   const [seenOpen, setSeenOpen] = useState(false);
   if (open && !seenOpen) {
     setForm(sample ?? { Parameter: SOIL_PARAMS[0], Date: new Date().toISOString().slice(0, 10) });
+    num.reset();
     setSeenOpen(true);
   } else if (!open && seenOpen) {
     setSeenOpen(false);
   }
 
-  const setNum = (k: keyof SoilSample) => (e: React.ChangeEvent<HTMLInputElement>) => {
-    const v = e.target.value;
-    setForm((f) => ({ ...f, [k]: v === "" ? null : Number(v) }));
-  };
+  const setNum = (k: keyof SoilSample) =>
+    num.onChange(k, (v) => setForm((f) => ({ ...f, [k]: v })));
 
   const save = async () => {
     if (!form.Parameter?.trim()) return toast.error("Parameter wajib diisi.");
@@ -68,7 +69,7 @@ export function EditSoilSampleDialog({ sample, groups = [], open, onOpenChange }
             <Input
               type="number"
               inputMode="numeric"
-              value={form.TreeNo == null ? "" : String(form.TreeNo)}
+              value={num.display("TreeNo", form.TreeNo)}
               onChange={setNum("TreeNo")}
               className="mt-1"
             />
@@ -113,7 +114,7 @@ export function EditSoilSampleDialog({ sample, groups = [], open, onOpenChange }
               type="number"
               step="any"
               inputMode="decimal"
-              value={form.InitialReading == null ? "" : String(form.InitialReading)}
+              value={num.display("InitialReading", form.InitialReading)}
               onChange={setNum("InitialReading")}
               className="mt-1"
             />
@@ -124,7 +125,7 @@ export function EditSoilSampleDialog({ sample, groups = [], open, onOpenChange }
               type="number"
               step="any"
               inputMode="decimal"
-              value={form.FinalReading == null ? "" : String(form.FinalReading)}
+              value={num.display("FinalReading", form.FinalReading)}
               onChange={setNum("FinalReading")}
               className="mt-1"
             />

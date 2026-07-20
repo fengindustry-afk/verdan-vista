@@ -6,6 +6,7 @@ import { Loader2, Trash2 } from "lucide-react";
 import { useUpsert, useDelete } from "@/hooks/useCollection";
 import { Collections } from "@/lib/collections";
 import type { TreeReading } from "@/lib/types";
+import { useNumericField } from "@/hooks/useNumericField";
 import { toast } from "sonner";
 
 type Props = {
@@ -32,20 +33,20 @@ export function EditReadingDialog({ treeId, reading, open, onOpenChange }: Props
   const del = useDelete(Collections.readings);
   const editing = !!reading;
   const [form, setForm] = useState<Partial<TreeReading>>({});
+  const num = useNumericField();
 
   // Reset local form each time the dialog opens.
   const [seenOpen, setSeenOpen] = useState(false);
   if (open && !seenOpen) {
     setForm(reading ?? { Date: new Date().toISOString().slice(0, 10) });
+    num.reset();
     setSeenOpen(true);
   } else if (!open && seenOpen) {
     setSeenOpen(false);
   }
 
-  const setNum = (k: keyof TreeReading) => (e: React.ChangeEvent<HTMLInputElement>) => {
-    const v = e.target.value;
-    setForm((f) => ({ ...f, [k]: v === "" ? null : Number(v) }));
-  };
+  const setNum = (k: keyof TreeReading) =>
+    num.onChange(k, (v) => setForm((f) => ({ ...f, [k]: v })));
 
   const save = async () => {
     if (!form.Date?.trim()) return toast.error("Date is required.");
@@ -86,7 +87,7 @@ export function EditReadingDialog({ treeId, reading, open, onOpenChange }: Props
                 type="number"
                 step="any"
                 inputMode="decimal"
-                value={form[key] == null ? "" : String(form[key])}
+                value={num.display(key, form[key])}
                 onChange={setNum(key)}
                 className="mt-1"
               />
