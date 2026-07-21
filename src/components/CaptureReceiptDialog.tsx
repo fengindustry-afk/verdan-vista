@@ -4,7 +4,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Camera, Loader2, ScanText, Plus, ChevronDown, FileText, X } from "lucide-react";
+import { Camera, Loader2, ScanText, Plus, ChevronDown, FileText, X, Image as ImageIcon } from "lucide-react";
 import { useUpsert, useCategoryNames } from "@/hooks/useCollection";
 import { Collections } from "@/lib/collections";
 import type { Receipt, ReceiptLineItem } from "@/lib/types";
@@ -104,6 +104,7 @@ export function CaptureReceiptDialog({
   const upsert = useUpsert<Receipt>(Collections.receipts, { surfaceErrors: true });
   const categoryNames = useCategoryNames();
   const fileRef = useRef<HTMLInputElement>(null);
+  const galleryRef = useRef<HTMLInputElement>(null);
   const pdfRef = useRef<HTMLInputElement>(null);
 
   const [internalOpen, setInternalOpen] = useState(false);
@@ -315,19 +316,31 @@ export function CaptureReceiptDialog({
           <DialogTitle>Scan Receipt</DialogTitle>
         </DialogHeader>
 
+        {/* Two inputs: one forces the camera (capture), one is a plain file
+            picker for choosing an existing image from the gallery / disk. */}
         <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={onFile} className="hidden" />
+        <input ref={galleryRef} type="file" accept="image/*" onChange={onFile} className="hidden" />
         <input ref={pdfRef} type="file" accept=".pdf" onChange={onPdfFile} className="hidden" />
 
         {step === "capture" && (
           <div className="space-y-3">
-            <button
-              onClick={() => fileRef.current?.click()}
-              className="w-full inline-flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border py-12 text-sm text-muted-foreground hover:bg-muted/40 transition-colors"
-            >
-              <Camera className="h-7 w-7 text-primary" />
-              Tap to photograph or upload a receipt
-              <span className="text-[11px]">Fields auto-filled by AI · falls back to on-device OCR offline</span>
-            </button>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => fileRef.current?.click()}
+                className="inline-flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border py-10 text-sm text-muted-foreground hover:bg-muted/40 transition-colors"
+              >
+                <Camera className="h-7 w-7 text-primary" /> Take photo
+              </button>
+              <button
+                onClick={() => galleryRef.current?.click()}
+                className="inline-flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border py-10 text-sm text-muted-foreground hover:bg-muted/40 transition-colors"
+              >
+                <ImageIcon className="h-7 w-7 text-primary" /> Choose from gallery
+              </button>
+            </div>
+            <p className="text-center text-[11px] text-muted-foreground">
+              Fields auto-filled by AI · falls back to on-device OCR offline
+            </p>
             <button
               onClick={() => pdfRef.current?.click()}
               className="w-full inline-flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border py-8 text-sm text-muted-foreground hover:bg-muted/40 transition-colors"

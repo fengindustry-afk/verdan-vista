@@ -163,6 +163,14 @@ const Sidebar = React.forwardRef<
             } as React.CSSProperties
           }
           side={side}
+          // Radix focuses the first focusable child on open, which here is the
+          // search box — so opening the menu raised the on-screen keyboard even
+          // though most taps are headed for a nav link. Focus the panel itself
+          // instead: screen readers still land inside it, no keyboard.
+          onOpenAutoFocus={(e) => {
+            e.preventDefault();
+            (e.currentTarget as HTMLElement | null)?.focus({ preventScroll: true });
+          }}
         >
           <div className="flex h-full w-full flex-col">{children}</div>
         </SheetContent>
