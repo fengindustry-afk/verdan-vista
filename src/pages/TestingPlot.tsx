@@ -6,7 +6,8 @@ import {
 import { StoredImage } from "@/components/StoredImage";
 import { CapturePhotoDialog } from "@/components/capture/CapturePhotoDialog";
 import { Buckets } from "@/lib/storage";
-import { TreePine, Loader2, Plus, Pencil, GripVertical } from "lucide-react";
+import { TreePine, Loader2, Plus, Pencil, GripVertical, FileDown } from "lucide-react";
+import { exportTestingPlotXlsx } from "@/lib/exportTestingPlot";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useMemo, useState } from "react";
@@ -36,8 +37,10 @@ export default function TestingPlot() {
   const { data: observations = [] } = usePlotObservations();
   const { data: applications = [] } = usePlotApplications();
   const { data: comparisons = [] } = usePlotComparisons();
+  const { data: photos = [] } = usePhotos();
   const { role } = useAuth();
   const canEdit = hasPermission(role, Permission.AddLocations);
+  const canExport = hasPermission(role, Permission.ExportData);
   const [searchParams] = useSearchParams();
   const initialSection = searchParams.get("section") || "summary";
 
@@ -58,11 +61,26 @@ export default function TestingPlot() {
   return (
     <div className="relative p-6 lg:p-8 space-y-6">
       <div className="glow-orb w-72 h-72 -top-36 right-10 animate-pulse-glow" />
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Testing Plot</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Ujian lapangan biochar — mengikut struktur buku kerja ESTERRA Plot 5 (Seksyen A–H)
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Testing Plot</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Ujian lapangan biochar — mengikut struktur buku kerja ESTERRA Plot 5 (Seksyen A–H)
+          </p>
+        </div>
+        {canExport && (
+          <button
+            onClick={() =>
+              exportTestingPlotXlsx(
+                { trees, readings, soilSamples, observations, applications, comparisons, photos },
+                `testing-plot-${new Date().toISOString().slice(0, 10)}.xlsx`
+              )
+            }
+            className="inline-flex items-center gap-2 rounded-lg border border-primary/40 text-primary px-3 py-2 text-sm font-semibold hover:bg-primary/10 transition-colors"
+          >
+            <FileDown className="h-4 w-4" /> Eksport Excel
+          </button>
+        )}
       </div>
 
       <Tabs defaultValue={initialSection}>
