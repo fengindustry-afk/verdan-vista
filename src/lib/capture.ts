@@ -98,3 +98,100 @@ export async function compressImage(file: File, maxEdge = 1280, quality = 0.8): 
     canvas.toBlob((b) => resolve(b && b.size > 0 ? b : file), "image/jpeg", quality)
   );
 }
+
+/**
+ * How far from the site a capture may be taken and still count as evidence.
+ *
+ * A photo tagged 200 km from the plot is not evidence of the plot, and a
+ * registry will discount the record rather than argue about it. The check is a
+ * radius around the nearest *known* point (a recorded location or a tree with
+ * coordinates) because the project has no plot polygon yet.
+ *
+ * ponytail: single radius, no polygon. Sites are small and the known points
+ * bound them well enough. Swap in a point-in-polygon test if a plot ever gets
+ * a real boundary.
+ *
+ * CALIBRATION KNOB. Tighten this to the plot's real size, but not below what
+ * the hardware can see: consumer GPS resolves to roughly 3–10 m open-sky and
+ * worse under canopy, so a sub-metre radius rejects captures taken while
+ * standing on the tree. Sub-metre fencing needs RTK/differential GPS, not a
+ * smaller constant. `geofenceCheck` already subtracts the fix's own reported
+ * accuracy, so this number is the tolerance ON TOP of instrument error.
+ */
+export const GEOFENCE_RADIUS_M = 50;
+
+/** Metres of uncertainty in a fix, parsed from its "±4.2m" accuracy string. */
+export function accuracyMeters(fix: { Accuracy?: string }): number {
+  const m = fix.Accuracy?.match(/([\d.]+)/);
+  const n = m ? Number(m[1]) : NaN;
+  return Number.isFinite(n) ? n : 0;
+}
+
+export interface GeofenceResult {
+  /** Metres to the nearest known point, or null when none are usable. */
+  distance: number | null;
+  /** Instrument error already allowed for, in metres. */
+  accuracy: number;
+  /** True only when the capture is outside the radius even after that slack. */
+  outside: boolean;
+}
+
+/**
+ * Is this fix close enough to a known site point to count?
+ *
+ * The fix is a circle, not a point, so the honest test is against its near
+ * edge: a reading 55 m out with ±10 m accuracy could genuinely be 45 m out.
+ * Being strict about a number the receiver never claimed to know would just
+ * reject good captures.
+ */
+export function geofenceCheck(
+  fix: GeoPoint & { Accuracy?: string },
+  points: GeoPoint[],
+  radius = GEOFENCE_RADIUS_M
+): GeofenceResult {
+  const distance = distanceToNearest(fix, points);
+  const accuracy = accuracyMeters(fix);
+  return {
+    distance,
+    accuracy,
+    outside: distance !== null && distance - accuracy > radius,
+  };
+}
+
+/** Great-circle distance in metres between two lat/lon points (haversine). */
+export function distanceMeters(
+  lat1: number, lon1: number, lat2: number, lon2: number
+): number {
+  const R = 6371000;
+  const rad = Math.PI / 180;
+  const dLat = (lat2 - lat1) * rad;
+  const dLon = (lon2 - lon1) * rad;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+export interface GeoPoint { Latitude?: string; Longitude?: string }
+
+/**
+ * Metres from `fix` to the nearest point that has usable coordinates, or null
+ * when none do — with no reference points there is nothing to check against,
+ * and a fabricated "0 m away" would be worse than admitting we don't know.
+ */
+export function distanceToNearest(fix: GeoPoint, points: GeoPoint[]): number | null {
+  const lat = Number(fix.Latitude);
+  const lon = Number(fix.Longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  let best: number | null = null;
+  for (const p of points) {
+    const pLat = Number(p.Latitude);
+    const pLon = Number(p.Longitude);
+    // Reject blanks: Number("") is 0, which would place every empty record off
+    // the coast of Africa and make the nearest-point check meaningless.
+    if (!p.Latitude || !p.Longitude || !Number.isFinite(pLat) || !Number.isFinite(pLon)) continue;
+    const d = distanceMeters(lat, lon, pLat, pLon);
+    if (best === null || d < best) best = d;
+  }
+  return best;
+}

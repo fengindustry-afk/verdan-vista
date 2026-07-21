@@ -2,18 +2,34 @@ import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Plus, Pencil } from "lucide-react";
-import { useUpsert } from "@/hooks/useCollection";
+import { Crosshair, Loader2, MapPin, Plus, Pencil, Trash2 } from "lucide-react";
+import { useUpsert, useDelete } from "@/hooks/useCollection";
 import { Collections } from "@/lib/collections";
 import type { Tree } from "@/lib/types";
+import { getCurrentPosition } from "@/lib/capture";
 import { toast } from "sonner";
 
 /** Add a new tree, or edit an existing one, in the Testing Plot. */
 export function EditTreeDialog({ tree }: { tree?: Tree }) {
   const upsert = useUpsert<Tree>(Collections.trees);
+  const del = useDelete(Collections.trees);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<Partial<Tree>>(tree ?? {});
+  const [locating, setLocating] = useState(false);
   const editing = !!tree;
+
+  /** Stand at the tree and tag it — this is what the plot plan is drawn from. */
+  const tagGps = async () => {
+    setLocating(true);
+    try {
+      const fix = await getCurrentPosition();
+      setForm((f) => ({ ...f, Latitude: fix.Latitude, Longitude: fix.Longitude }));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Location failed");
+    } finally {
+      setLocating(false);
+    }
+  };
 
   const set = (k: keyof Tree) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -32,6 +48,16 @@ export function EditTreeDialog({ tree }: { tree?: Tree }) {
     toast.success(editing ? `Tree "${doc.TreeCode}" updated` : `Tree "${doc.TreeCode}" added`);
     setOpen(false);
     if (!editing) setForm({});
+  };
+
+  /** Remove a tree. Recoverable from the audit trail — useDelete logs the
+   *  record's prior state before it goes. */
+  const remove = async () => {
+    if (!tree) return;
+    if (!confirm(`Delete tree "${tree.TreeCode}"? Its readings stay in the database.`)) return;
+    await del.mutateAsync(tree.id);
+    toast.success(`Tree "${tree.TreeCode}" deleted`);
+    setOpen(false);
   };
 
   return (
@@ -64,11 +90,34 @@ export function EditTreeDialog({ tree }: { tree?: Tree }) {
           <Field label="Crop age" value={form.CropAge ?? ""} onChange={set("CropAge")} placeholder="e.g. 18 months" />
           <Field label="Treatment date" value={form.TreatmentDate ?? ""} onChange={set("TreatmentDate")} placeholder="YYYY-MM-DD" />
           <Field label="Plot location" value={form.PlotLocation ?? ""} onChange={set("PlotLocation")} placeholder="e.g. NE corner" />
+          <div className="sm:col-span-2 flex items-center justify-between rounded-lg bg-muted/50 border border-border p-3 text-xs">
+            <div className="flex items-center gap-2 text-muted-foreground font-mono">
+              <MapPin className="h-3.5 w-3.5 text-primary" />
+              {form.Latitude && form.Longitude ? `${form.Latitude}, ${form.Longitude}` : "Tiada koordinat"}
+            </div>
+            <button onClick={tagGps} disabled={locating} className="inline-flex items-center gap-1 text-primary disabled:opacity-60">
+              {locating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Crosshair className="h-3 w-3" />}
+              {form.Latitude ? "Re-tag GPS" : "Tag GPS"}
+            </button>
+          </div>
+          {/* Typed entry for the times GPS isn't an option: correcting a bad
+              fix, or transcribing a surveyed coordinate from paper. */}
+          <Field label="Latitude" value={form.Latitude ?? ""} onChange={set("Latitude")} placeholder="e.g. 2.824703" />
+          <Field label="Longitude" value={form.Longitude ?? ""} onChange={set("Longitude")} placeholder="e.g. 101.769411" />
           <div className="sm:col-span-2">
             <Field label="Notes" value={form.Notes ?? ""} onChange={set("Notes")} placeholder="Any detail…" />
           </div>
         </div>
-        <DialogFooter>
+        <DialogFooter className="sm:justify-between">
+          {editing ? (
+            <button
+              onClick={remove}
+              disabled={del.isPending}
+              className="inline-flex items-center gap-2 rounded-lg border border-destructive/40 text-destructive px-3 py-2 text-sm font-medium hover:bg-destructive/10 disabled:opacity-60"
+            >
+              {del.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />} Delete
+            </button>
+          ) : <span />}
           <button
             onClick={save}
             disabled={upsert.isPending}

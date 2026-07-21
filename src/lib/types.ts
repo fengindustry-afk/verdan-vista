@@ -61,6 +61,10 @@ export interface GeotaggedPhoto {
   Accuracy?: string;
   Altitude?: string;
   Timestamp?: string;
+  /** How Timestamp was established — see TreeScan.TimestampSource. */
+  TimestampSource?: "exif" | "file" | "upload";
+  /** SHA-256 of the stored image bytes — see src/lib/hash.ts. */
+  Sha256?: string;
   Description?: string;
   CarbonCreditPurpose?: string;
   CapturedBy?: string;

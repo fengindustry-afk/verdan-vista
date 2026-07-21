@@ -33,6 +33,12 @@ select 'receipts', data->>'Sha256', count(*), string_agg(id, ', ' order by id)
 from public.receipts
 where data->>'Sha256' is not null
 group by data->>'Sha256'
+having count(*) > 1
+union all
+select 'geotagged_photos', data->>'Sha256', count(*), string_agg(id, ', ' order by id)
+from public.geotagged_photos
+where data->>'Sha256' is not null
+group by data->>'Sha256'
 having count(*) > 1;
 
 
@@ -44,6 +50,12 @@ create unique index if not exists scans_sha256_unique
 
 create unique index if not exists receipts_sha256_unique
   on public.receipts ((data->>'Sha256'))
+  where data->>'Sha256' is not null;
+
+-- Photo evidence (carbon-sink images captured without an AI scan) is claimed
+-- the same way and double-counted the same way, so it gets the same guard.
+create unique index if not exists geotagged_photos_sha256_unique
+  on public.geotagged_photos ((data->>'Sha256'))
   where data->>'Sha256' is not null;
 
 -- Lookup path for "which record does this image belong to", and for the

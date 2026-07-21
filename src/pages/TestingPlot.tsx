@@ -1,8 +1,11 @@
 import { BentoCard } from "@/components/BentoCard";
 import {
   useTrees, useReadings, useSoilSamples, usePlotObservations, usePlotApplications,
-  usePlotComparisons, useUpsert,
+  usePlotComparisons, usePhotos, useUpsert,
 } from "@/hooks/useCollection";
+import { StoredImage } from "@/components/StoredImage";
+import { CapturePhotoDialog } from "@/components/capture/CapturePhotoDialog";
+import { Buckets } from "@/lib/storage";
 import { TreePine, Loader2, Plus, Pencil, GripVertical } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -14,6 +17,7 @@ import { EditObservationDialog } from "@/components/capture/EditObservationDialo
 import { EditApplicationDialog } from "@/components/capture/EditApplicationDialog";
 import { TestingPlotSummary } from "@/components/TestingPlotSummary";
 import { PairTable } from "@/components/testing-plot/PairTable";
+import { PlotMap } from "@/components/testing-plot/PlotMap";
 import { soilPercentChange, summarizeTestingPlot, SUMMARY_PARAMS } from "@/lib/testingPlotSummary";
 import {
   PLOT_SECTIONS, GROWTH_COLUMNS, HEALTH_COLUMNS, YIELD_COLUMNS,
@@ -76,8 +80,18 @@ export default function TestingPlot() {
         </TabsContent>
 
         <TabsContent value="A" className="pt-4 space-y-4">
-          <SectionHeader def={PLOT_SECTIONS[0]} action={canEdit ? <EditTreeDialog /> : undefined} />
+          <SectionHeader
+            def={PLOT_SECTIONS[0]}
+            action={canEdit ? (
+              <div className="flex gap-2">
+                <EditTreeDialog />
+                <CapturePhotoDialog label="Bukti Foto" title="Bukti foto carbon sink" />
+              </div>
+            ) : undefined}
+          />
+          <PlotOverview trees={trees} />
           <SectionA trees={trees} readingsByTree={readingsByTree} canEdit={canEdit} />
+          <EvidencePhotos />
         </TabsContent>
 
         <TabsContent value="B" className="pt-4 space-y-4">
@@ -130,6 +144,55 @@ function SectionHeader({ def, action }: { def: PlotSectionDef; action?: React.Re
         </div>
       </div>
       {action}
+    </div>
+  );
+}
+
+/** Plot seen from above — trees and evidence drawn to scale. */
+function PlotOverview({ trees }: { trees: Tree[] }) {
+  const { data: photos = [] } = usePhotos();
+  return (
+    <BentoCard>
+      <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+        Pelan plot (pandangan atas)
+      </h3>
+      <PlotMap trees={trees} photos={photos} />
+    </BentoCard>
+  );
+}
+
+/**
+ * Photo evidence of the carbon sink — image, coordinates, capture date, hash.
+ * No AI scan involved: the picture itself is the record. Same collection the
+ * Assets page uses, so evidence lives in one place.
+ */
+function EvidencePhotos() {
+  const { data: photos = [] } = usePhotos();
+  if (photos.length === 0) return null;
+  return (
+    <div className="space-y-3 pt-2">
+      <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        Bukti foto · {photos.length}
+      </h3>
+      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {photos.map((p, i) => (
+          <BentoCard key={p.id} delay={i * 0.03} className="p-0 overflow-hidden">
+            <StoredImage bucket={Buckets.photos} stored={p.PhotoUrl} alt={p.Description ?? ""} className="w-full h-32 object-cover" zoomable />
+            <div className="p-3 space-y-1">
+              <p className="text-xs font-medium text-foreground truncate">{p.Description || p.id}</p>
+              <p className="text-[11px] text-muted-foreground font-mono">
+                {p.Latitude && p.Longitude ? `${p.Latitude}, ${p.Longitude}` : "Tiada GPS"}
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                {p.Timestamp}
+                {p.TimestampSource && p.TimestampSource !== "exif" && (
+                  <span className="text-amber-500"> · tarikh {p.TimestampSource === "file" ? "fail" : "muat naik"}</span>
+                )}
+              </p>
+            </div>
+          </BentoCard>
+        ))}
+      </div>
     </div>
   );
 }
