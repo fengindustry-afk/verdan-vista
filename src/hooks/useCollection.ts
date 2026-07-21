@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { getCollection, upsertDocument, deleteDocument, WriteNotAuthorizedError, TableNotFoundError } from "@/lib/data";
+import { getCollection, upsertDocument, deleteDocument, WriteNotAuthorizedError, TableNotFoundError, DuplicateEvidenceError } from "@/lib/data";
 import { Collections } from "@/lib/collections";
 import { recordEdit, getHistory, type HistoryEntry } from "@/lib/history";
 import type {
@@ -172,6 +172,11 @@ export function useUpsert<T extends { id: string }>(
         toast.error("Not saved — your account can't write to the server.", {
           description:
             "You're in demo mode or lack permission. Sign in with an Operator/Manager/Admin account to save.",
+        });
+      } else if (err instanceof DuplicateEvidenceError) {
+        toast.error("Not saved — this image is already on another record.", {
+          description:
+            "The same photo can't be filed twice: it would double-count the evidence. Capture a new photo, or open the existing record.",
         });
       } else if (err instanceof TableNotFoundError) {
         toast.error("Not saved — this feature isn't set up in the database yet.", {

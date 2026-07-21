@@ -232,6 +232,8 @@ export interface TreeScan {
    * provenance is stored rather than inferred.
    */
   TimestampSource?: "exif" | "file" | "upload";
+  /** SHA-256 of the stored image bytes — see src/lib/hash.ts. */
+  Sha256?: string;
   CapturedBy?: string;
   Notes?: string;
   /** Automated tree-health assessment from the scan image. */
@@ -358,6 +360,8 @@ export interface Receipt {
    * dated to the day it was photographed. See src/lib/exif.ts.
    */
   CapturedAtSource?: "exif" | "file" | "upload";
+  /** SHA-256 of the stored image bytes — see src/lib/hash.ts. */
+  Sha256?: string;
   /** ISO date until which this record must be retained (7-year rule). */
   RetentionUntil?: string;
 }

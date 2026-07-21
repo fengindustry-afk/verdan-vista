@@ -15,6 +15,7 @@ import { computeRetentionUntil } from "@/lib/receipts";
 import { uploadImage, Buckets } from "@/lib/storage";
 import { useAuth } from "@/lib/auth";
 import { readCaptureTime, type CaptureTime } from "@/lib/exif";
+import { hashStoredImage } from "@/lib/hash";
 import { toast } from "sonner";
 
 type Step = "capture" | "processing" | "review";
@@ -297,6 +298,7 @@ export function CaptureReceiptDialog({
         CapturedBy: user?.FullName || user?.Email || "User",
         CapturedAt: capturedAt,
         CapturedAtSource: captured?.source ?? "upload",
+        Sha256: compressed ? await hashStoredImage(compressed.blob) : undefined,
         RetentionUntil: computeRetentionUntil(form.Date, capturedAt),
       };
       await upsert.mutateAsync(doc);

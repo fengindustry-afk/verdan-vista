@@ -40,6 +40,24 @@ export class TableNotFoundError extends Error {
   }
 }
 
+/**
+ * A unique constraint rejected the write — for evidence hashes, this means the
+ * same image is already filed against another record (see
+ * security/create-evidence-hash.sql). Like an auth error it is NOT retryable:
+ * queuing it would retry forever, so callers get an honest failure instead.
+ */
+export class DuplicateEvidenceError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DuplicateEvidenceError";
+  }
+}
+
+// Postgres 23505 = unique_violation.
+function isDuplicateError(error: { code?: string; message?: string }): boolean {
+  return error.code === "23505" || /duplicate key value|unique constraint/i.test(error.message ?? "");
+}
+
 // Postgres 42501 = insufficient_privilege (RLS); PGRST301 = PostgREST JWT/auth.
 const AUTH_ERROR = /42501|PGRST301|row-level security|permission denied|not authoriz|\bJWT\b|forbidden/i;
 function isAuthError(error: { code?: string; message?: string }): boolean {
@@ -300,6 +318,13 @@ export async function upsertDocument<T extends Doc>(
       memSet(key, rolledBack);
       console.warn(`[data] upsert(${collection}/${id}) rejected (table not found):`, error.message);
       if (opts.throwOnUnauthorized) throw new TableNotFoundError(error.message);
+    } else if (isDuplicateError(error)) {
+      // A unique index refused it (duplicate evidence hash). Retrying can never
+      // succeed, so roll back rather than queue, and say so honestly.
+      const rolledBack = (memGet<T[]>(key, { ignoreExpiry: true }) ?? []).filter((d) => d.id !== id);
+      memSet(key, rolledBack);
+      console.warn(`[data] upsert(${collection}/${id}) rejected (duplicate):`, error.message);
+      if (opts.throwOnUnauthorized) throw new DuplicateEvidenceError(error.message);
     } else if (queueOnError) {
       // Push failed (e.g. connection dropped mid-request) — queue it for later sync.
       console.error(`[data] upsert(${collection}/${id}) failed, queuing:`, error.message);

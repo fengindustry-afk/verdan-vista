@@ -36,6 +36,13 @@ export interface HistoryEntry {
   Timestamp: string;
   /** Per-field before→after diff (empty for pure creates/deletes). */
   Changes: FieldChange[];
+  /**
+   * Content hash of the record's attached evidence at the moment it was
+   * written. Copied here because a create carries no field diff, and this log
+   * is append-only — which is the whole point: the hash on the record can be
+   * rewritten by whoever can write the record, the copy here cannot.
+   */
+  Evidence?: string;
 }
 
 /**
@@ -143,6 +150,9 @@ export async function recordEdit(opts: {
     Role: role,
     Timestamp: new Date().toISOString(),
     Changes: changes,
+    Evidence: typeof (after ?? before)?.Sha256 === "string"
+      ? (after ?? before)!.Sha256 as string
+      : undefined,
   };
 
   try {

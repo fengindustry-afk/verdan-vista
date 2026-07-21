@@ -11,11 +11,12 @@ import { uploadImage, Buckets } from "@/lib/storage";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
 import { readCaptureTime, type CaptureTime } from "@/lib/exif";
+import { hashStoredImage } from "@/lib/hash";
 
 /** Capture a tree-health scan image (camera + optional GPS) for a given tree. */
 export function CaptureScanDialog({ treeId }: { treeId: string }) {
   const { user } = useAuth();
-  const upsert = useUpsert<TreeScan>(Collections.scans);
+  const upsert = useUpsert<TreeScan>(Collections.scans, { surfaceErrors: true });
   const cameraRef = useRef<HTMLInputElement>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
@@ -62,6 +63,8 @@ export function CaptureScanDialog({ treeId }: { treeId: string }) {
       // so the scan thumbnail always renders, even if a signed URL can't be
       // produced in this environment (the "new scan shows empty" bug).
       const stored = await uploadImage(Buckets.scans, `${treeId}/${id}.jpg`, blob, { keepDataUrl: true });
+      // Hash the bytes that were stored — that is what an auditor can re-hash.
+      const sha256 = await hashStoredImage(blob);
       const doc: TreeScan = {
         id,
         TreeId: treeId,
@@ -73,10 +76,12 @@ export function CaptureScanDialog({ treeId }: { treeId: string }) {
         // upload) so a scan shot in the field days ago is dated to the field.
         Timestamp: captured?.at ?? fix?.Timestamp ?? new Date().toISOString().slice(0, 19).replace("T", " "),
         TimestampSource: captured?.source ?? "upload",
+        Sha256: sha256,
         CapturedBy: user?.FullName ?? "",
         Notes: notes.trim(),
       };
-      await upsert.mutateAsync(doc);
+      const saved = await upsert.mutateAsync(doc).catch(() => null);
+      if (!saved) return; // useUpsert already toasted why it wasn't saved
       toast.success("Scan saved");
       setOpen(false);
       reset();
