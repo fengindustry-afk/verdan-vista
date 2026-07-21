@@ -225,6 +225,13 @@ export interface TreeScan {
   Latitude?: string;
   Longitude?: string;
   Timestamp?: string;
+  /**
+   * How Timestamp was established: "exif" (the camera's own record), "file"
+   * (the file's mtime — a hint), or "upload" (nothing known, so it is the
+   * upload moment). MRV evidence has to be datable to the observation, so the
+   * provenance is stored rather than inferred.
+   */
+  TimestampSource?: "exif" | "file" | "upload";
   CapturedBy?: string;
   Notes?: string;
   /** Automated tree-health assessment from the scan image. */
@@ -345,6 +352,12 @@ export interface Receipt {
   Status?: string;
   CapturedBy?: string;
   CapturedAt?: string;
+  /**
+   * How CapturedAt was established — "exif" when the photo carried its own
+   * date, so a receipt photographed on the day and uploaded later is still
+   * dated to the day it was photographed. See src/lib/exif.ts.
+   */
+  CapturedAtSource?: "exif" | "file" | "upload";
   /** ISO date until which this record must be retained (7-year rule). */
   RetentionUntil?: string;
 }

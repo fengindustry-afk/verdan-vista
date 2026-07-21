@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Camera, Crosshair, Loader2, MapPin, Upload } from "lucide-react";
+import { Camera, CalendarClock, Crosshair, Loader2, MapPin, Upload } from "lucide-react";
 import { useUpsert } from "@/hooks/useCollection";
 import { Collections } from "@/lib/collections";
 import type { TreeScan } from "@/lib/types";
@@ -10,6 +10,7 @@ import { getCurrentPosition, compressImage, type GeoFix } from "@/lib/capture";
 import { uploadImage, Buckets } from "@/lib/storage";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
+import { readCaptureTime, type CaptureTime } from "@/lib/exif";
 
 /** Capture a tree-health scan image (camera + optional GPS) for a given tree. */
 export function CaptureScanDialog({ treeId }: { treeId: string }) {
@@ -22,6 +23,7 @@ export function CaptureScanDialog({ treeId }: { treeId: string }) {
   const [preview, setPreview] = useState("");
   const [notes, setNotes] = useState("");
   const [fix, setFix] = useState<GeoFix | null>(null);
+  const [captured, setCaptured] = useState<CaptureTime | null>(null);
   const [locating, setLocating] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -31,6 +33,9 @@ export function CaptureScanDialog({ treeId }: { treeId: string }) {
     e.target.value = "";
     if (!file) return;
     if (!file.type.startsWith("image/")) return toast.error("Please choose an image file.");
+    // Read the capture time BEFORE compressing: compressImage re-encodes through
+    // a canvas, which strips every EXIF tag including the date.
+    setCaptured(await readCaptureTime(file));
     const compressed = await compressImage(file);
     setBlob(compressed);
     setPreview((prev) => {
@@ -46,7 +51,7 @@ export function CaptureScanDialog({ treeId }: { treeId: string }) {
     finally { setLocating(false); }
   };
 
-  const reset = () => { setBlob(null); setPreview(""); setNotes(""); setFix(null); };
+  const reset = () => { setBlob(null); setPreview(""); setNotes(""); setFix(null); setCaptured(null); };
 
   const save = async () => {
     if (!blob) return toast.error("Capture a scan image first.");
@@ -64,7 +69,10 @@ export function CaptureScanDialog({ treeId }: { treeId: string }) {
         ImageBase64: stored.dataUrl ? stored.dataUrl.split(",")[1] ?? "" : "",
         Latitude: fix?.Latitude ?? "",
         Longitude: fix?.Longitude ?? "",
-        Timestamp: fix?.Timestamp ?? new Date().toISOString().slice(0, 19).replace("T", " "),
+        // The photo's own capture time wins over the GPS fix (taken now, at
+        // upload) so a scan shot in the field days ago is dated to the field.
+        Timestamp: captured?.at ?? fix?.Timestamp ?? new Date().toISOString().slice(0, 19).replace("T", " "),
+        TimestampSource: captured?.source ?? "upload",
         CapturedBy: user?.FullName ?? "",
         Notes: notes.trim(),
       };
@@ -113,6 +121,22 @@ export function CaptureScanDialog({ treeId }: { treeId: string }) {
               <button onClick={() => uploadRef.current?.click()} className="inline-flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border py-10 text-sm text-muted-foreground hover:bg-muted/40 transition-colors">
                 <Upload className="h-6 w-6 text-primary" /> Upload image
               </button>
+            </div>
+          )}
+
+          {/* Show which date is going on the record, and how sure we are of it
+              — an uploaded photo is dated to when it was shot, not uploaded. */}
+          {captured && (
+            <div className="flex items-center gap-2 rounded-lg bg-muted/50 border border-border p-3 text-xs">
+              <CalendarClock className="h-3.5 w-3.5 shrink-0 text-primary" />
+              <span className="font-mono text-muted-foreground">{captured.at}</span>
+              <span className={`ml-auto text-[10px] ${captured.source === "exif" ? "text-primary" : "text-amber-500"}`}>
+                {captured.source === "exif"
+                  ? "from photo metadata"
+                  : captured.source === "file"
+                    ? "from file date — no photo metadata"
+                    : "upload time — no capture date found"}
+              </span>
             </div>
           )}
 

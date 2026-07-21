@@ -14,6 +14,7 @@ import { renderPdfFirstPage } from "@/lib/pdf";
 import { computeRetentionUntil } from "@/lib/receipts";
 import { uploadImage, Buckets } from "@/lib/storage";
 import { useAuth } from "@/lib/auth";
+import { readCaptureTime, type CaptureTime } from "@/lib/exif";
 import { toast } from "sonner";
 
 type Step = "capture" | "processing" | "review";
@@ -125,10 +126,11 @@ export function CaptureReceiptDialog({
   const [form, setForm] = useState<Form>(emptyForm);
   const [lineItems, setLineItems] = useState<ReceiptLineItem[]>([]);
   const [saving, setSaving] = useState(false);
+  const [captured, setCaptured] = useState<CaptureTime | null>(null);
 
   const reset = () => {
     setStep("capture"); setPreview(""); setCompressed(null); setPdfFile(null); setOcrPct(0);
-    setOcrEngine(null); setRawText(""); setShowRaw(false); setForm(emptyForm); setLineItems([]); setSaving(false);
+    setOcrEngine(null); setRawText(""); setShowRaw(false); setForm(emptyForm); setLineItems([]); setSaving(false); setCaptured(null);
   };
 
   const set = (k: keyof Form, v: string) =>
@@ -179,6 +181,9 @@ export function CaptureReceiptDialog({
     setStep("processing");
     setOcrPct(0);
     try {
+      // Before compressing — the canvas re-encode in compressReceiptImage drops
+      // EXIF, so the photo's own date has to be read off the original file.
+      setCaptured(await readCaptureTime(file));
       const c = await compressReceiptImage(file);
       setCompressed(c);
       setPreview(URL.createObjectURL(c.blob));
@@ -259,7 +264,11 @@ export function CaptureReceiptDialog({
         pdfStored = await uploadImage(Buckets.receipts, `${id}.pdf`, pdfFile.blob, { keepDataUrl: true });
       }
 
-      const capturedAt = new Date().toISOString();
+      // Dated to when the receipt was photographed, not when it reached us: a
+      // receipt shot on site and uploaded days later keeps its real date.
+      const capturedAt = captured
+        ? new Date(captured.at.replace(" ", "T")).toISOString()
+        : new Date().toISOString();
       const doc: Receipt = {
         id,
         Merchant: form.Merchant.trim(),
@@ -287,6 +296,7 @@ export function CaptureReceiptDialog({
         Status: "confirmed",
         CapturedBy: user?.FullName || user?.Email || "User",
         CapturedAt: capturedAt,
+        CapturedAtSource: captured?.source ?? "upload",
         RetentionUntil: computeRetentionUntil(form.Date, capturedAt),
       };
       await upsert.mutateAsync(doc);
