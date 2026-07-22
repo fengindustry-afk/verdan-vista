@@ -17,6 +17,12 @@ export type ScanAnalysisEngine = "gemini" | "groq" | "exg";
 export interface ScanAnalysis extends HealthResult {
   /** Which analyzer produced the result (badge on the review screen). */
   engine: ScanAnalysisEngine;
+  /**
+   * Why the AI was skipped, when `engine` is "exg". Without this the fallback is
+   * invisible: a result still appears, so a broken key, an exhausted quota or a
+   * missing session all look identical to "the AI just rated it this way".
+   */
+  fallbackReason?: string;
 }
 
 /** Structured fields returned by the edge function's LLM schema. */
@@ -129,9 +135,10 @@ export async function analyzeTreeScan(src: string): Promise<ScanAnalysis> {
   try {
     return await runLlm(src);
   } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
     console.warn("[scan] AI tree analysis unavailable, using on-device ExG:", err);
     const exg = await analyzeTreeHealth(src);
-    return { ...exg, engine: "exg" };
+    return { ...exg, engine: "exg", fallbackReason: reason };
   }
 }
 

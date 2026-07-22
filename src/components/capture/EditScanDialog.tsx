@@ -71,6 +71,10 @@ export function EditScanDialog({ scan, open, onOpenChange }: Props) {
       setEngine(result.engine);
       if (result.status === "Unknown") toast.error(result.note);
       else toast.success(`Assessed: ${result.status} · ${scanEngineLabel(result.engine)}`);
+      // Say why the AI was skipped, otherwise an ExG result looks like an AI one.
+      if (result.fallbackReason) {
+        toast.warning(`AI unavailable — ${result.fallbackReason}`, { duration: 10_000 });
+      }
     } finally {
       setAnalyzing(false);
     }
