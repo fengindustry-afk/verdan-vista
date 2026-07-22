@@ -28,8 +28,42 @@ const SERVER_INFO = { name: "esterra-tree-mcp", version: "0.1.0" };
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, mcp-protocol-version",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, mcp-protocol-version, x-api-key",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
+/**
+ * Collections an API key may read, and how each is filtered.
+ *
+ * Allow-list, not a block-list: a table added later is invisible here until
+ * someone deliberately lists it. `exclude` drops rows the service role would
+ * otherwise hand over — service-role reads bypass RLS, so the privacy rules the
+ * app relies on have to be restated here or they simply do not apply.
+ */
+const READABLE: Record<string, { table: string; exclude?: (d: Json) => boolean }> = {
+  trees: { table: "trees" },
+  readings: { table: "readings" },
+  scans: { table: "scans" },
+  soil_samples: { table: "soil_samples" },
+  plot_observations: { table: "plot_observations" },
+  plot_applications: { table: "plot_applications" },
+  plot_comparisons: { table: "plot_comparisons" },
+  geotagged_photos: { table: "geotagged_photos" },
+  feedstock_sourcing: { table: "feedstock_sourcing" },
+  asset_locations: { table: "asset_locations" },
+  work_process_entries: { table: "work_process_entries" },
+  readiness_status: { table: "readiness_status" },
+  sensor_devices: { table: "sensor_devices" },
+  sensor_readings: { table: "sensor_readings" },
+  cost_budgets: { table: "cost_budgets" },
+  cost_categories: { table: "cost_categories" },
+  cost_entries: {
+    table: "cost_entries",
+    // The personal ledger is private to its owner (see
+    // security/migrate-personal-ledger-privacy.sql). RLS enforces that for the
+    // app; this key never sees those rows at all.
+    exclude: (d) => String(d?.Ledger ?? "").toLowerCase() === "personal",
+  },
 };
 
 // deno-lint-ignore no-explicit-any
@@ -60,6 +94,30 @@ const TOOLS = [
         max_score: { type: "number", description: "Flag trees with latest vigor score below this (default 60)" },
         limit: { type: "number", description: "Max trees to return (default 25)" },
       },
+    },
+  },
+  {
+    name: "list_collections",
+    description:
+      "List the data collections this server can read, with a row count for each. Call this first to discover what is available before querying.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "query_collection",
+    description:
+      "Read records from one collection. Returns whole records as stored, newest first where a date is present. Use list_collections to see valid names. Optionally filter to records whose fields match given values, or whose text contains a search term.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        collection: { type: "string", description: "Collection name, e.g. trees, cost_entries, readings" },
+        match: {
+          type: "object",
+          description: "Field/value pairs a record must match exactly, e.g. {\"TreatmentGroup\": \"Biochar\"}",
+        },
+        search: { type: "string", description: "Case-insensitive substring matched against the whole record" },
+        limit: { type: "number", description: "Max records to return (default 100, max 500)" },
+      },
+      required: ["collection"],
     },
   },
   {
@@ -183,6 +241,62 @@ async function listStressedTrees(args: Json): Promise<Json> {
   return { count: flagged.length, threshold: maxScore, trees: flagged };
 }
 
+async function listCollections(): Promise<Json> {
+  const db = admin();
+  const collections = await Promise.all(
+    Object.entries(READABLE).map(async ([name, def]) => {
+      const { count } = await db.from(def.table).select("id", { count: "exact", head: true });
+      return { collection: name, records: count ?? 0 };
+    }),
+  );
+  return { collections };
+}
+
+/** Newest first when the record carries a date; undated rows sort last. */
+function recordTime(d: Json): number {
+  const t = d?.Date || d?.Timestamp || d?.CreatedAt || d?.AnalyzedAt || "";
+  const ms = Date.parse(String(t).replace(" ", "T"));
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+async function queryCollection(args: Json): Promise<Json> {
+  const def = READABLE[args.collection];
+  if (!def) {
+    throw new Error(
+      `Unknown or non-readable collection "${args.collection}". Valid: ${Object.keys(READABLE).join(", ")}`,
+    );
+  }
+  // Cap the limit: an unbounded read of readings or sensor_readings would blow
+  // the model's context and time out the function.
+  const limit = Math.min(typeof args.limit === "number" ? args.limit : 100, 500);
+
+  const { data: rows, error } = await db_select(def.table);
+  if (error) throw new Error(error.message);
+
+  const match = (args.match ?? {}) as Record<string, unknown>;
+  const search = String(args.search ?? "").toLowerCase();
+
+  const records = (rows ?? [])
+    .map((r: Json) => r.data ?? {})
+    .filter((d: Json) => !def.exclude?.(d))
+    .filter((d: Json) =>
+      Object.entries(match).every(([k, v]) => String(d?.[k] ?? "").toLowerCase() === String(v).toLowerCase())
+    )
+    .filter((d: Json) => !search || JSON.stringify(d).toLowerCase().includes(search))
+    .sort((a: Json, b: Json) => recordTime(b) - recordTime(a));
+
+  return {
+    collection: args.collection,
+    matched: records.length,
+    returned: Math.min(records.length, limit),
+    records: records.slice(0, limit),
+  };
+}
+
+function db_select(table: string) {
+  return admin().from(table).select("id,data");
+}
+
 async function analyzeTreeScanTool(args: Json, authHeader: string): Promise<Json> {
   if (!args.scan_id) throw new Error("scan_id is required");
   const db = admin();
@@ -221,13 +335,60 @@ async function analyzeTreeScanTool(args: Json, authHeader: string): Promise<Json
   return { scan_id: args.scan_id, tree_id: d.TreeId ?? null, provider: body.provider, assessment: body.fields };
 }
 
-async function callTool(name: string, args: Json, authHeader: string): Promise<Json> {
+async function callTool(name: string, args: Json, caller: Caller): Promise<Json> {
   switch (name) {
     case "tree_health_history": return treeHealthHistory(args ?? {});
     case "list_stressed_trees": return listStressedTrees(args ?? {});
-    case "analyze_tree_scan": return analyzeTreeScanTool(args ?? {}, authHeader);
+    case "list_collections": return listCollections();
+    case "query_collection": return queryCollection(args ?? {});
+    case "analyze_tree_scan":
+      // Spends AI credits and needs a user JWT to forward — not something a
+      // read-only key gets to trigger.
+      if (caller.kind === "api_key") {
+        throw new Error("analyze_tree_scan requires a signed-in user; API keys are read-only.");
+      }
+      return analyzeTreeScanTool(args ?? {}, caller.authHeader);
     default: throw new Error(`Unknown tool: ${name}`);
   }
+}
+
+// ---- Authentication ---------------------------------------------------------
+
+type Caller =
+  | { kind: "user"; authHeader: string; label: string }
+  | { kind: "api_key"; authHeader: ""; label: string };
+
+async function sha256Hex(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Resolve an X-API-Key header to a caller, or null if it is not usable.
+ *
+ * The stored side is a hash, so the lookup is by hash — the plaintext key never
+ * touches the database. Expiry and revocation are checked here rather than in
+ * the query so the reason can be logged if that is ever wanted.
+ */
+async function callerFromApiKey(key: string): Promise<Caller | null> {
+  const db = admin();
+  const hash = await sha256Hex(key);
+  const { data } = await db.from("api_keys").select("id,data").eq("data->>KeyHash", hash).limit(1);
+  const row = data?.[0];
+  if (!row) return null;
+
+  const d = row.data ?? {};
+  if (d.Revoked === true) return null;
+  if (d.ExpiresAt && Date.parse(String(d.ExpiresAt)) < Date.now()) return null;
+
+  // Record use. Deliberately not awaited into the failure path: a key that
+  // works must not stop working because this write failed.
+  db.from("api_keys")
+    .update({ data: { ...d, LastUsedAt: new Date().toISOString() }, updated_at: new Date().toISOString() })
+    .eq("id", row.id)
+    .then(() => {}, () => {});
+
+  return { kind: "api_key", authHeader: "", label: String(d.Label ?? row.id) };
 }
 
 // ---- JSON-RPC / MCP plumbing ------------------------------------------------
@@ -251,13 +412,23 @@ Deno.serve(async (req) => {
     });
   }
 
-  // Require a signed-in app user.
+  // Two ways in: a signed-in app user (full tool set) or a read-only API key
+  // issued from Settings (see security/create-api-keys.sql).
+  const apiKey = req.headers.get("x-api-key") ?? "";
   const authHeader = req.headers.get("Authorization") ?? "";
-  const authClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
-    global: { headers: { Authorization: authHeader } },
-  });
-  const { data: { user } } = await authClient.auth.getUser();
-  if (!user) return rpcError(null, -32001, "Sign in required");
+  let caller: Caller | null = null;
+
+  if (apiKey) {
+    caller = await callerFromApiKey(apiKey);
+    if (!caller) return rpcError(null, -32001, "Invalid, revoked or expired API key");
+  } else {
+    const authClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
+      global: { headers: { Authorization: authHeader } },
+    });
+    const { data: { user } } = await authClient.auth.getUser();
+    if (!user) return rpcError(null, -32001, "Sign in required, or send an X-API-Key header");
+    caller = { kind: "user", authHeader, label: user.email ?? user.id };
+  }
 
   let msg: Json;
   try {
@@ -282,9 +453,12 @@ Deno.serve(async (req) => {
       case "ping":
         return rpcResult(id, {});
       case "tools/list":
-        return rpcResult(id, { tools: TOOLS });
+        // A key never gets to see the tool it cannot call.
+        return rpcResult(id, {
+          tools: caller.kind === "api_key" ? TOOLS.filter((t) => t.name !== "analyze_tree_scan") : TOOLS,
+        });
       case "tools/call": {
-        const out = await callTool(params?.name, params?.arguments, authHeader);
+        const out = await callTool(params?.name, params?.arguments, caller);
         return rpcResult(id, { content: [{ type: "text", text: JSON.stringify(out, null, 2) }] });
       }
       default:
