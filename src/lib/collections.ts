@@ -30,6 +30,7 @@ export const Collections = {
   sensorDevices: "sensor_devices",
   sensorReadings: "sensor_readings",
   readiness: "readiness_status",
+  apiKeys: "api_keys",
 } as const;
 
 export type CollectionName = (typeof Collections)[keyof typeof Collections];

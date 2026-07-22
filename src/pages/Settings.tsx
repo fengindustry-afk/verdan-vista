@@ -1,6 +1,7 @@
 import { BentoCard } from "@/components/BentoCard";
 import { AiUsageCard } from "@/components/AiUsageCard";
 import { GroupsCard } from "@/components/GroupsCard";
+import { ApiKeysCard } from "@/components/ApiKeysCard";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { Database, Wifi, WifiOff, Palette, Moon, Sun, Check } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -112,6 +113,8 @@ export default function Settings() {
       </BentoCard>
 
       <GroupsCard />
+
+      <ApiKeysCard />
 
       <AiUsageCard />
     </div>

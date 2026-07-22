@@ -32,6 +32,14 @@ export async function sha256Hex(blob: Blob): Promise<string> {
     .join("");
 }
 
+/** SHA-256 of a string's UTF-8 bytes, lowercase hex. */
+export async function sha256HexText(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 /**
  * Hash the bytes as they will be stored, not the file as picked.
  *
