@@ -16,6 +16,10 @@ import {
   type WorkflowStageDef, type WorkProcessEntry, type FormField,
   stageFields, entryTitle, entrySubtitle, formatEntryTimestamp, phases, COORDS_SUFFIX,
 } from "@/lib/workProcess";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { AddLocationDialog } from "@/components/capture/AddLocationDialog";
 import { HistoryButton, HistoryTimeline } from "@/components/HistoryLog";
 import {
@@ -68,6 +72,8 @@ export function WorkProcessStageDialog({
   const [form, setForm] = useState<null | "new" | WorkProcessEntry>(null);
   const [values, setValues] = useState<Record<string, string>>({});
   const [historyFor, setHistoryFor] = useState<WorkProcessEntry | null>(null);
+  // Entry awaiting delete confirmation.
+  const [pendingDelete, setPendingDelete] = useState<WorkProcessEntry | null>(null);
   // Draggable width of the Name column, so long batch IDs can be read in full.
   const [nameWidth, setNameWidth] = useState(
     () => Number(localStorage.getItem(NAME_WIDTH_KEY)) || 320
@@ -158,11 +164,11 @@ export function WorkProcessStageDialog({
     setForm(entry);
   };
 
-  const remove = async (entry: WorkProcessEntry) => {
-    if (!canDelete) return;
-    if (!confirm(`Delete "${entryTitle(entry)}"? The entry stays in the Audit Trail and can be restored from there.`)) return;
-    await del.mutateAsync(entry.id);
-    if (selectedId === entry.id) setSelectedId(null);
+  const remove = async () => {
+    if (!canDelete || !pendingDelete) return;
+    await del.mutateAsync(pendingDelete.id);
+    if (selectedId === pendingDelete.id) setSelectedId(null);
+    setPendingDelete(null);
     toast.success("Entry deleted");
   };
 
@@ -400,7 +406,7 @@ export function WorkProcessStageDialog({
                           onOpen={() => setSelectedId(e.id)}
                           onEdit={() => startEdit(e)}
                           onHistory={() => setHistoryFor(e)}
-                          onDelete={() => remove(e)}
+                          onDelete={() => setPendingDelete(e)}
                         >
                           <tr
                             onClick={() => setSelectedId(e.id)}
@@ -439,7 +445,7 @@ export function WorkProcessStageDialog({
                         onOpen={() => setSelectedId(e.id)}
                         onEdit={() => startEdit(e)}
                         onHistory={() => setHistoryFor(e)}
-                          onDelete={() => remove(e)}
+                          onDelete={() => setPendingDelete(e)}
                       >
                       <button
                         onClick={() => setSelectedId(e.id)}
@@ -601,6 +607,42 @@ export function WorkProcessStageDialog({
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Delete confirmation, opened from the right-click menu. */}
+      <AlertDialog open={!!pendingDelete} onOpenChange={(o) => !o && setPendingDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-destructive" />
+              Delete this entry?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2 pt-2">
+              <span className="block">
+                <strong className="text-foreground">{pendingDelete ? entryTitle(pendingDelete) : ""}</strong>
+                {pendingDelete ? ` · ${pendingDelete.StageTitle}` : ""}
+              </span>
+              <span className="block text-xs">
+                Recorded by {pendingDelete?.CapturedBy} on{" "}
+                {pendingDelete ? formatEntryTimestamp(pendingDelete.Timestamp) : ""}.
+              </span>
+              <span className="block text-xs">
+                The entry is logged in the Audit Trail and can be restored from there.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="flex justify-end gap-3 pt-2">
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={remove}
+              disabled={del.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {del.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Trash2 className="mr-1 h-4 w-4" />}
+              Delete
+            </AlertDialogAction>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }
