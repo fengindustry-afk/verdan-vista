@@ -6,9 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Plus, Loader2, ArrowLeft, ArrowUp, ChevronRight, ChevronDown, Search,
-  Folder, FileText, Pencil, LayoutGrid, Rows3, X, History, Eye,
+  Folder, FileText, Pencil, LayoutGrid, Rows3, X, History, Eye, Trash2,
 } from "lucide-react";
-import { useLocations, useUpsert, useWorkProcessEntries } from "@/hooks/useCollection";
+import { useDelete, useLocations, useUpsert, useWorkProcessEntries } from "@/hooks/useCollection";
 import { Collections } from "@/lib/collections";
 import { useAuth } from "@/lib/auth";
 import { hasPermission, Permission } from "@/lib/rbac";
@@ -16,6 +16,7 @@ import {
   type WorkflowStageDef, type WorkProcessEntry, type FormField,
   stageFields, entryTitle, entrySubtitle, formatEntryTimestamp, phases, COORDS_SUFFIX,
 } from "@/lib/workProcess";
+import { AddLocationDialog } from "@/components/capture/AddLocationDialog";
 import { HistoryButton, HistoryTimeline } from "@/components/HistoryLog";
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger,
@@ -50,9 +51,11 @@ export function WorkProcessStageDialog({
 }) {
   const { data: entries = [] } = useWorkProcessEntries();
   const upsert = useUpsert<WorkProcessEntry>(Collections.workProcess);
+  const del = useDelete(Collections.workProcess);
   const { user, role } = useAuth();
   const canWrite = hasPermission(role, Permission.AddFeedstock);
   const canEdit = hasPermission(role, Permission.EditFeedstock);
+  const canDelete = hasPermission(role, Permission.DeleteFeedstock);
 
   const [stage, setStage] = useState<WorkflowStageDef | null>(initialStage);
   const [history, setHistory] = useState<(WorkflowStageDef | null)[]>([]);
@@ -153,6 +156,14 @@ export function WorkProcessStageDialog({
   const startEdit = (entry: WorkProcessEntry) => {
     setValues({ ...entry.Values });
     setForm(entry);
+  };
+
+  const remove = async (entry: WorkProcessEntry) => {
+    if (!canDelete) return;
+    if (!confirm(`Delete "${entryTitle(entry)}"? The entry stays in the Audit Trail and can be restored from there.`)) return;
+    await del.mutateAsync(entry.id);
+    if (selectedId === entry.id) setSelectedId(null);
+    toast.success("Entry deleted");
   };
 
   const submit = async () => {
@@ -294,14 +305,6 @@ export function WorkProcessStageDialog({
                   <Plus className="h-3.5 w-3.5 text-primary" /> New entry
                 </button>
               )}
-              {stage && selected && canEdit && (
-                <button
-                  onClick={() => startEdit(selected)}
-                  className="inline-flex items-center gap-1.5 rounded px-2 py-1 text-xs font-medium text-foreground hover:bg-muted transition-colors"
-                >
-                  <Pencil className="h-3.5 w-3.5" /> Edit
-                </button>
-              )}
               <div className="ml-auto flex items-center gap-0.5">
                 <button
                   onClick={() => setView("details")}
@@ -393,9 +396,11 @@ export function WorkProcessStageDialog({
                           key={e.id}
                           entry={e}
                           canEdit={canEdit}
+                          canDelete={canDelete}
                           onOpen={() => setSelectedId(e.id)}
                           onEdit={() => startEdit(e)}
                           onHistory={() => setHistoryFor(e)}
+                          onDelete={() => remove(e)}
                         >
                           <tr
                             onClick={() => setSelectedId(e.id)}
@@ -430,9 +435,11 @@ export function WorkProcessStageDialog({
                         key={e.id}
                         entry={e}
                         canEdit={canEdit}
+                          canDelete={canDelete}
                         onOpen={() => setSelectedId(e.id)}
                         onEdit={() => startEdit(e)}
                         onHistory={() => setHistoryFor(e)}
+                          onDelete={() => remove(e)}
                       >
                       <button
                         onClick={() => setSelectedId(e.id)}
@@ -602,16 +609,20 @@ export function WorkProcessStageDialog({
 function EntryMenu({
   entry,
   canEdit,
+  canDelete,
   onOpen,
   onEdit,
   onHistory,
+  onDelete,
   children,
 }: {
   entry: WorkProcessEntry;
   canEdit: boolean;
+  canDelete: boolean;
   onOpen: () => void;
   onEdit: () => void;
   onHistory: () => void;
+  onDelete: () => void;
   children: React.ReactNode;
 }) {
   return (
@@ -641,6 +652,14 @@ function EntryMenu({
         >
           <FileText className="mr-2 h-3.5 w-3.5" /> Copy name
         </ContextMenuItem>
+        {canDelete && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={onDelete} className="text-xs text-destructive focus:text-destructive">
+              <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete
+            </ContextMenuItem>
+          </>
+        )}
       </ContextMenuContent>
     </ContextMenu>
   );
@@ -687,9 +706,19 @@ function FieldInput({
           <option value="">—</option>
           {locations.map((l) => <option key={l.id}>{l.Name || l.id}</option>)}
         </select>
-        <p className="mt-1 text-[10px] text-muted-foreground font-mono">
-          {coords || (locations.length ? "No site selected" : "No sites yet — add one under Assets")}
-        </p>
+        <div className="mt-1 flex items-center justify-between gap-2">
+          <p className="text-[10px] text-muted-foreground font-mono truncate">
+            {coords || "No site selected"}
+          </p>
+          <AddLocationDialog
+            onSaved={(l) => onChange(l.Name ?? "", `${l.Latitude}, ${l.Longitude}`)}
+            trigger={
+              <button type="button" className="shrink-0 text-[10px] text-primary hover:underline">
+                + Capture site here
+              </button>
+            }
+          />
+        </div>
       </div>
     );
   }

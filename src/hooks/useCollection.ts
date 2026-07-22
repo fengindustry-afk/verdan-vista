@@ -22,7 +22,7 @@ import type {
   PlotApplication,
   PlotComparison,
 } from "@/lib/types";
-import type { Group } from "@/lib/types";
+import type { Group, ApiKey } from "@/lib/types";
 import type { SensorReading } from "@/lib/sensors";
 import { useAuth } from "@/lib/auth";
 import { activeGroupId } from "@/lib/groups";
@@ -47,6 +47,7 @@ export const useLocations = () => useCollection<LocationData>(Collections.locati
 export const usePhotos = () => useCollection<GeotaggedPhoto>(Collections.photos);
 export const useUsers = () => useCollection<UserProfile>(Collections.users);
 export const useGroups = () => useCollection<Group>(Collections.groups);
+export const useApiKeys = () => useCollection<ApiKey>(Collections.apiKeys);
 /**
  * Trees, ordered by their manual SortOrder when set, otherwise naturally by
  * code (P1, P2, … P10) rather than lexically (P1, P10, P2). Every section that

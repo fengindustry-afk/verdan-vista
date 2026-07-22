@@ -11,7 +11,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-export type FieldType = "text" | "number" | "date" | "picker" | "multiline";
+export type FieldType = "text" | "number" | "date" | "picker" | "multiline" | "location";
 
 /** A submitted workflow-stage form entry (jsonb payload of a work_process_entries row). */
 export interface WorkProcessEntry {
@@ -21,7 +21,10 @@ export interface WorkProcessEntry {
   StageKey: string;
   StageTitle: string;
   Values: Record<string, string>;
+  /** Display name at capture time. Mutable — never use it to identify the author. */
   CapturedBy: string;
+  /** Stable author identity. Absent on entries written before attribution landed. */
+  CapturedByEmail?: string;
   Timestamp: string;
 }
 
@@ -82,6 +85,24 @@ const P = (label: string, ...options: string[]): FormField => ({ Label: label, K
 const M = (label: string): FormField => ({ Label: label, Key: slug(label), Type: "multiline" });
 const S = (Title: string, ...Fields: FormField[]): FormSection => ({ Title, Fields });
 
+/**
+ * Where the stage physically happened, picked from the saved Asset locations.
+ * Writes the location name to its own key and the coordinates to `<key>_coords`,
+ * so both stay plain readable strings in exports and the preview pane.
+ */
+const L = (label = "Site"): FormField => ({ Label: label, Key: slug(label), Type: "location" });
+
+/** Suffix holding the "lat,lng" written alongside a location field. */
+export const COORDS_SUFFIX = "_coords";
+
+/**
+ * The batch this stage consumed. `batch_id` identifies the output; this names
+ * the input, which is what makes the chain traceable backwards from a sink to
+ * the feedstock that produced it. Blank on Feedstock Collection — that stage is
+ * where material enters the system.
+ */
+const SOURCE = T("Source Batch ID", "Batch ID of the material consumed");
+
 const BIOMASS = ["Woodchip", "EFB", "PKS", "OPT", "Ash", "Other"];
 const FUELS = ["Diesel", "Petrol", "Electric", "Other"];
 const ZONES = ["Zone A", "Zone B", "Zone C", "Zone D"];
@@ -96,7 +117,7 @@ export const WORKFLOW_CATALOG: WorkflowStageDef[] = [
       T("Batch ID", "ZA-01-11-24"), D("Pre-Processing Date"),
       P("Biomass Type", ...BIOMASS), T("Origin Location"),
       T("Transport Size", "5 MT Lorry"), P("Transport Fuel", ...FUELS),
-      P("Storage Location", ...ZONES), N("Weight", "kg"), N("Moisture", "%"),
+      P("Storage Location", ...ZONES), L("Receiving Site"), N("Weight", "kg"), N("Moisture", "%"),
       P("Storage Type", "Covered", "Open"),
       T("Supporting Document", "DO / Invoice / Receipt"), M("Remarks"))],
   },
@@ -104,7 +125,7 @@ export const WORKFLOW_CATALOG: WorkflowStageDef[] = [
     Key: "isolation", Title: "Isolation / Sieving", Phase: "Operations", Group: "Feedstock Processing",
     Icon: Settings2, Description: "Sieving & shredding into good feedstock",
     Sections: [S("Sieving / Shredding",
-      T("Batch ID"), P("Zone", "A", "B", "C", "D"), D("Pre-Processing Date"),
+      T("Batch ID"), SOURCE, P("Zone", "A", "B", "C", "D"), L("Processing Site"), D("Pre-Processing Date"),
       P("Biomass Type", ...BIOMASS), N("Input Quantity", "ton"),
       P("Equipment", "Throwmell", "Shredder"),
       N("Good Feedstock Quantity", "kg"), N("Reject Quantity", "kg"),
@@ -114,7 +135,7 @@ export const WORKFLOW_CATALOG: WorkflowStageDef[] = [
     Key: "drying", Title: "Drying", Phase: "Operations", Group: "Feedstock Processing",
     Icon: Droplets, Description: "Daily drying activity",
     Sections: [S("Drying",
-      T("Batch ID"), D("Pre-Processing Date"), P("Biomass Type", ...BIOMASS),
+      T("Batch ID"), SOURCE, L("Drying Site"), D("Pre-Processing Date"), P("Biomass Type", ...BIOMASS),
       N("Input Quantity", "kg"), P("Drying Equipment", "Sun", "Oven", "Rotary", "Other"),
       N("Drying Duration", "h/day"), N("Moisture Before", "%"), N("Moisture After", "%"),
       N("Output Quantity", "kg"), T("Storage Location"), T("Evidence"), M("Remarks"))],
@@ -123,7 +144,7 @@ export const WORKFLOW_CATALOG: WorkflowStageDef[] = [
     Key: "production_05", Title: "Biochar Production 0.5", Phase: "Operations", Group: "Material Conversion",
     Icon: Flame, Description: "Ecosfera 0.5 pyrolysis operation",
     Sections: [S("Ecosfera 0.5",
-      T("Batch ID", "ZA-01-11-24 (0.5)"), D("Production Date"), P("Type of Biomass", ...BIOMASS),
+      T("Batch ID", "ZA-01-11-24 (0.5)"), SOURCE, L("Reactor Site"), D("Production Date"), P("Type of Biomass", ...BIOMASS),
       N("Biomass Input Amount", "kg"), N("Moisture Content of Biomass", "%"),
       N("Weight of Fuel", "kg"), N("Pyrolysis Temp (Max)", "°C"), N("Residence Time", "h"),
       N("Tar / Vinegar Amount", "kg"), T("Emission", "O2/H2S/Ex/CO/PM10"),
@@ -134,7 +155,7 @@ export const WORKFLOW_CATALOG: WorkflowStageDef[] = [
     Key: "production_10", Title: "Biochar Production 1.0", Phase: "Operations", Group: "Material Conversion",
     Icon: Flame, Description: "Ecosfera 1.0 pyrolysis operation",
     Sections: [S("Ecosfera 1.0",
-      T("Batch ID", "08012025 CYB (1.0)"), D("Production Date"), P("Type of Biomass", ...BIOMASS),
+      T("Batch ID", "08012025 CYB (1.0)"), SOURCE, L("Reactor Site"), D("Production Date"), P("Type of Biomass", ...BIOMASS),
       N("Biomass Input Amount", "kg"), N("Moisture Content of Biomass", "%"),
       N("Diesel Energy (36 MJ/L)", "MJ"), N("Pyrolysis Temp (Min)", "°C"), N("Pyrolysis Temp (Max)", "°C"),
       N("Residence Time", "h"), N("Tar / Vinegar Amount", "kg"), T("Emission", "O2/H2S/Ex/CO/PM10"),
@@ -145,7 +166,7 @@ export const WORKFLOW_CATALOG: WorkflowStageDef[] = [
     Key: "sampling", Title: "Sampling", Phase: "Operations", Group: "",
     Icon: FlaskConical, Description: "Lab QA — H:C ratio & composition sampling",
     Sections: [S("Sampling",
-      T("Batch ID"), D("Sampling Date"),
+      T("Batch ID"), L("Sampling Site"), D("Sampling Date"),
       P("Sample Type", "Biochar", "Feedstock", "Liquid / Tar"),
       N("H/C Ratio"), N("Moisture Content", "%"), N("Carbon Content", "%"),
       T("Lab / Method"), M("Remarks"))],
@@ -156,9 +177,9 @@ export const WORKFLOW_CATALOG: WorkflowStageDef[] = [
     Key: "warehouse", Title: "Warehouse", Phase: "Inventory Management", Group: "",
     Icon: Warehouse, Description: "Cured biochar & product in storage",
     Sections: [S("Warehouse",
-      T("Batch ID"), D("Date"),
+      T("Batch ID"), SOURCE, D("Date"),
       P("Product", "Biochar", "Liquid / Tar", "Fertiliser", "External Biochar"),
-      N("Quantity", "kg"), T("Storage Location"), P("Zone", "A", "B", "C", "D"),
+      N("Quantity", "kg"), T("Storage Location"), L("Warehouse Site"), P("Zone", "A", "B", "C", "D"),
       P("Storage Type", "Covered", "Open"), M("Remarks"))],
   },
   {
@@ -166,7 +187,8 @@ export const WORKFLOW_CATALOG: WorkflowStageDef[] = [
     Icon: Sprout, Description: "Use biochar in product: fertilizer, construction material, or animal feedlot",
     Sections: [
       S("Biochar Usage",
-        T("Batch ID"), T("Biochar DO"), D("Application Date"), N("Quantity Applied", "kg"),
+        T("Batch ID"), SOURCE, T("Biochar DO"), D("Application Date"), N("Quantity Applied", "kg"),
+        L("Application Site"),
         P("Application Type", "Fertilizer", "Construction", "Animal Feedlot", "Soil", "Additives", "R&D"),
         T("Delivery Mode"), P("Transport Fuel", ...FUELS),
         T("Location of Mixing / Processing"), T("Location of Storage"),
@@ -180,10 +202,10 @@ export const WORKFLOW_CATALOG: WorkflowStageDef[] = [
     Key: "carbon_sink", Title: "Carbon Sink", Phase: "Inventory Management", Group: "",
     Icon: Trees, Description: "Permanently store the carbon",
     Sections: [S("Carbon Sink Tracking",
-      T("Batch ID", "TIGGT-BT-2505-0001"), T("Supporting Document", "DO / Invoice / Receipt"),
+      T("Batch ID", "TIGGT-BT-2505-0001"), SOURCE, T("Supporting Document", "DO / Invoice / Receipt"),
       D("Procurement / Delivery Date"), D("Usage Date"), N("Quantity", "kg"),
       P("Carbon Sink Type", "Small Holder", "Community", "Municipality", "Estate", "Afforestation"),
-      T("Location of Final Permanent Application"), T("Project Type"),
+      L("Sink Site"), T("Location of Final Permanent Application"), T("Project Type"),
       T("Evidence"), M("Remarks"), T("References"))],
   },
 ];

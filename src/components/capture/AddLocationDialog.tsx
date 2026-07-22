@@ -12,7 +12,15 @@ import { toast } from "sonner";
 
 const SITE_TYPES = ["TreePlot", "Mill", "Storage", "Field", "Sink", "Other"];
 
-export function AddLocationDialog() {
+export function AddLocationDialog({
+  trigger,
+  onSaved,
+}: {
+  /** Custom trigger; defaults to the standalone "Add Location" button. */
+  trigger?: React.ReactNode;
+  /** Fires with the saved site, so a caller can select it straight away. */
+  onSaved?: (location: LocationData) => void;
+} = {}) {
   const { user } = useAuth();
   const upsert = useUpsert<LocationData>(Collections.locations);
   const [open, setOpen] = useState(false);
@@ -55,6 +63,7 @@ export function AddLocationDialog() {
       BiomassDataSource: "NONE",
     };
     await upsert.mutateAsync(doc);
+    onSaved?.(doc);
     toast.success(`Location "${name}" saved`);
     setOpen(false);
     setName(""); setNotes(""); setFix(null); setSiteType(SITE_TYPES[0]);
@@ -63,9 +72,11 @@ export function AddLocationDialog() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <button className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-3 py-2 text-sm font-semibold hover:bg-primary/90 transition-colors">
-          <Plus className="h-4 w-4" /> Add Location
-        </button>
+        {trigger ?? (
+          <button className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-3 py-2 text-sm font-semibold hover:bg-primary/90 transition-colors">
+            <Plus className="h-4 w-4" /> Add Location
+          </button>
+        )}
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>

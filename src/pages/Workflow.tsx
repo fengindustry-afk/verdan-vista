@@ -2,7 +2,7 @@ import { BentoCard } from "@/components/BentoCard";
 import { useFeedstock, useWorkProcessEntries } from "@/hooks/useCollection";
 import { corcMetrics, CUSTODY_STAGES, OPERATIONS_STAGE_COUNT } from "@/lib/feedstock";
 import { fmt } from "@/lib/format";
-import { Truck, Settings2, Flame, FlaskConical, Warehouse, Sprout, Trees, Loader2, ChevronRight, ChevronDown, Search, X } from "lucide-react";
+import { Truck, Settings2, Flame, FlaskConical, Warehouse, Sprout, Trees, Loader2, ChevronRight, ChevronDown, Search, X, Scale, AlertTriangle } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,7 @@ import {
   phases, stageByKey, entryTitle, entrySubtitle, formatEntryTimestamp,
   type WorkflowStageDef, type WorkProcessEntry,
 } from "@/lib/workProcess";
+import { massBalance, balanceSummary } from "@/lib/massBalance";
 import { WorkProcessStageDialog } from "@/components/WorkProcessStageDialog";
 import { ReadinessBoard } from "@/components/ReadinessBoard";
 
@@ -57,6 +58,62 @@ export default function Workflow() {
 }
 
 // ── Work Process hub: Phase → Group → Stage forms (mirrors the .NET Workflow tab) ──
+/**
+ * Biochar mass balance per batch. Clicking a flagged batch drops its ID into the
+ * search box so the offending entries are one click away.
+ */
+function MassBalanceCard({ rows, onOpenBatch }: { rows: ReturnType<typeof massBalance>; onOpenBatch: (q: string) => void }) {
+  const summary = balanceSummary(rows);
+  if (rows.length === 0) return null;
+  const problems = rows.filter((r) => r.Status !== "ok");
+
+  return (
+    <BentoCard className="space-y-3">
+      <div className="flex items-center gap-2">
+        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
+          <Scale className="h-4 w-4 text-primary" />
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-foreground">Biochar Mass Balance</p>
+          <p className="text-[11px] text-muted-foreground">
+            {fmt(summary.Produced)} kg produced · {fmt(summary.Consumed)} kg applied or sunk · {rows.length} batches
+          </p>
+        </div>
+        <span
+          className={`ml-auto rounded-full px-2.5 py-1 text-[11px] font-medium ${
+            problems.length ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary"
+          }`}
+        >
+          {problems.length ? `${problems.length} flagged` : "Balanced"}
+        </span>
+      </div>
+
+      {problems.length > 0 && (
+        <div className="space-y-1.5">
+          {problems.slice(0, 8).map((r) => (
+            <button
+              key={r.BatchId}
+              onClick={() => onOpenBatch(r.BatchId)}
+              className="flex w-full items-center gap-2 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-left hover:bg-destructive/10 transition-colors"
+            >
+              <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0" />
+              <span className="text-xs font-medium text-foreground truncate">{r.BatchId}</span>
+              <span className="text-[11px] text-muted-foreground ml-auto shrink-0">
+                {r.Status === "unsourced"
+                  ? `${fmt(r.Consumed)} kg with no production record`
+                  : `${fmt(-r.Remaining)} kg over (made ${fmt(r.Produced)}, shipped ${fmt(r.Consumed)})`}
+              </span>
+            </button>
+          ))}
+          {problems.length > 8 && (
+            <p className="text-[11px] text-muted-foreground">+{problems.length - 8} more flagged batches</p>
+          )}
+        </div>
+      )}
+    </BentoCard>
+  );
+}
+
 function WorkProcessHub() {
   const { data: entries = [], isLoading } = useWorkProcessEntries();
   const [openStage, setOpenStage] = useState<WorkflowStageDef | null>(null);
@@ -82,6 +139,8 @@ function WorkProcessHub() {
       .sort((a, b) => (a.Timestamp < b.Timestamp ? 1 : -1))
       .slice(0, 50);
   }, [entries, query]);
+
+  const balance = useMemo(() => massBalance(entries), [entries]);
 
   const openResult = (entry: WorkProcessEntry) => {
     const stage = stageByKey(entry.StageKey);
@@ -123,6 +182,8 @@ function WorkProcessHub() {
 
   return (
     <>
+      <MassBalanceCard rows={balance} onOpenBatch={setQuery} />
+
       {/* Search across every logged work-process entry. */}
       <div className="relative max-w-md">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />

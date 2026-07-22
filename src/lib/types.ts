@@ -401,3 +401,22 @@ export interface UserProfile {
   CreatedAt?: string;
   LastLoginAt?: string;
 }
+
+/**
+ * A read-only API key for the MCP server. Only the hash is stored — see
+ * src/lib/apiKeys.ts and security/create-api-keys.sql.
+ */
+export interface ApiKey {
+  id: string;
+  Label: string;
+  /** SHA-256 of the plaintext key. The key itself is never persisted. */
+  KeyHash: string;
+  /** First few characters, so keys can be told apart in the list. */
+  KeyPrefix?: string;
+  Role?: string;
+  CreatedBy?: string;
+  CreatedAt?: string;
+  ExpiresAt?: string;
+  LastUsedAt?: string;
+  Revoked?: boolean;
+}
