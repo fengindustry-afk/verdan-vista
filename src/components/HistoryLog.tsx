@@ -18,7 +18,7 @@ const ACTION_META: Record<HistoryAction, { label: string; icon: typeof Plus; ton
 };
 
 /** Read-only timeline of the immutable edit history for a scope. */
-function HistoryTimeline({ filter }: { filter: Filter }) {
+export function HistoryTimeline({ filter }: { filter: Filter }) {
   const { data: entries = [], isLoading } = useHistory(filter);
 
   if (isLoading) {
