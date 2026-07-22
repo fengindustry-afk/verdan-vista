@@ -14,6 +14,7 @@ import { supabase, isSupabaseConfigured } from "./supabase";
 import { runOcr } from "./ocr";
 import { parseReceipt } from "./receipts";
 import { preprocessForOcr } from "./receiptImage";
+import { classifyAiError } from "./aiErrors";
 import type { Receipt, ReceiptLineItem } from "./types";
 
 export type ScanEngine = "gemini" | "groq" | "remote" | "tesseract";
@@ -24,6 +25,11 @@ export interface ScanResult {
   /** Full transcription, retained verbatim for audit search. */
   rawText: string;
   engine: ScanEngine;
+  /**
+   * Why the AI was skipped, when `engine` fell back to OCR. Without this an OCR
+   * result looks like an AI one and a dead key looks like a bad receipt photo.
+   */
+  fallbackReason?: string;
 }
 
 /** One line item as returned by the LLM schema (snake_case). */
@@ -204,6 +210,7 @@ export async function scanReceipt(
   file: Blob,
   onProgress?: (pct: number) => void
 ): Promise<ScanResult> {
+  let fallbackReason: string | undefined;
   try {
     // No incremental progress from the LLM — show an indeterminate mid-state.
     onProgress?.(40);
@@ -211,13 +218,15 @@ export async function scanReceipt(
     onProgress?.(100);
     return result;
   } catch (err) {
-    console.warn("[scan] AI extraction unavailable, falling back to OCR:", err);
+    const { message, detail } = classifyAiError(err);
+    console.warn(`[scan] AI extraction unavailable (${message}), falling back to OCR:`, detail, err);
     onProgress?.(0);
+    fallbackReason = message;
   }
 
   const ocrImage = await preprocessForOcr(file);
   const { text, engine } = await runOcr(ocrImage, onProgress);
-  return { fields: parseReceipt(text), rawText: text, engine };
+  return { fields: parseReceipt(text), rawText: text, engine, fallbackReason };
 }
 
 /** Human label for the engine badge shown on the review screen. */

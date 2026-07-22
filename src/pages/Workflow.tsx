@@ -9,12 +9,13 @@ import { Input } from "@/components/ui/input";
 import { Link, useSearchParams } from "react-router-dom";
 import { useMemo, useState } from "react";
 import {
-  phases, stageByKey, entryTitle, entrySubtitle, formatEntryTimestamp,
+  phases, stageByKey, entryTitle, entrySubtitle, formatEntryTimestamp, WORKFLOW_CATALOG,
   type WorkflowStageDef, type WorkProcessEntry,
 } from "@/lib/workProcess";
 import { massBalance, balanceSummary } from "@/lib/massBalance";
 import { WorkProcessStageDialog } from "@/components/WorkProcessStageDialog";
 import { ReadinessBoard } from "@/components/ReadinessBoard";
+import { MonthPicker } from "@/components/MonthPicker";
 
 const STAGE_META: Record<string, { icon: typeof Truck; desc: string }> = {
   "Feedstock Collection": { icon: Truck, desc: "Biomass gathered from source" },
@@ -114,12 +115,27 @@ function MassBalanceCard({ rows, onOpenBatch }: { rows: ReturnType<typeof massBa
   );
 }
 
+/**
+ * The month an entry belongs to, as "yyyy-mm". Prefers the stage's own date
+ * field over the capture timestamp, so a row logged today about last November
+ * still filters into November.
+ */
+function entryMonth(e: WorkProcessEntry): string {
+  for (const [k, v] of Object.entries(e.Values ?? {})) {
+    if (k.endsWith("_date") && /^\d{4}-\d{2}/.test(v ?? "")) return v!;
+  }
+  return e.Timestamp ?? "";
+}
+
 function WorkProcessHub() {
   const { data: entries = [], isLoading } = useWorkProcessEntries();
   const [openStage, setOpenStage] = useState<WorkflowStageDef | null>(null);
   const [openEntry, setOpenEntry] = useState<WorkProcessEntry | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [query, setQuery] = useState("");
+  const [month, setMonth] = useState("");      // "yyyy-mm" from <input type="month">
+  const [stageKey, setStageKey] = useState(""); // "" = every stage
+  const filtering = !!(query.trim() || month || stageKey);
 
   const countByStage = useMemo(() => {
     const m: Record<string, number> = {};
@@ -127,18 +143,20 @@ function WorkProcessHub() {
     return m;
   }, [entries]);
 
-  // Full-text search across every entry: stage title, and all field values.
+  // Text (stage title + any field value), month, and stage filters, all ANDed.
   const results = useMemo(() => {
+    if (!filtering) return [];
     const q = query.trim().toLowerCase();
-    if (!q) return [];
     return entries
       .filter((e) => {
+        if (stageKey && e.StageKey !== stageKey) return false;
+        if (month && !entryMonth(e).startsWith(month)) return false;
+        if (!q) return true;
         if (e.StageTitle?.toLowerCase().includes(q)) return true;
         return Object.values(e.Values ?? {}).some((v) => v?.toLowerCase().includes(q));
       })
-      .sort((a, b) => (a.Timestamp < b.Timestamp ? 1 : -1))
-      .slice(0, 50);
-  }, [entries, query]);
+      .sort((a, b) => (a.Timestamp < b.Timestamp ? 1 : -1));
+  }, [entries, query, month, stageKey, filtering]);
 
   const balance = useMemo(() => massBalance(entries), [entries]);
 
@@ -184,30 +202,43 @@ function WorkProcessHub() {
     <>
       <MassBalanceCard rows={balance} onOpenBatch={setQuery} />
 
-      {/* Search across every logged work-process entry. */}
-      <div className="relative max-w-md">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search entries by batch ID, value, or stage…"
-          className="pl-9 pr-9"
-        />
-        {query && (
+      {/* Filter every logged work-process entry by text, month and stage. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex-1 min-w-[16rem] max-w-md">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search entries by batch ID, value, or stage…"
+            className="pl-9"
+          />
+        </div>
+        <MonthPicker value={month} onChange={setMonth} />
+        <select
+          value={stageKey}
+          onChange={(e) => setStageKey(e.target.value)}
+          aria-label="Filter by work process"
+          className="h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground"
+        >
+          <option value="">All work processes</option>
+          {WORKFLOW_CATALOG.map((s) => (
+            <option key={s.Key} value={s.Key}>{s.Title}</option>
+          ))}
+        </select>
+        {filtering && (
           <button
-            onClick={() => setQuery("")}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-            aria-label="Clear search"
+            onClick={() => { setQuery(""); setMonth(""); setStageKey(""); }}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
           >
-            <X className="h-4 w-4" />
+            <X className="h-3.5 w-3.5" /> Clear
           </button>
         )}
       </div>
 
-      {query.trim() ? (
+      {filtering ? (
         <div className="space-y-2">
           <p className="text-xs text-muted-foreground">
-            {results.length} match{results.length === 1 ? "" : "es"} for “{query.trim()}”
+            {results.length} match{results.length === 1 ? "" : "es"}
           </p>
           {results.map((e) => {
             const stage = stageByKey(e.StageKey);
@@ -227,7 +258,7 @@ function WorkProcessHub() {
             );
           })}
           {results.length === 0 && (
-            <p className="text-sm text-muted-foreground py-8 text-center">No entries match your search.</p>
+            <p className="text-sm text-muted-foreground py-8 text-center">No entries match these filters.</p>
           )}
         </div>
       ) : (

@@ -1,6 +1,6 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { X } from "lucide-react";
+import { Loader2, X } from "lucide-react";
 
 /**
  * Full-screen overlay that shows an image at its natural size for close
@@ -19,6 +19,11 @@ export function ImageLightbox({
   open: boolean;
   onClose: () => void;
 }) {
+  // The full-size image is a fresh download, so without this the overlay is a
+  // black void until it arrives — the clearest case of "the image is gone".
+  const [painted, setPainted] = useState(false);
+  useEffect(() => setPainted(false), [src]);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -54,10 +59,17 @@ export function ImageLightbox({
       >
         <X className="h-5 w-5" />
       </button>
+      {!painted && (
+        <div className="absolute flex items-center gap-2 text-white/70">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          <span className="text-xs">Loading image…</span>
+        </div>
+      )}
       <img
         src={src}
         alt={alt}
         onClick={(e) => e.stopPropagation()}
+        onLoad={() => setPainted(true)}
         className="max-h-[92vh] max-w-[92vw] object-contain rounded-lg shadow-2xl cursor-default"
       />
     </div>,

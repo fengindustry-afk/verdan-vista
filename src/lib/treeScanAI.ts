@@ -11,6 +11,7 @@
 
 import { supabase, isSupabaseConfigured } from "./supabase";
 import { analyzeTreeHealth, type HealthResult, type HealthStatus } from "./health";
+import { classifyAiError } from "./aiErrors";
 
 export type ScanAnalysisEngine = "gemini" | "groq" | "exg";
 
@@ -37,12 +38,51 @@ interface LlmHealth {
 
 const VALID_STATUS: HealthStatus[] = ["Healthy", "Moderate", "Stressed", "Unknown"];
 const LLM_TIMEOUT_MS = 45_000;
+const FETCH_TIMEOUT_MS = 20_000;
+
+/** Phases the caller can show while an analysis runs. */
+export type ScanPhase = "loading" | "preparing" | "analyzing" | "fallback";
+export type ScanProgress = (phase: ScanPhase) => void;
+
+export const SCAN_PHASE_LABEL: Record<ScanPhase, string> = {
+  loading: "Loading image…",
+  preparing: "Preparing image…",
+  analyzing: "Analyzing canopy…",
+  fallback: "Falling back to on-device analysis…",
+};
+
+/**
+ * Fetch one candidate source as a blob. A signed R2/Supabase URL renders fine in
+ * an <img> but can still fail here (CORS, expiry, a dropped connection mid-flight),
+ * so the caller needs to know *why* it failed to pick the next candidate.
+ * Retries once, because on a weak link the first attempt often just times out.
+ */
+async function fetchImageBlob(src: string): Promise<Blob> {
+  let lastErr = "";
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt) await new Promise((r) => setTimeout(r, 600));
+    try {
+      const res = await fetch(src, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+      if (!res.ok) {
+        lastErr = `image request returned ${res.status}`;
+        if (res.status >= 400 && res.status < 500) break; // 404/403 won't fix itself
+        continue;
+      }
+      const blob = await res.blob();
+      if (blob.size === 0) { lastErr = "image was empty"; continue; }
+      return blob;
+    } catch (err) {
+      lastErr = err instanceof DOMException && err.name === "TimeoutError"
+        ? "image download timed out"
+        : "image could not be downloaded";
+    }
+  }
+  throw new Error(lastErr || "image could not be downloaded");
+}
 
 /** Downscale to ~1024px JPEG so the vision model gets enough detail without a
  *  bulky payload. Returns null when the image can't be decoded here. */
-async function prepareImage(src: string): Promise<{ base64: string; mime: string } | null> {
-  const blob = await fetch(src).then((r) => (r.ok ? r.blob() : null)).catch(() => null);
-  if (!blob) return null;
+async function prepareImage(blob: Blob): Promise<{ base64: string; mime: string } | null> {
   const bitmap = await createImageBitmap(blob).catch(() => null);
   if (!bitmap) return null;
   const scale = Math.min(1, 1024 / Math.max(bitmap.width, bitmap.height));
@@ -90,14 +130,37 @@ function toResult(f: LlmHealth, engine: ScanAnalysisEngine): ScanAnalysis {
   return { status, score, note: buildNote(f) || "No assessment detail returned.", engine };
 }
 
-async function runLlm(src: string): Promise<ScanAnalysis> {
+/**
+ * Try each candidate source in turn. The signed URL is preferred (full
+ * resolution), the inline base64 copy is the offline-proof backstop — it needs
+ * no network at all, which is exactly what a weak connection breaks.
+ */
+export async function loadImage(sources: string[]): Promise<Blob> {
+  const reasons: string[] = [];
+  for (const src of sources) {
+    if (!src) continue;
+    try {
+      return await fetchImageBlob(src);
+    } catch (err) {
+      reasons.push(err instanceof Error ? err.message : String(err));
+    }
+  }
+  throw new Error(reasons[0] ?? "no image source available");
+}
+
+async function runLlm(sources: string[], onProgress: ScanProgress): Promise<ScanAnalysis> {
   if (!isSupabaseConfigured) throw new Error("Supabase not configured");
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error("Not signed in");
 
-  const prepared = await prepareImage(src);
-  if (!prepared) throw new Error("Could not prepare image");
+  onProgress("loading");
+  const blob = await loadImage(sources);
 
+  onProgress("preparing");
+  const prepared = await prepareImage(blob);
+  if (!prepared) throw new Error("image format could not be read");
+
+  onProgress("analyzing");
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
   try {
@@ -131,12 +194,18 @@ async function runLlm(src: string): Promise<ScanAnalysis> {
  * Analyze a tree scan image: AI vision assessment first, on-device ExG greenness
  * as the safety net. Never rejects for engine reasons.
  */
-export async function analyzeTreeScan(src: string): Promise<ScanAnalysis> {
+export async function analyzeTreeScan(
+  src: string,
+  opts: { fallbackSrc?: string; onProgress?: ScanProgress } = {}
+): Promise<ScanAnalysis> {
+  const onProgress = opts.onProgress ?? (() => {});
+  const sources = [src, opts.fallbackSrc].filter((s): s is string => !!s && s !== src);
   try {
-    return await runLlm(src);
+    return await runLlm([src, ...sources], onProgress);
   } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
-    console.warn("[scan] AI tree analysis unavailable, using on-device ExG:", err);
+    const { message: reason, detail } = classifyAiError(err);
+    console.warn(`[scan] AI tree analysis unavailable (${reason}), using on-device ExG:`, detail, err);
+    onProgress("fallback");
     const exg = await analyzeTreeHealth(src);
     return { ...exg, engine: "exg", fallbackReason: reason };
   }

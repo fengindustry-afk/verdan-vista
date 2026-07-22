@@ -152,8 +152,10 @@ export function CaptureReceiptDialog({
   // `scanSource` is the best image to read (the original photo, or a PDF page
   // rasterised to an image) — never the lossy archival WebP.
   const scanAndFill = async (scanSource: Blob) => {
-    const { fields: parsed, rawText: text, engine } = await scanReceipt(scanSource, setOcrPct);
+    const { fields: parsed, rawText: text, engine, fallbackReason } = await scanReceipt(scanSource, setOcrPct);
     setOcrEngine(engine);
+    // Say why the AI was skipped, otherwise an OCR result looks like an AI one.
+    if (fallbackReason) toast.warning(fallbackReason, { duration: 10_000 });
     setRawText(text);
     setLineItems(parsed.LineItems ?? []);
     setForm((f) => {

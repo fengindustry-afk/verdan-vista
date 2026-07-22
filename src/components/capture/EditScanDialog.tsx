@@ -8,7 +8,11 @@ import { Collections } from "@/lib/collections";
 import type { TreeScan } from "@/lib/types";
 import { resolveImageUrl, Buckets } from "@/lib/storage";
 import { healthTone, type HealthResult } from "@/lib/health";
-import { analyzeTreeScan, scanEngineLabel, type ScanAnalysisEngine } from "@/lib/treeScanAI";
+import {
+  analyzeTreeScan, scanEngineLabel, SCAN_PHASE_LABEL,
+  type ScanAnalysisEngine, type ScanPhase,
+} from "@/lib/treeScanAI";
+import { Progress } from "@/components/ui/progress";
 import { ImageLightbox } from "@/components/ImageLightbox";
 import { toast } from "sonner";
 
@@ -22,6 +26,14 @@ const base64Ref = (s: TreeScan) =>
   s.ImageBase64 ? `data:image/jpeg;base64,${s.ImageBase64}` : undefined;
 const storedRef = (s: TreeScan) => s.ImageUrl || base64Ref(s);
 
+/** Where the bar starts and how far it may creep while a phase is running. */
+const PHASE_RANGE: Record<ScanPhase, [number, number]> = {
+  loading: [8, 30],
+  preparing: [32, 45],
+  analyzing: [48, 92],
+  fallback: [92, 97],
+};
+
 /** Edit a scan's notes and run the tree-health analysis on its image. */
 export function EditScanDialog({ scan, open, onOpenChange }: Props) {
   const upsert = useUpsert<TreeScan>(Collections.scans);
@@ -29,7 +41,12 @@ export function EditScanDialog({ scan, open, onOpenChange }: Props) {
   const [notes, setNotes] = useState(scan.Notes ?? "");
   const [url, setUrl] = useState<string | null>(null);
   const [triedFallback, setTriedFallback] = useState(false);
+  // The image keeps a placeholder until its bytes land — a blank box while a
+  // signed URL downloads reads as a missing image, not a slow one.
+  const [painted, setPainted] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  const [phase, setPhase] = useState<ScanPhase | null>(null);
+  const [pct, setPct] = useState(0);
   const [zoom, setZoom] = useState(false);
   const [engine, setEngine] = useState<ScanAnalysisEngine | null>(null);
   const [health, setHealth] = useState<HealthResult | null>(
@@ -42,12 +59,24 @@ export function EditScanDialog({ scan, open, onOpenChange }: Props) {
     if (!open) return;
     setNotes(scan.Notes ?? "");
     setTriedFallback(false);
+    setPainted(false);
     // Prefer the storage-signed URL; fall back to the inline base64 when a signed
     // URL can't be produced, so the image and health analysis still work.
     resolveImageUrl(Buckets.scans, storedRef(scan))
       .then((u) => setUrl(u ?? base64Ref(scan) ?? null))
       .catch(() => setUrl(base64Ref(scan) ?? null));
   }, [open, scan]);
+
+  // Real progress isn't knowable (the model gives no byte count), so the bar
+  // creeps toward the current phase's ceiling. Analysis can take 45s; a bar
+  // frozen at one number for that long reads as "hung" rather than "working".
+  useEffect(() => {
+    if (!phase) return setPct(0);
+    const [floor, ceil] = PHASE_RANGE[phase];
+    setPct((p) => Math.max(p, floor));
+    const t = setInterval(() => setPct((p) => (p < ceil ? p + 1 : p)), 400);
+    return () => clearInterval(t);
+  }, [phase]);
 
   // A signed URL can be produced yet still 404 (object missing / not viewable in
   // this environment). Without this the <img> would blank out on the detail view
@@ -56,6 +85,7 @@ export function EditScanDialog({ scan, open, onOpenChange }: Props) {
     const fallback = base64Ref(scan);
     if (!triedFallback && fallback && url !== fallback) {
       setTriedFallback(true);
+      setPainted(false);
       setUrl(fallback);
     } else {
       setUrl(null);
@@ -65,18 +95,25 @@ export function EditScanDialog({ scan, open, onOpenChange }: Props) {
   const analyze = async () => {
     if (!url) return toast.error("No image available to analyze.");
     setAnalyzing(true);
+    setPhase("loading");
     try {
-      const result = await analyzeTreeScan(url);
+      const result = await analyzeTreeScan(url, {
+        // The inline copy needs no network, so a signed URL that CORS-blocks or
+        // times out on a weak link no longer kills the analysis.
+        fallbackSrc: base64Ref(scan),
+        onProgress: setPhase,
+      });
       setHealth(result);
       setEngine(result.engine);
       if (result.status === "Unknown") toast.error(result.note);
       else toast.success(`Assessed: ${result.status} · ${scanEngineLabel(result.engine)}`);
       // Say why the AI was skipped, otherwise an ExG result looks like an AI one.
       if (result.fallbackReason) {
-        toast.warning(`AI unavailable — ${result.fallbackReason}`, { duration: 10_000 });
+        toast.warning(result.fallbackReason, { duration: 10_000 });
       }
     } finally {
       setAnalyzing(false);
+      setPhase(null);
     }
   };
 
@@ -115,8 +152,11 @@ export function EditScanDialog({ scan, open, onOpenChange }: Props) {
             <img
               src={url}
               alt="scan"
-              className="w-full rounded-lg max-h-56 object-cover cursor-zoom-in"
+              className={`w-full rounded-lg max-h-56 object-cover cursor-zoom-in min-h-[6rem] ${
+                painted ? "" : "bg-muted animate-pulse"
+              }`}
               onClick={() => setZoom(true)}
+              onLoad={() => setPainted(true)}
               onError={onImgError}
             />
           )}
@@ -137,6 +177,13 @@ export function EditScanDialog({ scan, open, onOpenChange }: Props) {
                 {health ? "Re-analyze" : "Analyze image"}
               </button>
             </div>
+            {phase && (
+              <div className="space-y-1.5">
+                <Progress value={pct} className="h-1.5" />
+                <p className="text-[11px] text-muted-foreground">{SCAN_PHASE_LABEL[phase]}</p>
+              </div>
+            )}
+
             {health ? (
               <div className="space-y-1.5">
                 <div className="flex items-center gap-2">
