@@ -51,3 +51,4 @@ supabase/.branches/
 
 # pdfjs worker, vendored into public/ by scripts/sync-pdf-worker.mjs
 public/pdf.worker.min.mjs
+backups/
