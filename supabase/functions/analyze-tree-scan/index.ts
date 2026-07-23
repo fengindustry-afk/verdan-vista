@@ -22,6 +22,7 @@ import {
   isModelBusy, isModelUnavailable,
   modelCandidates, withModelFallback,
 } from "../_shared/models.ts";
+import { overDailyCap } from "../_shared/aiQuota.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -223,6 +224,9 @@ Deno.serve(async (req) => {
   if (image.length > MAX_BASE64_CHARS) return json({ error: "Image too large" }, 413);
 
   const admin = createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  if (await overDailyCap(admin, user.id)) {
+    return json({ error: "Daily AI usage limit reached — try again tomorrow." }, 429);
+  }
   const log = (row: Record<string, unknown>) =>
     admin.from("ai_usage_log").insert({
       user_id: user.id,
