@@ -1,6 +1,6 @@
 import { BentoCard } from "@/components/BentoCard";
 import { useLocations, usePhotos } from "@/hooks/useCollection";
-import { MapPin, Camera, Satellite, Loader2, ExternalLink } from "lucide-react";
+import { MapPin, Camera, Satellite, Loader2, ExternalLink, Upload } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -11,7 +11,11 @@ import { Buckets } from "@/lib/storage";
 import { useAuth } from "@/lib/auth";
 import { hasPermission, Permission } from "@/lib/rbac";
 import type { LocationData, GeotaggedPhoto } from "@/lib/types";
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { useUpsert } from "@/hooks/useCollection";
+import { Collections } from "@/lib/collections";
+import { reuploadStoredImage } from "@/lib/capture";
+import { toast } from "sonner";
 
 export default function Assets() {
   const { data: locations = [], isLoading: locLoading } = useLocations();
@@ -21,6 +25,33 @@ export default function Assets() {
 
   const [loc, setLoc] = useState<LocationData | null>(null);
   const [photo, setPhoto] = useState<GeotaggedPhoto | null>(null);
+
+  // Replace a photo whose upload failed or whose stored object is broken.
+  const upsertPhoto = useUpsert<GeotaggedPhoto>(Collections.photos, { surfaceErrors: true });
+  const photoFileRef = useRef<HTMLInputElement>(null);
+  const [replacing, setReplacing] = useState(false);
+  // Freshly uploaded bytes, shown instead of the (possibly stale-cached) stored ref.
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const replacePhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !photo) return;
+    if (!file.type.startsWith("image/")) return toast.error("Please choose an image file.");
+    setReplacing(true);
+    try {
+      const up = await reuploadStoredImage(Buckets.photos, `${photo.id}.jpg`, file);
+      const saved = await upsertPhoto
+        .mutateAsync({ ...photo, PhotoUrl: up.path, Sha256: up.sha256 })
+        .catch(() => null);
+      if (!saved) return; // useUpsert already toasted why
+      setPhotoPreview(URL.createObjectURL(up.blob));
+      toast.success("Photo replaced");
+    } catch (err) {
+      toast.error(`Upload failed — ${err instanceof Error ? err.message : "try again"}`);
+    } finally {
+      setReplacing(false);
+    }
+  };
 
   const mapsHref = (lat?: string, lng?: string) =>
     lat && lng ? `https://www.google.com/maps?q=${lat},${lng}` : undefined;
@@ -134,14 +165,30 @@ export default function Assets() {
       </Dialog>
 
       {/* Photo detail */}
-      <Dialog open={!!photo} onOpenChange={(o) => !o && setPhoto(null)}>
+      <Dialog open={!!photo} onOpenChange={(o) => { if (!o) { setPhoto(null); setPhotoPreview(null); } }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2"><Camera className="h-4 w-4 text-primary" /> {photo?.Description || "Photo"}</DialogTitle>
           </DialogHeader>
           {photo && (
             <div className="space-y-3">
-              <StoredImage bucket={Buckets.photos} stored={photo.PhotoUrl} alt={photo.Description} className="w-full rounded-lg max-h-72 object-cover" zoomable />
+              <input ref={photoFileRef} type="file" accept="image/*" onChange={replacePhoto} className="hidden" />
+              <div className="relative">
+                {photoPreview ? (
+                  <img src={photoPreview} alt={photo.Description} className="w-full rounded-lg max-h-72 object-cover" />
+                ) : (
+                  <StoredImage bucket={Buckets.photos} stored={photo.PhotoUrl} alt={photo.Description} className="w-full rounded-lg max-h-72 object-cover" zoomable />
+                )}
+                {canAdd && (
+                  <button
+                    onClick={() => photoFileRef.current?.click()}
+                    disabled={replacing}
+                    className="absolute bottom-2 right-2 inline-flex items-center gap-1 rounded-lg bg-background/80 backdrop-blur px-2.5 py-1 text-xs border border-border disabled:opacity-60"
+                  >
+                    {replacing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />} Replace
+                  </button>
+                )}
+              </div>
               <div className="space-y-2 text-sm">
                 <Row k="Coordinates" v={`${photo.Latitude}, ${photo.Longitude}`} mono />
                 {photo.Accuracy && <Row k="Accuracy" v={photo.Accuracy} />}

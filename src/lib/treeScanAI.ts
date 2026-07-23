@@ -12,6 +12,7 @@
 import { supabase, isSupabaseConfigured } from "./supabase";
 import { analyzeTreeHealth, type HealthResult, type HealthStatus } from "./health";
 import { classifyAiError } from "./aiErrors";
+import { logOpsEvent } from "./opsLog";
 
 export type ScanAnalysisEngine = "gemini" | "groq" | "exg";
 
@@ -217,6 +218,7 @@ export async function analyzeTreeScan(
   } catch (err) {
     const { message: reason, detail } = classifyAiError(err);
     console.warn(`[scan] AI tree analysis unavailable (${reason}), using on-device ExG:`, detail, err);
+    logOpsEvent("ai-analysis-fallback", reason, detail);
     onProgress("fallback");
     const exg = await analyzeTreeHealth(src);
     return { ...exg, engine: "exg", fallbackReason: reason };

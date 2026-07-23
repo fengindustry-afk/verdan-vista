@@ -1,5 +1,6 @@
 import { supabase, isSupabaseConfigured } from "./supabase";
 import { isEffectivelyOffline } from "./data";
+import { logOpsEvent } from "./opsLog";
 
 /**
  * Media storage for captured photos/scans/receipts. Three tiers, best first:
@@ -91,6 +92,7 @@ export async function uploadImage(
       return { path: ref };
     } catch (err) {
       console.warn(`[storage] R2 upload for ${bucket}/${path} unavailable, trying Supabase:`, err);
+      logOpsEvent("r2-upload-failed", `R2 upload unavailable for ${bucket}/${path}, using Supabase Storage`, err);
     }
 
     // Tier 2: Supabase Storage.
@@ -105,6 +107,7 @@ export async function uploadImage(
       return opts.keepDataUrl ? { path, dataUrl: await blobToDataUrl(blob) } : { path };
     }
     console.warn(`[storage] upload to ${bucket} failed, using inline fallback:`, error.message);
+    logOpsEvent("storage-upload-failed", `Upload to ${bucket} failed, image kept inline (base64)`, error.message);
   }
   // Tier 3: inline base64.
   return { dataUrl: await blobToDataUrl(blob) };
@@ -163,6 +166,7 @@ export async function resolveImageUrl(
       return url;
     } catch (err) {
       console.warn(`[storage] R2 sign ${stored} failed:`, err);
+      logOpsEvent("r2-sign-failed", `Signed R2 URL could not be produced for ${stored}`, err);
       return null;
     }
   }
@@ -173,6 +177,7 @@ export async function resolveImageUrl(
   const { data, error } = await supabase.storage.from(bucket).createSignedUrl(stored, expiresIn);
   if (error) {
     console.warn(`[storage] sign ${bucket}/${stored} failed:`, error.message);
+    logOpsEvent("image-resolve-failed", `Signed URL failed for ${bucket}/${stored}`, error.message);
     return null;
   }
   cacheSignedUrl(cacheKey, data.signedUrl);

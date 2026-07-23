@@ -4,6 +4,9 @@
  * allow `geolocation` / `camera` (see vercel.json / public/_headers).
  */
 
+import { uploadImage } from "./storage";
+import { hashStoredImage } from "./hash";
+
 export interface GeoFix {
   Latitude: string;
   Longitude: string;
@@ -118,6 +121,24 @@ export async function compressImage(file: File, maxEdge = 1280, quality = 0.8): 
  * smaller constant. `geofenceCheck` already subtracts the fix's own reported
  * accuracy, so this number is the tolerance ON TOP of instrument error.
  */
+/**
+ * Re-upload a replacement image for an existing record: compress, push to
+ * storage under the record's key, and re-hash — so a failed original upload (or
+ * a broken stored object) can be repaired from the record's edit dialog without
+ * losing audit integrity. Returns everything the caller needs to patch its doc,
+ * plus the compressed blob for an instant local preview.
+ */
+export async function reuploadStoredImage(bucket: string, key: string, file: File) {
+  const blob = await compressImage(file);
+  const stored = await uploadImage(bucket, key, blob, { keepDataUrl: true });
+  return {
+    blob,
+    path: stored.path ?? "",
+    base64: stored.dataUrl ? stored.dataUrl.split(",")[1] ?? "" : "",
+    sha256: await hashStoredImage(blob),
+  };
+}
+
 export const GEOFENCE_RADIUS_M = 50;
 
 /** Metres of uncertainty in a fix, parsed from its "±4.2m" accuracy string. */

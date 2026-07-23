@@ -1,12 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Trash2, Activity, MapPin } from "lucide-react";
+import { Loader2, Trash2, Activity, MapPin, ImageOff, Upload } from "lucide-react";
 import { useUpsert, useDelete } from "@/hooks/useCollection";
 import { Collections } from "@/lib/collections";
 import type { TreeScan } from "@/lib/types";
 import { resolveImageUrl, Buckets } from "@/lib/storage";
+import { reuploadStoredImage } from "@/lib/capture";
 import { healthTone, type HealthResult } from "@/lib/health";
 import {
   analyzeTreeScan, scanEngineLabel, SCAN_PHASE_LABEL,
@@ -48,6 +49,8 @@ export function EditScanDialog({ scan, open, onOpenChange }: Props) {
   const [phase, setPhase] = useState<ScanPhase | null>(null);
   const [pct, setPct] = useState(0);
   const [zoom, setZoom] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [replacing, setReplacing] = useState(false);
   const [engine, setEngine] = useState<ScanAnalysisEngine | null>(null);
   const [health, setHealth] = useState<HealthResult | null>(
     scan.HealthStatus
@@ -89,6 +92,37 @@ export function EditScanDialog({ scan, open, onOpenChange }: Props) {
       setUrl(fallback);
     } else {
       setUrl(null);
+    }
+  };
+
+  // Re-upload a fresh image for this scan: covers an upload that failed (no
+  // image at all) and a stored object that's broken/unreadable. Same compress →
+  // upload → hash pipeline as capture, so Sha256 keeps matching the stored bytes.
+  const replaceImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) return toast.error("Please choose an image file.");
+    setReplacing(true);
+    try {
+      const up = await reuploadStoredImage(Buckets.scans, `${scan.TreeId}/${scan.id}.jpg`, file);
+      const saved = await upsert.mutateAsync({
+        ...scan,
+        ImageUrl: up.path,
+        ImageBase64: up.base64,
+        Sha256: up.sha256,
+      }).catch(() => null);
+      if (!saved) return; // useUpsert already toasted why
+      // Show the new bytes immediately — the signed-URL cache may still point
+      // at the old object under the same key.
+      setPainted(false);
+      setTriedFallback(false);
+      setUrl(URL.createObjectURL(up.blob));
+      toast.success("Image replaced");
+    } catch (err) {
+      toast.error(`Upload failed — ${err instanceof Error ? err.message : "try again"}`);
+    } finally {
+      setReplacing(false);
     }
   };
 
@@ -148,17 +182,38 @@ export function EditScanDialog({ scan, open, onOpenChange }: Props) {
           <DialogTitle>Edit scan</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-2">
-          {url && (
-            <img
-              src={url}
-              alt="scan"
-              className={`w-full rounded-lg max-h-56 object-cover cursor-zoom-in min-h-[6rem] ${
-                painted ? "" : "bg-muted animate-pulse"
-              }`}
-              onClick={() => setZoom(true)}
-              onLoad={() => setPainted(true)}
-              onError={onImgError}
-            />
+          <input ref={fileRef} type="file" accept="image/*" onChange={replaceImage} className="hidden" />
+          {url ? (
+            <div className="relative">
+              <img
+                src={url}
+                alt="scan"
+                className={`w-full rounded-lg max-h-56 object-cover cursor-zoom-in min-h-[6rem] ${
+                  painted ? "" : "bg-muted animate-pulse"
+                }`}
+                onClick={() => setZoom(true)}
+                onLoad={() => setPainted(true)}
+                onError={onImgError}
+              />
+              <button
+                onClick={() => fileRef.current?.click()}
+                disabled={replacing}
+                className="absolute bottom-2 right-2 inline-flex items-center gap-1 rounded-lg bg-background/80 backdrop-blur px-2.5 py-1 text-xs border border-border disabled:opacity-60"
+              >
+                {replacing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />} Replace
+              </button>
+            </div>
+          ) : (
+            // The image failed to upload originally (or its stored object is
+            // gone) — offer the re-upload path instead of a dead end.
+            <button
+              onClick={() => fileRef.current?.click()}
+              disabled={replacing}
+              className="w-full flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border py-10 text-sm text-muted-foreground hover:bg-muted/40 transition-colors disabled:opacity-60"
+            >
+              {replacing ? <Loader2 className="h-6 w-6 animate-spin text-primary" /> : <ImageOff className="h-6 w-6 text-primary" />}
+              {replacing ? "Uploading…" : "No image — tap to re-upload"}
+            </button>
           )}
           <ImageLightbox src={url} alt="scan" open={zoom} onClose={() => setZoom(false)} />
 

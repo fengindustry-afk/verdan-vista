@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { BentoCard } from "@/components/BentoCard";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -6,9 +6,11 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  ReceiptText, Search, X, Loader2, HardDrive, ShieldCheck, Trash2, FileWarning, FileText, Download,
+  ReceiptText, Search, X, Loader2, HardDrive, ShieldCheck, Trash2, FileWarning, FileText, Download, Upload, ImageOff,
 } from "lucide-react";
-import { useReceipts, useDelete } from "@/hooks/useCollection";
+import { useReceipts, useDelete, useUpsert } from "@/hooks/useCollection";
+import { reuploadStoredImage } from "@/lib/capture";
+import { toast } from "sonner";
 import { Collections } from "@/lib/collections";
 import type { Receipt } from "@/lib/types";
 import { formatBytes } from "@/lib/receiptImage";
@@ -169,24 +171,33 @@ function ReceiptDetailDialog({
   canDelete: boolean;
 }) {
   const del = useDelete(Collections.receipts);
+  const upsert = useUpsert<Receipt>(Collections.receipts, { surfaceErrors: true });
   const [imgUrl, setImgUrl] = useState<string | null>(null);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [showRaw, setShowRaw] = useState(false);
   const [zoom, setZoom] = useState(false);
+  // Distinguishes "still resolving the URL" from "resolve failed" — the latter
+  // offers a re-upload instead of an endless spinner.
+  const [imgResolved, setImgResolved] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [replacing, setReplacing] = useState(false);
 
   useEffect(() => {
     let active = true;
     setImgUrl(null);
     setPdfUrl(null);
     setShowRaw(false);
+    setImgResolved(false);
     if (!receipt) return;
     (async () => {
       if (receipt.ImageBase64) {
         const mime = receipt.ImageMime || "image/webp";
-        if (active) setImgUrl(`data:${mime};base64,${receipt.ImageBase64}`);
+        if (active) { setImgUrl(`data:${mime};base64,${receipt.ImageBase64}`); setImgResolved(true); }
       } else if (receipt.ImageUrl) {
         const url = await resolveImageUrl(Buckets.receipts, receipt.ImageUrl);
-        if (active) setImgUrl(url);
+        if (active) { setImgUrl(url); setImgResolved(true); }
+      } else if (active) {
+        setImgResolved(true);
       }
       if (receipt.PdfBase64) {
         if (active) setPdfUrl(`data:application/pdf;base64,${receipt.PdfBase64}`);
@@ -222,6 +233,33 @@ function ReceiptDetailDialog({
     onClose();
   };
 
+  // Re-upload the receipt image (failed original upload / broken stored object).
+  const replaceImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) return toast.error("Please choose an image file.");
+    setReplacing(true);
+    try {
+      const up = await reuploadStoredImage(Buckets.receipts, `${receipt.id}.jpg`, file);
+      const saved = await upsert.mutateAsync({
+        ...receipt,
+        ImageUrl: up.path,
+        ImageBase64: up.base64,
+        ImageMime: "image/jpeg",
+        Sha256: up.sha256,
+      }).catch(() => null);
+      if (!saved) return; // useUpsert already toasted why
+      setImgUrl(URL.createObjectURL(up.blob));
+      setImgResolved(true);
+      toast.success("Receipt image replaced");
+    } catch (err) {
+      toast.error(`Upload failed — ${err instanceof Error ? err.message : "try again"}`);
+    } finally {
+      setReplacing(false);
+    }
+  };
+
   return (
     <Dialog open={!!receipt} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-lg">
@@ -232,16 +270,37 @@ function ReceiptDetailDialog({
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-4 max-h-[70vh] overflow-auto py-1">
+          <input ref={fileRef} type="file" accept="image/*" onChange={replaceImage} className="hidden" />
           {hasImage && (
             <>
-              <div className="rounded-lg bg-muted overflow-hidden flex items-center justify-center min-h-[8rem]">
+              <div className="relative rounded-lg bg-muted overflow-hidden flex items-center justify-center min-h-[8rem]">
                 {imgUrl ? (
-                  <img
-                    src={imgUrl}
-                    alt="receipt"
-                    className="w-full max-h-72 object-contain cursor-zoom-in"
-                    onClick={() => setZoom(true)}
-                  />
+                  <>
+                    <img
+                      src={imgUrl}
+                      alt="receipt"
+                      className="w-full max-h-72 object-contain cursor-zoom-in"
+                      onClick={() => setZoom(true)}
+                    />
+                    <button
+                      onClick={() => fileRef.current?.click()}
+                      disabled={replacing}
+                      className="absolute bottom-2 right-2 inline-flex items-center gap-1 rounded-lg bg-background/80 backdrop-blur px-2.5 py-1 text-xs border border-border disabled:opacity-60"
+                    >
+                      {replacing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />} Replace
+                    </button>
+                  </>
+                ) : imgResolved ? (
+                  // The stored image can't be produced (failed upload / missing
+                  // object) — offer the repair path instead of a dead spinner.
+                  <button
+                    onClick={() => fileRef.current?.click()}
+                    disabled={replacing}
+                    className="w-full flex flex-col items-center justify-center gap-2 py-10 text-sm text-muted-foreground hover:bg-muted/60 transition-colors disabled:opacity-60"
+                  >
+                    {replacing ? <Loader2 className="h-6 w-6 animate-spin text-primary" /> : <ImageOff className="h-6 w-6 text-primary" />}
+                    {replacing ? "Uploading…" : "Image unavailable — tap to re-upload"}
+                  </button>
                 ) : (
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground my-10" />
                 )}

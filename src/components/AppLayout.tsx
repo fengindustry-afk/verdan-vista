@@ -16,6 +16,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { LogOut } from "lucide-react";
+import { NotificationCenter } from "@/components/NotificationCenter";
 
 export function AppLayout() {
   const { user, role, logout } = useAuth();
@@ -36,6 +37,8 @@ export function AppLayout() {
         <div className="flex-1 flex flex-col min-w-0">
           <header className="h-14 flex items-center justify-between border-b border-border/30 px-4 backdrop-blur-sm">
             <SidebarTrigger className="text-muted-foreground hover:text-foreground" />
+            <div className="flex items-center gap-1">
+            <NotificationCenter />
             {user && (
               <DropdownMenu>
                 <DropdownMenuTrigger className="flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-muted transition-colors outline-none">
@@ -65,6 +68,7 @@ export function AppLayout() {
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
+            </div>
           </header>
           <SectionNav />
           <main className="flex-1 overflow-auto">
