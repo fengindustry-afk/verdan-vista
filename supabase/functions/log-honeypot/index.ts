@@ -65,12 +65,22 @@ Deno.serve(async (req) => {
     At: new Date().toISOString(),
   };
 
-  // ponytail: no server-side rate limit — a spammer could flood ops_events.
-  // Add a per-IP window here if that ever happens.
   const admin = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
+
+  // Per-IP window: one event per IP per minute. The table itself is the
+  // rate-limit state — survives cold starts, shared across instances.
+  const windowStart = new Date(Date.now() - 60_000).toISOString();
+  const { count } = await admin
+    .from("ops_events")
+    .select("id", { count: "exact", head: true })
+    .eq("data->>Kind", "honeypot-route-hit")
+    .like("data->>Detail", `IP ${ip} ·%`)
+    .gte("updated_at", windowStart);
+  if (count && count > 0) return json({ ok: true, throttled: true });
+
   const { error } = await admin.from("ops_events").insert({ id, data: doc });
   if (error) return json({ error: error.message }, 500);
   return json({ ok: true });
