@@ -15,7 +15,8 @@ export type OpsEventKind =
   | "r2-sign-failed"
   | "storage-upload-failed"
   | "image-resolve-failed"
-  | "ai-analysis-fallback";
+  | "ai-analysis-fallback"
+  | "honeypot-route-hit";
 
 export interface OpsEvent {
   id: string;
@@ -37,6 +38,8 @@ export const OPS_FIX: Record<OpsEventKind, string> = {
     "A stored image reference couldn't be turned into a URL. If it persists, open the record and use Replace to re-upload the image.",
   "ai-analysis-fallback":
     "AI scan analysis fell back to the on-device estimate. Check provider keys/quota in Supabase secrets (GEMINI_API_KEY / GROQ_API_KEY) and Settings ▸ AI usage.",
+  "honeypot-route-hit":
+    "Someone opened the retired /feedstock URL, which no navigation links to — either a stale bookmark or someone probing routes. Check the logged account and, if it wasn't a teammate, review that account's activity in the Audit Trail.",
 };
 
 // One event per kind per interval — a broken tier fails once per asset, not once.

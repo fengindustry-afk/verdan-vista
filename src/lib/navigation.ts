@@ -1,4 +1,4 @@
-import { LayoutDashboard, Activity, Package, Workflow, Calculator, MapPin, Video, TreePine, Wallet, ShieldCheck, Shield, FileText, Settings, type LucideIcon } from "lucide-react";
+import { LayoutDashboard, Activity, Workflow, Calculator, MapPin, Video, TreePine, Wallet, ShieldCheck, Shield, FileText, Settings, type LucideIcon } from "lucide-react";
 import { Permission } from "./rbac";
 
 /**
@@ -45,7 +45,8 @@ export const navSections: NavSection[] = [
     title: "Workflow", url: "/workflow", icon: Workflow,
     children: [
       { title: "Workflow", url: "/workflow", icon: Workflow, permission: Permission.ViewFeedstock, module: "workflow" },
-      { title: "Feedstock", url: "/feedstock", icon: Package, permission: Permission.ViewFeedstock, module: "custody" },
+      // Feedstock list hidden from nav — the Custody tab presents the same
+      // batches grouped by stage. The /feedstock routes stay for detail pages.
       { title: "Testing Plot", url: "/testing-plot", icon: TreePine, permission: Permission.ViewLocations, module: "testing-plot" },
       { title: "Cost Tracker", url: "/cost-tracker", icon: Wallet, permission: Permission.ViewCosts, module: "cost-tracker" },
     ],
@@ -93,7 +94,8 @@ export function sectionForPath(pathname: string): NavSection | undefined {
 export const routePermissions: Record<string, Permission> = {
   "/": Permission.ViewDashboard,
   "/dmrv": Permission.ViewDashboard,
-  "/feedstock": Permission.ViewFeedstock,
+  // "/feedstock" is deliberately unguarded — it's a honeypot 404 that logs the
+  // visit (see pages/FeedstockHoneypot.tsx); a permission redirect would fire first.
   "/feedstock/:id": Permission.ViewFeedstock,
   "/workflow": Permission.ViewFeedstock,
   "/corc-calculator": Permission.ViewDashboard,

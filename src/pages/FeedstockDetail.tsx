@@ -33,7 +33,7 @@ export default function FeedstockDetail() {
     return (
       <div className="p-8">
         <p className="text-muted-foreground">Batch not found.</p>
-        <Link to="/feedstock" className="text-primary text-sm">← Back to batches</Link>
+        <Link to="/workflow?tab=custody" className="text-primary text-sm">← Back to custody</Link>
       </div>
     );
   }
@@ -59,8 +59,8 @@ export default function FeedstockDetail() {
     <div className="relative p-6 lg:p-8 space-y-6">
       <div className="glow-orb w-72 h-72 -top-36 right-10 animate-pulse-glow" />
 
-      <Link to="/feedstock" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="h-4 w-4" /> Back to batches
+      <Link to="/workflow?tab=custody" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+        <ArrowLeft className="h-4 w-4" /> Back to custody
       </Link>
 
       <div className="flex flex-wrap items-center gap-3">

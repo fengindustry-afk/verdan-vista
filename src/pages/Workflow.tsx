@@ -13,6 +13,9 @@ import {
   type WorkflowStageDef, type WorkProcessEntry,
 } from "@/lib/workProcess";
 import { massBalance, balanceSummary } from "@/lib/massBalance";
+import { NewBatchDialog } from "@/components/NewBatchDialog";
+import { useAuth } from "@/lib/auth";
+import { hasPermission, Permission } from "@/lib/rbac";
 import { WorkProcessStageDialog } from "@/components/WorkProcessStageDialog";
 import { ReadinessBoard } from "@/components/ReadinessBoard";
 import { MonthPicker } from "@/components/MonthPicker";
@@ -321,6 +324,8 @@ function WorkProcessHub() {
 // ── Custody overview: batches per custody stage (the original Workflow content) ──
 function CustodyOverview() {
   const { data: feedstock = [], isLoading } = useFeedstock();
+  const { role } = useAuth();
+  const canAdd = hasPermission(role, Permission.AddFeedstock);
   const [openStage, setOpenStage] = useState<string | null>(null);
 
   const stageBatches = useMemo(
@@ -348,6 +353,11 @@ function CustodyOverview() {
 
   return (
     <>
+      {canAdd && (
+        <div className="flex justify-end">
+          <NewBatchDialog />
+        </div>
+      )}
       {(["Operations", "Storage"] as const).map((phase) => (
         <div key={phase} className="space-y-3">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{phase} Phase</h2>
