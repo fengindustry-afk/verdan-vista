@@ -1,16 +1,17 @@
 import { BentoCard } from "@/components/BentoCard";
 import { Leaf, Zap, BarChart3, Activity, Loader2 } from "lucide-react";
 import { AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip } from "recharts";
-import { useFeedstock } from "@/hooks/useCollection";
-import { corcMetrics, CUSTODY_STAGES, FINAL_STAGE, APPLICATION_STAGE, parseAuditLog } from "@/lib/feedstock";
+import { useFeedstock, useWorkProcessEntries } from "@/hooks/useCollection";
+import { corcMetrics, withMeasuredCorcInputs, CUSTODY_STAGES, FINAL_STAGE, APPLICATION_STAGE, parseAuditLog } from "@/lib/feedstock";
 import { fmt } from "@/lib/format";
 import { useMemo } from "react";
 
 export default function Dashboard() {
   const { data: feedstock = [], isLoading } = useFeedstock();
+  const { data: wpAll = [] } = useWorkProcessEntries();
 
   const agg = useMemo(() => {
-    const metrics = feedstock.map((f) => ({ f, m: corcMetrics(f) }));
+    const metrics = withMeasuredCorcInputs(feedstock, wpAll).map((f) => ({ f, m: corcMetrics(f) }));
     const netCorc = metrics.reduce((s, x) => s + x.m.netCorc, 0);
     const credited = metrics
       .filter((x) => x.f.CurrentStage === FINAL_STAGE)
@@ -30,7 +31,7 @@ export default function Dashboard() {
     }));
 
     return { netCorc, credited, inSubmission, pending, eligible, verified, stageCounts };
-  }, [feedstock]);
+  }, [feedstock, wpAll]);
 
   const recentActivity = useMemo(() => {
     const entries = feedstock.flatMap((f) =>

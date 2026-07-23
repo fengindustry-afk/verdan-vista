@@ -2,7 +2,7 @@ import { BentoCard } from "@/components/BentoCard";
 import { useParams, Link } from "react-router-dom";
 import { ArrowLeft, MapPin, CheckCircle2, Circle, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { useFeedstock } from "@/hooks/useCollection";
+import { useFeedstock, useWorkProcessEntries } from "@/hooks/useCollection";
 import {
   corcMetrics,
   currentStageIndex,
@@ -10,13 +10,16 @@ import {
   parseAuditLog,
   parseCustodyLog,
   phaseOf,
+  wpEntriesForBatch,
 } from "@/lib/feedstock";
+import { entrySubtitle, formatEntryTimestamp } from "@/lib/workProcess";
 import { badgeForStatus, fmt } from "@/lib/format";
 import { BatchActions } from "@/components/BatchActions";
 
 export default function FeedstockDetail() {
   const { id } = useParams();
   const { data: feedstock = [], isLoading } = useFeedstock();
+  const { data: wpAll = [] } = useWorkProcessEntries();
   const f = feedstock.find((x) => x.id === decodeURIComponent(id ?? ""));
 
   if (isLoading) {
@@ -35,7 +38,8 @@ export default function FeedstockDetail() {
     );
   }
 
-  const m = corcMetrics(f);
+  const wpEntries = wpEntriesForBatch(f.Title ?? "", wpAll);
+  const m = corcMetrics(f, wpEntries);
   const stageIdx = currentStageIndex(f);
   const audit = parseAuditLog(f);
   const custody = parseCustodyLog(f);
@@ -128,6 +132,37 @@ export default function FeedstockDetail() {
           </BentoCard>
         </div>
       </div>
+
+      {/* Work-process entries sharing this batch ID */}
+      <BentoCard>
+        <h3 className="text-sm font-semibold text-foreground mb-4">Work Process Entries</h3>
+        {wpEntries.length === 0 ? (
+          <p className="text-xs text-muted-foreground">
+            No work-process entries reference this batch ID.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {wpEntries.map((e) => (
+              <Link
+                key={e.id}
+                to="/workflow?tab=work-process"
+                className="flex items-start gap-3 group"
+              >
+                <div className="mt-1 h-2 w-2 rounded-full shrink-0 bg-primary" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-foreground group-hover:text-primary">
+                    {e.StageTitle}
+                    <span className="ml-2 font-normal text-muted-foreground">
+                      {formatEntryTimestamp(e.Timestamp)}
+                    </span>
+                  </p>
+                  <p className="text-xs text-muted-foreground truncate">{entrySubtitle(e)}</p>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </BentoCard>
 
       {/* Audit log */}
       <BentoCard>

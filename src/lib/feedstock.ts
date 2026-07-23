@@ -1,4 +1,5 @@
 import type { Feedstock } from "./types";
+import type { WorkProcessEntry } from "./workProcess";
 
 /**
  * Chain-of-custody + CORC (CO₂ Removal Certificate) business logic, ported
@@ -36,6 +37,7 @@ const ELIGIBLE_BIOMASS = new Set(
     "Palm Fiber",
     "Mesocarp Fiber",
     "Bio-waste",
+    "Woodchip",
   ].map((s) => s.toLowerCase())
 );
 
@@ -48,6 +50,74 @@ export function parseLeadingNumber(text?: string): number {
   if (!text) return 0;
   const m = text.replace(/,/g, "").match(/-?\d+(\.\d+)?/);
   return m ? parseFloat(m[0]) : 0;
+}
+
+/** Batch-ID normalization shared with the work-process side: trim, uppercase, collapse spaces. */
+function normBatch(s?: string): string {
+  return (s ?? "").trim().toUpperCase().replace(/\s+/g, " ");
+}
+
+/**
+ * Work-process entries belonging to a feedstock batch. The join key is the
+ * feedstock Title matching the entry's hand-typed `batch_id` (or
+ * `source_batch_id`) — there is no foreign key, only the naming convention.
+ */
+export function wpEntriesForBatch(title: string, entries: WorkProcessEntry[]): WorkProcessEntry[] {
+  const t = normBatch(title);
+  if (!t) return [];
+  return entries.filter(
+    (e) => normBatch(e.Values?.batch_id) === t || normBatch(e.Values?.source_batch_id) === t
+  );
+}
+
+/** Measured values pulled from a batch's work-process entries (0 = not recorded). */
+export function wpMeasured(entries: WorkProcessEntry[]): {
+  yieldKg: number;
+  carbonPct: number;
+  hcorg: number;
+} {
+  let yieldKg = 0;
+  let carbonPct = 0;
+  let hcorg = 0;
+  // Newest first so sampling reads take the latest lab result.
+  const sorted = [...entries].sort((a, b) => (b.Timestamp ?? "").localeCompare(a.Timestamp ?? ""));
+  for (const e of sorted) {
+    if (e.StageKey === "production_05" || e.StageKey === "production_10") {
+      yieldKg += parseLeadingNumber(e.Values?.final_biochar_amount);
+      if (!hcorg) hcorg = parseLeadingNumber(e.Values?.h_c_ratio_sampling);
+    }
+  }
+  for (const e of sorted) {
+    if (e.StageKey !== "sampling") continue;
+    if (!carbonPct) carbonPct = parseLeadingNumber(e.Values?.carbon_content);
+    // Lab sampling beats the production-line spot reading.
+    const hc = parseLeadingNumber(e.Values?.h_c_ratio);
+    if (hc) {
+      hcorg = hc;
+      break;
+    }
+  }
+  return { yieldKg, carbonPct, hcorg };
+}
+
+/**
+ * Copies of each batch with measured work-process values filled into blank
+ * CORC input fields (BiocharYieldKg / CarbonContentPct / HCorgRatio), which
+ * corcMetrics already prefers over defaults — so aggregates and exports pick
+ * up real production data without any signature changes. Display/export only;
+ * never write these copies back to the store.
+ */
+export function withMeasuredCorcInputs(feedstock: Feedstock[], wpAll: WorkProcessEntry[]): Feedstock[] {
+  if (!wpAll.length) return feedstock;
+  return feedstock.map((f) => {
+    const rec = f as unknown as Record<string, unknown>;
+    const m = wpMeasured(wpEntriesForBatch(f.Title ?? "", wpAll));
+    const out = { ...rec };
+    if (!(Number(rec.BiocharYieldKg ?? 0) > 0) && m.yieldKg > 0) out.BiocharYieldKg = m.yieldKg;
+    if (!(Number(rec.CarbonContentPct ?? 0) > 0) && m.carbonPct > 0) out.CarbonContentPct = m.carbonPct;
+    if (!(Number(rec.HCorgRatio ?? 0) > 0) && m.hcorg > 0) out.HCorgRatio = m.hcorg;
+    return out as unknown as Feedstock;
+  });
 }
 
 /** Derived CORC metrics for one feedstock batch. */
@@ -66,17 +136,21 @@ export interface CorcMetrics {
   netCorc: number;
 }
 
-export function corcMetrics(f: Feedstock): CorcMetrics {
+export function corcMetrics(f: Feedstock, wp?: WorkProcessEntry[]): CorcMetrics {
   const rec = f as unknown as Record<string, unknown>;
   const yieldKg = Number(rec.BiocharYieldKg ?? 0);
   const carbonPct = Number(rec.CarbonContentPct ?? 0);
   const hcorg = Number(rec.HCorgRatio ?? 0);
   const lca = Number(rec.LcaEmissionsTco2e ?? 0);
 
+  // Explicit record fields win; then measured work-process values; then defaults.
+  const m = wp?.length ? wpMeasured(wp) : { yieldKg: 0, carbonPct: 0, hcorg: 0 };
   const effectiveYieldKg =
-    yieldKg > 0 ? yieldKg : parseLeadingNumber(f.Amount) * DEFAULT_YIELD_FRACTION;
-  const effectiveCarbonPct = carbonPct > 0 ? carbonPct : DEFAULT_CARBON_PCT;
-  const effectiveHCorg = hcorg > 0 ? hcorg : DEFAULT_HCORG;
+    yieldKg > 0 ? yieldKg
+    : m.yieldKg > 0 ? m.yieldKg
+    : parseLeadingNumber(f.Amount) * DEFAULT_YIELD_FRACTION;
+  const effectiveCarbonPct = carbonPct > 0 ? carbonPct : m.carbonPct > 0 ? m.carbonPct : DEFAULT_CARBON_PCT;
+  const effectiveHCorg = hcorg > 0 ? hcorg : m.hcorg > 0 ? m.hcorg : DEFAULT_HCORG;
 
   const sourcingEligible = ELIGIBLE_BIOMASS.has((f.Type ?? "").toLowerCase());
   const durabilityEligible = effectiveHCorg < 0.7 && effectiveYieldKg > 0;

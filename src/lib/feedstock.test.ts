@@ -1,6 +1,19 @@
 import { describe, it, expect } from "vitest";
-import { corcMetrics, currentStageIndex, parseAuditLog, CUSTODY_STAGES } from "./feedstock";
+import { corcMetrics, currentStageIndex, parseAuditLog, wpEntriesForBatch, CUSTODY_STAGES } from "./feedstock";
 import type { Feedstock } from "./types";
+import type { WorkProcessEntry } from "./workProcess";
+
+function wpEntry(overrides: Partial<WorkProcessEntry> = {}): WorkProcessEntry {
+  return {
+    id: "wpe_1",
+    StageKey: "production_05",
+    StageTitle: "Biochar Production 0.5",
+    Values: {},
+    CapturedBy: "Tester",
+    Timestamp: "2026-01-01T00:00:00Z",
+    ...overrides,
+  };
+}
 
 function batch(overrides: Partial<Feedstock> = {}): Feedstock {
   return {
@@ -57,6 +70,62 @@ describe("corcMetrics", () => {
     expect(m.durableRemovalTco2e).toBeCloseTo(1.408, 2);
     expect(m.netCorc).toBeCloseTo(1.295, 2);
     expect(m.isCorcEligible).toBe(true);
+  });
+
+  it("prefers measured work-process values over defaults", () => {
+    const wp = [
+      wpEntry({ Values: { batch_id: "Test Batch", final_biochar_amount: "500" } }),
+      wpEntry({
+        id: "wpe_2", StageKey: "sampling", StageTitle: "Sampling",
+        Values: { batch_id: "Test Batch", carbon_content: "75", h_c_ratio: "0.35" },
+      }),
+    ];
+    const m = corcMetrics(batch(), wp);
+    expect(m.effectiveYieldKg).toBe(500); // not 2000 * 0.30
+    expect(m.effectiveCarbonPct).toBe(75);
+    expect(m.effectiveHCorg).toBe(0.35);
+    expect(m.durabilityClass).toBe("CORC1000+");
+  });
+
+  it("sums yield across production entries and keeps explicit record fields winning", () => {
+    const wp = [
+      wpEntry({ Values: { final_biochar_amount: "300" } }),
+      wpEntry({ id: "wpe_2", StageKey: "production_10", Values: { final_biochar_amount: "200" } }),
+    ];
+    expect(corcMetrics(batch(), wp).effectiveYieldKg).toBe(500);
+    expect(corcMetrics(batch({ BiocharYieldKg: 999 } as Partial<Feedstock>), wp).effectiveYieldKg).toBe(999);
+  });
+});
+
+describe("withMeasuredCorcInputs", () => {
+  it("fills blank CORC inputs from work-process data, leaving explicit fields alone", async () => {
+    const { withMeasuredCorcInputs } = await import("./feedstock");
+    const wp = [
+      wpEntry({ Values: { batch_id: "Test Batch", final_biochar_amount: "500" } }),
+    ];
+    const [matched, unmatched, explicit] = withMeasuredCorcInputs(
+      [
+        batch(),
+        batch({ Title: "Other Batch" }),
+        batch({ BiocharYieldKg: 999 } as Partial<Feedstock>),
+      ],
+      wp
+    ) as (Feedstock & { BiocharYieldKg?: number })[];
+    expect(matched.BiocharYieldKg).toBe(500);
+    expect(unmatched.BiocharYieldKg).toBeUndefined();
+    expect(explicit.BiocharYieldKg).toBe(999);
+  });
+});
+
+describe("wpEntriesForBatch", () => {
+  it("matches batch_id and source_batch_id case/space-insensitively", () => {
+    const entries = [
+      wpEntry({ Values: { batch_id: "  test  batch " } }),
+      wpEntry({ id: "wpe_2", Values: { source_batch_id: "TEST BATCH" } }),
+      wpEntry({ id: "wpe_3", Values: { batch_id: "Other" } }),
+    ];
+    expect(wpEntriesForBatch("Test Batch", entries)).toHaveLength(2);
+    expect(wpEntriesForBatch("", entries)).toEqual([]);
   });
 });
 

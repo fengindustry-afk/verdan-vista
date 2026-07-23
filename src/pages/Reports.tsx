@@ -1,8 +1,8 @@
 import { BentoCard } from "@/components/BentoCard";
-import { useFeedstock } from "@/hooks/useCollection";
+import { useFeedstock, useWorkProcessEntries } from "@/hooks/useCollection";
 import { useAuth } from "@/lib/auth";
 import { hasPermission, Permission } from "@/lib/rbac";
-import { corcMetrics } from "@/lib/feedstock";
+import { corcMetrics, withMeasuredCorcInputs } from "@/lib/feedstock";
 import { fmt } from "@/lib/format";
 import {
   ncmpFeedstockReport, shariahReport, carbonTaxReport, downloadText,
@@ -13,9 +13,13 @@ import { toast } from "sonner";
 import { useMemo } from "react";
 
 export default function Reports() {
-  const { data: feedstock = [] } = useFeedstock();
+  const { data: rawFeedstock = [] } = useFeedstock();
+  const { data: wpAll = [] } = useWorkProcessEntries();
   const { role } = useAuth();
   const canExport = hasPermission(role, Permission.ExportData);
+
+  // Measured work-process values filled in, so totals and every export below use them.
+  const feedstock = useMemo(() => withMeasuredCorcInputs(rawFeedstock, wpAll), [rawFeedstock, wpAll]);
 
   const totals = useMemo(() => {
     const netCorc = feedstock.reduce((s, f) => s + corcMetrics(f).netCorc, 0);
