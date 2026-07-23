@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Bell, CloudOff, ImageOff, Activity, Trash2, CheckCheck, HardDrive } from "lucide-react";
+import { Bell, CloudOff, ImageOff, Activity, Trash2, CheckCheck, HardDrive, ShieldAlert } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { getCollection } from "@/lib/data";
@@ -16,6 +16,7 @@ const KIND_ICON: Record<OpsEventKind, typeof CloudOff> = {
   "storage-upload-failed": HardDrive,
   "image-resolve-failed": ImageOff,
   "ai-analysis-fallback": Activity,
+  "honeypot-route-hit": ShieldAlert,
 };
 
 const SEEN_KEY = "ops-events-seen-at";
