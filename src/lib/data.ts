@@ -172,6 +172,22 @@ function hydrate<T extends Doc>(row: { id: string; data: unknown }): T {
   return { ...data, id: row.id } as T;
 }
 
+/**
+ * Synchronous read of the cached collection, expiry ignored, for use as
+ * react-query `initialData`: a reload paints the last-known rows immediately
+ * (instead of an empty "no data" state) while the real fetch revalidates in the
+ * background. Returns the cache timestamp so react-query can judge staleness.
+ */
+export function getCachedCollection<T extends Doc>(
+  collection: CollectionName
+): { rows: T[]; cachedAt: number } | undefined {
+  const key = `col:${collection}`;
+  const rows = memGet<T[]>(key, { ignoreExpiry: true });
+  if (!rows) return undefined;
+  const entry = mem.get(key);
+  return { rows, cachedAt: (entry?.expires ?? Date.now()) - TTL };
+}
+
 export async function getCollection<T extends Doc>(
   collection: CollectionName,
   opts: { cache?: boolean } = {}

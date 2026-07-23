@@ -21,8 +21,8 @@ import { Collections } from "@/lib/collections";
 export default function TreeDetail() {
   const { id } = useParams();
   const { data: trees = [], isLoading } = useTrees();
-  const { data: readings = [] } = useReadings();
-  const { data: scans = [] } = useScans();
+  const { data: readings = [], isLoading: readingsLoading } = useReadings();
+  const { data: scans = [], isLoading: scansLoading } = useScans();
   const { role } = useAuth();
   const canCapture = hasPermission(role, Permission.AddLocations);
   const canEdit = canCapture;
@@ -109,7 +109,11 @@ export default function TreeDetail() {
             </div>
           </div>
           <div className="space-y-2 max-h-72 overflow-auto">
-            {treeReadings.length === 0 && <p className="text-xs text-muted-foreground">No readings recorded.{canEdit && " Tap Add to record one."}</p>}
+            {treeReadings.length === 0 && (
+              readingsLoading
+                ? <p className="text-xs text-muted-foreground flex items-center gap-1.5"><Loader2 className="h-3 w-3 animate-spin" /> Loading readings…</p>
+                : <p className="text-xs text-muted-foreground">No readings recorded.{canEdit && " Tap Add to record one."}</p>
+            )}
             {treeReadings.slice().reverse().map((r) => (
               <button
                 key={r.id}
@@ -135,7 +139,16 @@ export default function TreeDetail() {
               filter={{ collection: Collections.scans, documentIds: treeScans.map((s) => s.id) }}
             />
           </div>
-          {treeScans.length === 0 ? (
+          {treeScans.length === 0 && scansLoading ? (
+            // While the scans collection downloads (rows carry inline image
+            // copies, so this can take seconds on a field connection) show
+            // placeholder tiles — an empty state here reads as deleted data.
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="h-20 rounded-lg bg-muted animate-pulse" />
+              ))}
+            </div>
+          ) : treeScans.length === 0 ? (
             <p className="text-xs text-muted-foreground">No scans yet.{canCapture && " Use Capture Scan above."}</p>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">

@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { getCollection, upsertDocument, deleteDocument, WriteNotAuthorizedError, TableNotFoundError, DuplicateEvidenceError } from "@/lib/data";
+import { getCollection, getCachedCollection, upsertDocument, deleteDocument, WriteNotAuthorizedError, TableNotFoundError, DuplicateEvidenceError } from "@/lib/data";
 import { Collections } from "@/lib/collections";
 import { recordEdit, getHistory, type HistoryEntry } from "@/lib/history";
 import type {
@@ -37,8 +37,14 @@ function useCollection<T extends { id: string }>(
 ) {
   return useQuery({
     queryKey: [collection],
-    queryFn: () => getCollection<T>(collection),
+    queryFn: () => getCollection<T>(collection, { cache: false }),
     staleTime: 60_000,
+    // Paint the last-known rows from the persisted cache immediately on reload
+    // (a scans/photos list that renders as "No data" for the seconds a heavy
+    // refetch takes reads as data loss), then let react-query revalidate in the
+    // background based on the cache's real age.
+    initialData: () => getCachedCollection<T>(collection)?.rows,
+    initialDataUpdatedAt: () => getCachedCollection<T>(collection)?.cachedAt,
   });
 }
 
