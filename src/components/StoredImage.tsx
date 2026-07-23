@@ -91,39 +91,40 @@ export function StoredImage({
       </div>
     );
   }
-  // Until the bytes land the <img> paints nothing, so it wears a pulsing
-  // placeholder background. Styling the image itself (rather than overlaying a
-  // second element) keeps the caller's sizing classes authoritative and avoids
-  // hiding the image, which would stop `loading="lazy"` from ever fetching it.
+  // Until the bytes land the <img> wears a pulsing placeholder background and a
+  // spinner sits on top, so a slow download reads as "loading" instead of a
+  // silent blank tile. The image itself stays visible (never display:none) so
+  // `loading="lazy"` still fetches it; the spinner is a sibling overlay.
   const pending = painted ? "" : "bg-muted animate-pulse";
-
-  if (!zoomable) {
-    return (
-      <img
-        src={url}
-        alt={alt}
-        className={`${className} ${pending}`}
-        loading="lazy"
-        onLoad={() => setPainted(true)}
-        onError={giveUp}
-      />
-    );
-  }
+  const img = (
+    <img
+      src={url}
+      alt={alt}
+      className={`${className} ${pending} ${zoomable ? "cursor-zoom-in" : ""}`}
+      loading="lazy"
+      onLoad={() => setPainted(true)}
+      onError={giveUp}
+      onClick={
+        zoomable
+          ? (e) => {
+              e.stopPropagation();
+              setZoom(true);
+            }
+          : undefined
+      }
+    />
+  );
   return (
-    <>
-      <img
-        src={url}
-        alt={alt}
-        className={`${className} ${pending} cursor-zoom-in`}
-        loading="lazy"
-        onLoad={() => setPainted(true)}
-        onError={giveUp}
-        onClick={(e) => {
-          e.stopPropagation();
-          setZoom(true);
-        }}
-      />
-      <ImageLightbox src={url} alt={alt} open={zoom} onClose={() => setZoom(false)} />
-    </>
+    <span className="relative block">
+      {img}
+      {!painted && (
+        <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        </span>
+      )}
+      {zoomable && (
+        <ImageLightbox src={url} alt={alt} open={zoom} onClose={() => setZoom(false)} />
+      )}
+    </span>
   );
 }

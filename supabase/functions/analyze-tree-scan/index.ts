@@ -186,13 +186,39 @@ Deno.serve(async (req) => {
   const { data: { user } } = await authClient.auth.getUser();
   if (!user) return json({ error: "Sign in required" }, 401);
 
-  let body: { image?: string; mime?: string };
+  let body: { image?: string; mime?: string; imageUrl?: string };
   try {
     body = await req.json();
   } catch {
     return json({ error: "Invalid JSON body" }, 400);
   }
-  const { image, mime = "image/jpeg" } = body;
+  let { image, mime = "image/jpeg" } = body;
+
+  // Alternate input: a signed storage URL. The browser can render these in an
+  // <img> but a fetch() may be CORS-blocked, so it hands us the URL and we
+  // download it here where CORS doesn't apply. Host-allowlisted (our R2 and
+  // Supabase storage only) so the function can't be used as an open proxy.
+  if (!image && typeof body.imageUrl === "string") {
+    let host = "";
+    try {
+      const u = new URL(body.imageUrl);
+      if (u.protocol === "https:") host = u.hostname;
+    } catch { /* rejected below */ }
+    const allowed = host.endsWith(".r2.cloudflarestorage.com") || host === new URL(supabaseUrl).hostname;
+    if (!allowed) return json({ error: "imageUrl host not allowed" }, 400);
+    const res = await fetch(body.imageUrl, { signal: AbortSignal.timeout(20_000) }).catch(() => null);
+    if (!res?.ok) return json({ error: `image fetch failed (${res?.status ?? "network"})` }, 502);
+    const buf = new Uint8Array(await res.arrayBuffer());
+    if (buf.length === 0) return json({ error: "image was empty" }, 502);
+    if (buf.length * 1.4 > MAX_BASE64_CHARS) return json({ error: "Image too large" }, 413);
+    let bin = "";
+    for (let i = 0; i < buf.length; i += 0x8000) {
+      bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+    }
+    image = btoa(bin);
+    mime = res.headers.get("content-type")?.split(";")[0] || "image/jpeg";
+  }
+
   if (!image || typeof image !== "string") return json({ error: "Missing image (base64)" }, 400);
   if (image.length > MAX_BASE64_CHARS) return json({ error: "Image too large" }, 413);
 

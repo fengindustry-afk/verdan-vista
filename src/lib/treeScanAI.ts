@@ -154,18 +154,30 @@ async function runLlm(sources: string[], onProgress: ScanProgress): Promise<Scan
   if (!session) throw new Error("Not signed in");
 
   onProgress("loading");
-  const blob = await loadImage(sources);
-
-  onProgress("preparing");
-  const prepared = await prepareImage(blob);
-  if (!prepared) throw new Error("image format could not be read");
+  // Preferred path: download + downscale in the browser. A signed URL can render
+  // fine in an <img> yet CORS-block a fetch(), so when the download fails and we
+  // still have an https source, hand the URL to the edge function instead — it
+  // fetches server-side where CORS doesn't apply.
+  let body: { image: string; mime: string } | { imageUrl: string };
+  try {
+    const blob = await loadImage(sources);
+    onProgress("preparing");
+    const prepared = await prepareImage(blob);
+    if (!prepared) throw new Error("image format could not be read");
+    body = { image: prepared.base64, mime: prepared.mime };
+  } catch (err) {
+    const remote = sources.find((s) => s.startsWith("http"));
+    if (!remote) throw err;
+    console.warn("[scan] browser image download failed, asking server to fetch:", err);
+    body = { imageUrl: remote };
+  }
 
   onProgress("analyzing");
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
   try {
     const { data, error } = await supabase.functions.invoke("analyze-tree-scan", {
-      body: { image: prepared.base64, mime: prepared.mime },
+      body,
       signal: controller.signal,
     });
     if (error) {

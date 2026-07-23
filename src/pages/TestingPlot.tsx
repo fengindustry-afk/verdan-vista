@@ -107,9 +107,9 @@ export default function TestingPlot() {
               </div>
             ) : undefined}
           />
-          <PlotOverview trees={trees} />
           <SectionA trees={trees} readingsByTree={readingsByTree} canEdit={canEdit} />
           <EvidencePhotos />
+          <PlotOverview trees={trees} />
         </TabsContent>
 
         <TabsContent value="B" className="pt-4 space-y-4">
