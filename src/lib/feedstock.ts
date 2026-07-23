@@ -70,6 +70,24 @@ export function wpEntriesForBatch(title: string, entries: WorkProcessEntry[]): W
   );
 }
 
+/**
+ * The feedstock batch a work-process entry belongs to: its `batch_id` (or
+ * `source_batch_id`) matching a feedstock Title. Inverse of wpEntriesForBatch —
+ * used to jump from a work-process entry to its custody/CORC detail.
+ */
+export function feedstockForEntry(
+  values: Record<string, string> | undefined,
+  feedstock: Feedstock[]
+): Feedstock | undefined {
+  for (const key of ["batch_id", "source_batch_id"] as const) {
+    const id = normBatch(values?.[key]);
+    if (!id) continue;
+    const hit = feedstock.find((f) => normBatch(f.Title) === id);
+    if (hit) return hit;
+  }
+  return undefined;
+}
+
 /** Measured values pulled from a batch's work-process entries (0 = not recorded). */
 export function wpMeasured(entries: WorkProcessEntry[]): {
   yieldKg: number;

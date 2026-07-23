@@ -6,9 +6,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Plus, Loader2, ArrowLeft, ArrowUp, ChevronRight, ChevronDown, Search,
-  Folder, FileText, Pencil, LayoutGrid, Rows3, X, History, Eye, Trash2,
+  Folder, FileText, Pencil, LayoutGrid, Rows3, X, History, Eye, Trash2, ExternalLink,
 } from "lucide-react";
-import { useDelete, useLocations, useUpsert, useWorkProcessEntries } from "@/hooks/useCollection";
+import { useNavigate } from "react-router-dom";
+import { useDelete, useFeedstock, useLocations, useUpsert, useWorkProcessEntries } from "@/hooks/useCollection";
+import { feedstockForEntry } from "@/lib/feedstock";
 import { Collections } from "@/lib/collections";
 import { useAuth } from "@/lib/auth";
 import { hasPermission, Permission } from "@/lib/rbac";
@@ -54,6 +56,8 @@ export function WorkProcessStageDialog({
   initialEntry?: WorkProcessEntry | null;
 }) {
   const { data: entries = [] } = useWorkProcessEntries();
+  const { data: feedstock = [] } = useFeedstock();
+  const routerNav = useNavigate();
   const upsert = useUpsert<WorkProcessEntry>(Collections.workProcess);
   const del = useDelete(Collections.workProcess);
   const { user, role } = useAuth();
@@ -129,6 +133,17 @@ export function WorkProcessStageDialog({
   }, [entries, stage, query, sort]);
 
   const selected = rows.find((e) => e.id === selectedId) ?? null;
+
+  /** Double-click an entry to open its linked feedstock detail, if any. */
+  const openFeedstock = (entry: WorkProcessEntry) => {
+    const f = feedstockForEntry(entry.Values, feedstock);
+    if (!f) {
+      toast.info("No feedstock batch is linked to this entry.");
+      return;
+    }
+    onOpenChange(false);
+    routerNav(`/feedstock/${encodeURIComponent(f.id)}`);
+  };
 
   const startResize = (ev: React.PointerEvent) => {
     ev.preventDefault();
@@ -410,6 +425,7 @@ export function WorkProcessStageDialog({
                         >
                           <tr
                             onClick={() => setSelectedId(e.id)}
+                            onDoubleClick={() => openFeedstock(e)}
                             tabIndex={0}
                             onKeyDown={(ev) => ev.key === "Enter" && setSelectedId(e.id)}
                             className={`cursor-default border-b border-border/40 focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring ${
@@ -449,6 +465,7 @@ export function WorkProcessStageDialog({
                       >
                       <button
                         onClick={() => setSelectedId(e.id)}
+                        onDoubleClick={() => openFeedstock(e)}
                         className={`flex w-full items-start gap-2 rounded p-2 text-left transition-colors ${
                           selectedId === e.id ? "bg-primary/10" : "hover:bg-muted/60"
                         }`}
@@ -514,6 +531,14 @@ export function WorkProcessStageDialog({
                       ? ` (${selected.CapturedByEmail})` : ""}
                     {" · "}{formatEntryTimestamp(selected.Timestamp)}
                   </p>
+                  {feedstockForEntry(selected.Values, feedstock) && (
+                    <button
+                      onClick={() => openFeedstock(selected)}
+                      className="mt-3 flex w-full items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" /> View linked feedstock detail
+                    </button>
+                  )}
                   <div className="mt-2">
                     <HistoryButton
                       title="Entry history"

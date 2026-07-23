@@ -117,6 +117,17 @@ describe("withMeasuredCorcInputs", () => {
   });
 });
 
+describe("feedstockForEntry", () => {
+  it("resolves an entry to its feedstock by batch_id then source_batch_id", async () => {
+    const { feedstockForEntry } = await import("./feedstock");
+    const fs = [batch({ id: "FS-1", Title: "ZA-01" }), batch({ id: "FS-2", Title: "Test Batch" })];
+    expect(feedstockForEntry({ batch_id: "za-01" }, fs)?.id).toBe("FS-1");
+    expect(feedstockForEntry({ source_batch_id: "TEST BATCH" }, fs)?.id).toBe("FS-2");
+    expect(feedstockForEntry({ batch_id: "nope" }, fs)).toBeUndefined();
+    expect(feedstockForEntry(undefined, fs)).toBeUndefined();
+  });
+});
+
 describe("wpEntriesForBatch", () => {
   it("matches batch_id and source_batch_id case/space-insensitively", () => {
     const entries = [
