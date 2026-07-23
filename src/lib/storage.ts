@@ -110,10 +110,37 @@ export async function uploadImage(
   return { dataUrl: await blobToDataUrl(blob) };
 }
 
-/** Signed R2 GET URLs, cached until shortly before they expire so a list view
- * doesn't hit the edge function once per thumbnail per render. */
-const r2UrlCache = new Map<string, { url: string; expiresAt: number }>();
-const R2_GET_CACHE_MS = 55 * 60 * 1000; // URLs are signed for 60min
+/** Signed GET URLs (R2 and Supabase Storage), cached until shortly before they
+ * expire so a list view doesn't pay one signing round-trip per thumbnail per
+ * render. Persisted to localStorage: right after sign-in every thumbnail used
+ * to wait on a fresh signing call, which read as "the data is gone" — a warm
+ * cache paints them immediately on return visits. URLs expire in ≤60min, so a
+ * leaked cache entry is no worse than the session token already stored there. */
+const SIGNED_URL_CACHE_KEY = "vv-signed-urls";
+const SIGNED_URL_CACHE_MS = 55 * 60 * 1000; // URLs are signed for 60min
+
+const signedUrlCache: Map<string, { url: string; expiresAt: number }> = (() => {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SIGNED_URL_CACHE_KEY) ?? "[]") as
+      [string, { url: string; expiresAt: number }][];
+    const now = Date.now();
+    return new Map(raw.filter(([, v]) => v?.expiresAt > now));
+  } catch {
+    return new Map();
+  }
+})();
+
+function cacheSignedUrl(key: string, url: string) {
+  signedUrlCache.set(key, { url, expiresAt: Date.now() + SIGNED_URL_CACHE_MS });
+  try {
+    localStorage.setItem(SIGNED_URL_CACHE_KEY, JSON.stringify([...signedUrlCache]));
+  } catch { /* quota — in-memory cache still works */ }
+}
+
+function cachedSignedUrl(key: string): string | null {
+  const hit = signedUrlCache.get(key);
+  return hit && hit.expiresAt > Date.now() ? hit.url : null;
+}
 
 /** Turns a stored reference into a viewable URL. */
 export async function resolveImageUrl(
@@ -127,12 +154,12 @@ export async function resolveImageUrl(
   if (!isSupabaseConfigured || isEffectivelyOffline()) return null;
 
   if (stored.startsWith(R2_PREFIX)) {
-    const cached = r2UrlCache.get(stored);
-    if (cached && cached.expiresAt > Date.now()) return cached.url;
+    const cached = cachedSignedUrl(stored);
+    if (cached) return cached;
     const [b, ...rest] = stored.slice(R2_PREFIX.length).split("/");
     try {
       const { url } = await signR2("get", b, rest.join("/"));
-      r2UrlCache.set(stored, { url, expiresAt: Date.now() + R2_GET_CACHE_MS });
+      cacheSignedUrl(stored, url);
       return url;
     } catch (err) {
       console.warn(`[storage] R2 sign ${stored} failed:`, err);
@@ -140,10 +167,14 @@ export async function resolveImageUrl(
     }
   }
 
+  const cacheKey = `${bucket}/${stored}`;
+  const cached = cachedSignedUrl(cacheKey);
+  if (cached) return cached;
   const { data, error } = await supabase.storage.from(bucket).createSignedUrl(stored, expiresIn);
   if (error) {
     console.warn(`[storage] sign ${bucket}/${stored} failed:`, error.message);
     return null;
   }
+  cacheSignedUrl(cacheKey, data.signedUrl);
   return data.signedUrl;
 }
