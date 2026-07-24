@@ -1,13 +1,14 @@
 import * as XLSX from "xlsx";
 import type {
   Tree, TreeReading, SoilSample, PlotObservation, PlotApplication, PlotComparison,
-  GeotaggedPhoto,
+  GeotaggedPhoto, TreeScan,
 } from "./types";
 import {
   GROWTH_COLUMNS, HEALTH_COLUMNS, YIELD_COLUMNS, PLOT_SECTIONS,
   buildSectionRows, groupReadingsByTree, type PairColumn,
 } from "./testingPlotSections";
 import { summarizeTestingPlot, summarizeSoil, SUMMARY_PARAMS } from "./testingPlotSummary";
+import { scanTreeGapMeters, SCAN_GPS_TOLERANCE_M } from "./capture";
 
 /**
  * Testing Plot → .xlsx, one sheet per workbook section (A…H) plus a summary,
@@ -26,6 +27,8 @@ export interface TestingPlotData {
   comparisons: PlotComparison[];
   /** Photo evidence — included so the coordinates and hashes travel with it. */
   photos?: GeotaggedPhoto[];
+  /** Tree-health scans — GPS, timestamp and hash travel for the audit trail. */
+  scans?: TreeScan[];
 }
 
 /** Round for display without turning a real 0 into a blank. */
@@ -232,6 +235,33 @@ export function buildTestingPlotWorkbook(data: TestingPlotData): XLSX.WorkBook {
       "Diambil Oleh": p.CapturedBy ?? "",
     })), [22, 30, 22, 12, 12, 10, 20, 12, 66, 18]);
     formatCoordColumns(photoSheet, ["D", "E"]); // Latitude, Longitude
+  }
+
+  // ── Imbasan — scan evidence: health, provenance, and the GPS-vs-tree check ──
+  // Scoped to this plot's trees — the scans collection is shared app-wide.
+  const treeById = new Map(trees.map((t) => [t.id, t]));
+  const plotScans = data.scans?.filter((s) => treeById.has(s.TreeId)) ?? [];
+  if (plotScans.length) {
+    const scanSheet = addSheet(wb, "Imbasan", plotScans.map((s) => {
+      const tree = treeById.get(s.TreeId);
+      const gap = scanTreeGapMeters(s, tree);
+      return {
+        "ID Pokok": tree?.TreeCode ?? s.TreeId,
+        "Status Kesihatan": s.HealthStatus ?? "",
+        Skor: typeof s.HealthScore === "number" ? s.HealthScore : "",
+        Latitude: coord(s.Latitude),
+        Longitude: coord(s.Longitude),
+        // How far the scan's GPS sits from its tree — blank when either side
+        // isn't geotagged. Flag beyond tolerance so an auditor sees it.
+        "Jarak dari pokok (m)": gap != null ? Number(gap.toFixed(1)) : "",
+        Semakan: gap != null && gap > SCAN_GPS_TOLERANCE_M ? "SEMAK GPS" : "",
+        Masa: s.Timestamp ?? "",
+        "Sumber Masa": s.TimestampSource ?? "",
+        "SHA-256": s.Sha256 ?? "",
+        "Diambil Oleh": s.CapturedBy ?? "",
+      };
+    }), [12, 16, 8, 12, 12, 18, 12, 20, 12, 66, 18]);
+    formatCoordColumns(scanSheet, ["D", "E"]); // Latitude, Longitude
   }
 
   return wb;

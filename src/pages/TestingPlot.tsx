@@ -39,6 +39,7 @@ export default function TestingPlot() {
   const { data: applications = [] } = usePlotApplications();
   const { data: comparisons = [] } = usePlotComparisons();
   const { data: photos = [] } = usePhotos();
+  const { data: scans = [] } = useScans();
   const { role } = useAuth();
   const canEdit = hasPermission(role, Permission.AddLocations);
   const canExport = hasPermission(role, Permission.ExportData);
@@ -73,7 +74,7 @@ export default function TestingPlot() {
           <button
             onClick={() =>
               exportTestingPlotXlsx(
-                { trees, readings, soilSamples, observations, applications, comparisons, photos },
+                { trees, readings, soilSamples, observations, applications, comparisons, photos, scans },
                 `testing-plot-${new Date().toISOString().slice(0, 10)}.xlsx`
               )
             }

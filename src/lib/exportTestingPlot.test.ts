@@ -23,6 +23,14 @@ const populated: TestingPlotData = {
   applications: [{ id: "a1", Date: "2026-01-15", Product: "Biochar", BiocharKg: 10, UnitPrice: 2.5, Latitude: "2.8249", Longitude: "101.7698" }],
   comparisons: [{ id: "c1", Parameter: "HeightCm", BiocharPct: 40, NonBiocharPct: 20 }],
   photos: [{ id: "PHOTO-1", Latitude: "2.8", Longitude: "101.7", Sha256: "abc", TimestampSource: "exif" }],
+  scans: [
+    // On its tree (t1 at 2.824703,101.769411) — no flag.
+    { id: "sc1", TreeId: "t1", Latitude: "2.824703", Longitude: "101.769411", HealthStatus: "Healthy", HealthScore: 88, Sha256: "h1" },
+    // ~16 km away — flagged for the auditor.
+    { id: "sc2", TreeId: "t1", Latitude: "2.882210", Longitude: "101.635255", Sha256: "h2" },
+    // References a tree not in this plot — excluded from the sheet.
+    { id: "sc3", TreeId: "other", Latitude: "2.8", Longitude: "101.7" },
+  ],
 };
 
 const rows = (wb: XLSX.WorkBook, name: string) =>
@@ -73,6 +81,21 @@ describe("buildTestingPlotWorkbook", () => {
     expect(e[0].Latitude).toBe(2.8248);
     expect(f[0].Longitude).toBe(101.7693);
     expect(h[0].Latitude).toBe(2.8249);
+  });
+
+  it("exports plot scans with the GPS-vs-tree check, excluding off-plot scans", () => {
+    const wb = buildTestingPlotWorkbook(populated);
+    const s = rows(wb, "Imbasan");
+    expect(s).toHaveLength(2); // sc3 (other tree) is excluded
+    expect(s[0]["ID Pokok"]).toBe("P1");
+    expect(s[0]["Jarak dari pokok (m)"]).toBe(0); // on its tree
+    expect(s[0].Semakan).toBe("");
+    expect(s[1].Semakan).toBe("SEMAK GPS"); // ~16 km away
+    expect(Number(s[1]["Jarak dari pokok (m)"])).toBeGreaterThan(10000);
+  });
+
+  it("omits the scan sheet when there are no plot scans", () => {
+    expect(buildTestingPlotWorkbook(empty).SheetNames).not.toContain("Imbasan");
   });
 
   it("leaves an unmeasured percentage blank rather than reporting 0%", () => {
