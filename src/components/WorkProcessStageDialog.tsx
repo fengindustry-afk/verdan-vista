@@ -9,15 +9,16 @@ import {
   Folder, FileText, Pencil, LayoutGrid, Rows3, X, History, Eye, Trash2, ExternalLink,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { useDelete, useFeedstock, useLocations, useUpsert, useWorkProcessEntries } from "@/hooks/useCollection";
+import { useDelete, useFeedstock, useLocations, useUpsert, useWorkProcessEntries, useZones } from "@/hooks/useCollection";
 import { feedstockForEntry } from "@/lib/feedstock";
 import { Collections } from "@/lib/collections";
 import { useAuth } from "@/lib/auth";
 import { hasPermission, Permission } from "@/lib/rbac";
 import {
   type WorkflowStageDef, type WorkProcessEntry, type FormField,
-  stageFields, entryTitle, entrySubtitle, formatEntryTimestamp, phases, COORDS_SUFFIX,
+  stageFields, entryTitle, entrySubtitle, formatEntryTimestamp, phases, COORDS_SUFFIX, DEFAULT_ZONES,
 } from "@/lib/workProcess";
+import { MapPicker } from "@/components/map/MapPicker";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogHeader, AlertDialogTitle,
@@ -750,6 +751,7 @@ function FieldInput({
   onChange: (v: string, coords?: string) => void;
 }) {
   const { data: locations = [] } = useLocations();
+  const { data: zones = [] } = useZones();
   const label = (
     <Label className="text-xs">
       {field.Label}
@@ -758,6 +760,8 @@ function FieldInput({
   );
 
   if (field.Type === "location") {
+    // coords is "lat, lng" — split for the map picker, rejoin on change.
+    const [clat = "", clng = ""] = coords ? coords.split(",").map((s) => s.trim()) : [];
     return (
       <div>
         {label}
@@ -766,26 +770,54 @@ function FieldInput({
           onChange={(e) => {
             const name = e.target.value;
             const loc = locations.find((l) => (l.Name || l.id) === name);
-            onChange(name, loc ? `${loc.Latitude}, ${loc.Longitude}` : "");
+            onChange(name, loc ? `${loc.Latitude}, ${loc.Longitude}` : coords ?? "");
           }}
           className="mt-1 w-full rounded-lg bg-muted border border-border px-3 py-2 text-sm text-foreground"
         >
-          <option value="">—</option>
+          <option value="">— saved site (optional) —</option>
           {locations.map((l) => <option key={l.id}>{l.Name || l.id}</option>)}
         </select>
         <div className="mt-1 flex items-center justify-between gap-2">
           <p className="text-[10px] text-muted-foreground font-mono truncate">
-            {coords || "No site selected"}
+            {coords || "No coordinate yet — tap the map below"}
           </p>
           <AddLocationDialog
             onSaved={(l) => onChange(l.Name ?? "", `${l.Latitude}, ${l.Longitude}`)}
             trigger={
               <button type="button" className="shrink-0 text-[10px] text-primary hover:underline">
-                + Capture site here
+                + Save as asset
               </button>
             }
           />
         </div>
+        <div className="mt-2">
+          <MapPicker
+            lat={clat}
+            lng={clng}
+            height={200}
+            onChange={(la, lo) => onChange(value, `${la}, ${lo}`)}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  if (field.Type === "zone") {
+    // Admin-managed options (fallback to the seed set), plus the current value
+    // if it predates the list so a saved entry never silently loses its zone.
+    const names = zones.length > 0 ? zones.map((z) => z.Name) : DEFAULT_ZONES;
+    const options = value && !names.includes(value) ? [value, ...names] : names;
+    return (
+      <div>
+        {label}
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="mt-1 w-full rounded-lg bg-muted border border-border px-3 py-2 text-sm text-foreground"
+        >
+          <option value="">—</option>
+          {options.map((z) => <option key={z}>{z}</option>)}
+        </select>
       </div>
     );
   }

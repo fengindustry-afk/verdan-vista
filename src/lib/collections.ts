@@ -25,6 +25,7 @@ export const Collections = {
   costBudgets: "cost_budgets",
   costCategories: "cost_categories",
   workProcess: "work_process_entries",
+  zones: "zones",
   editHistory: "edit_history",
   receipts: "receipts",
   sensorDevices: "sensor_devices",

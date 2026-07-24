@@ -17,6 +17,7 @@ import type {
   CostEntry,
   CostBudget,
   CostCategory,
+  Zone,
   Receipt,
   PlotObservation,
   PlotApplication,
@@ -88,6 +89,7 @@ export const useGroundTruth = () => useCollection<BiomassData>(Collections.groun
 export const useCostEntries = () => useCollection<CostEntry>(Collections.costEntries);
 export const useCostBudgets = () => useCollection<CostBudget>(Collections.costBudgets);
 export const useCostCategories = () => useCollection<CostCategory>(Collections.costCategories);
+export const useZones = () => useCollection<Zone>(Collections.zones);
 export const useReceipts = () => useCollection<Receipt>(Collections.receipts);
 export const useSensorReadings = () => useCollection<SensorReading>(Collections.sensorReadings);
 export const useReadinessStatus = () => useCollection<ReadinessStatusDoc>(Collections.readiness);

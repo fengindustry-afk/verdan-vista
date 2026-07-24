@@ -11,7 +11,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-export type FieldType = "text" | "number" | "date" | "picker" | "multiline" | "location";
+export type FieldType = "text" | "number" | "date" | "picker" | "multiline" | "location" | "zone";
 
 /** A submitted workflow-stage form entry (jsonb payload of a work_process_entries row). */
 export interface WorkProcessEntry {
@@ -92,6 +92,15 @@ const S = (Title: string, ...Fields: FormField[]): FormSection => ({ Title, Fiel
  */
 const L = (label = "Site"): FormField => ({ Label: label, Key: slug(label), Type: "location" });
 
+/**
+ * A coarse zone tag, picked from the admin-managed zones list (Manage zones in
+ * the Work Process hub). Options are dynamic — DEFAULT_ZONES is only the seed.
+ */
+const Z = (label = "Zone"): FormField => ({ Label: label, Key: slug(label), Type: "zone" });
+
+/** Seed zone options before any admin edits — matches the old hardcoded set. */
+export const DEFAULT_ZONES = ["Zone A", "Zone B", "Zone C", "Zone D"];
+
 /** Suffix holding the "lat,lng" written alongside a location field. */
 export const COORDS_SUFFIX = "_coords";
 
@@ -105,7 +114,6 @@ const SOURCE = T("Source Batch ID", "Batch ID of the material consumed");
 
 const BIOMASS = ["Woodchip", "EFB", "PKS", "OPT", "Ash", "Other"];
 const FUELS = ["Diesel", "Petrol", "Electric", "Other"];
-const ZONES = ["Zone A", "Zone B", "Zone C", "Zone D"];
 
 /** The 9 workflow stages across the Operations and Inventory Management phases. */
 export const WORKFLOW_CATALOG: WorkflowStageDef[] = [
@@ -117,7 +125,7 @@ export const WORKFLOW_CATALOG: WorkflowStageDef[] = [
       T("Batch ID", "ZA-01-11-24"), D("Pre-Processing Date"),
       P("Biomass Type", ...BIOMASS), T("Origin Location"),
       T("Transport Size", "5 MT Lorry"), P("Transport Fuel", ...FUELS),
-      P("Storage Location", ...ZONES), L("Receiving Site"), N("Weight", "kg"), N("Moisture", "%"),
+      Z("Storage Location"), L("Receiving Site"), N("Weight", "kg"), N("Moisture", "%"),
       P("Storage Type", "Covered", "Open"),
       T("Supporting Document", "DO / Invoice / Receipt"), M("Remarks"))],
   },
@@ -125,7 +133,7 @@ export const WORKFLOW_CATALOG: WorkflowStageDef[] = [
     Key: "isolation", Title: "Isolation / Sieving", Phase: "Operations", Group: "Feedstock Processing",
     Icon: Settings2, Description: "Sieving & shredding into good feedstock",
     Sections: [S("Sieving / Shredding",
-      T("Batch ID"), SOURCE, P("Zone", "A", "B", "C", "D"), L("Processing Site"), D("Pre-Processing Date"),
+      T("Batch ID"), SOURCE, Z("Zone"), L("Processing Site"), D("Pre-Processing Date"),
       P("Biomass Type", ...BIOMASS), N("Input Quantity", "ton"),
       P("Equipment", "Throwmell", "Shredder"),
       N("Good Feedstock Quantity", "kg"), N("Reject Quantity", "kg"),
@@ -179,7 +187,7 @@ export const WORKFLOW_CATALOG: WorkflowStageDef[] = [
     Sections: [S("Warehouse",
       T("Batch ID"), SOURCE, D("Date"),
       P("Product", "Biochar", "Liquid / Tar", "Fertiliser", "External Biochar"),
-      N("Quantity", "kg"), T("Storage Location"), L("Warehouse Site"), P("Zone", "A", "B", "C", "D"),
+      N("Quantity", "kg"), T("Storage Location"), L("Warehouse Site"), Z("Zone"),
       P("Storage Type", "Covered", "Open"), M("Remarks"))],
   },
   {

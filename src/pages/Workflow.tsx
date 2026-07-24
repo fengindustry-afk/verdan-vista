@@ -15,8 +15,9 @@ import {
 import { massBalance, balanceSummary } from "@/lib/massBalance";
 import { NewBatchDialog } from "@/components/NewBatchDialog";
 import { useAuth } from "@/lib/auth";
-import { hasPermission, Permission } from "@/lib/rbac";
+import { hasPermission, Permission, UserRole } from "@/lib/rbac";
 import { WorkProcessStageDialog } from "@/components/WorkProcessStageDialog";
+import { ManageZonesDialog } from "@/components/ManageZonesDialog";
 import { ReadinessBoard } from "@/components/ReadinessBoard";
 import { MonthPicker } from "@/components/MonthPicker";
 
@@ -132,6 +133,7 @@ function entryMonth(e: WorkProcessEntry): string {
 
 function WorkProcessHub() {
   const { data: entries = [], isLoading } = useWorkProcessEntries();
+  const { role } = useAuth();
   const [openStage, setOpenStage] = useState<WorkflowStageDef | null>(null);
   const [openEntry, setOpenEntry] = useState<WorkProcessEntry | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -203,6 +205,11 @@ function WorkProcessHub() {
 
   return (
     <>
+      {role === UserRole.Admin && (
+        <div className="flex justify-end">
+          <ManageZonesDialog />
+        </div>
+      )}
       <MassBalanceCard rows={balance} onOpenBatch={setQuery} />
 
       {/* Filter every logged work-process entry by text, month and stage. */}

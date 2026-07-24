@@ -70,7 +70,7 @@ declare
     'fused_biomass', 'trees', 'readings', 'soil_samples', 'scans', 'labels',
     'work_process_entries', 'cost_entries', 'cost_budgets', 'cost_categories',
     'receipts', 'sensor_devices', 'sensor_readings', 'readiness_status',
-    'plot_observations', 'plot_applications'
+    'plot_observations', 'plot_applications', 'zones'
   ];
   -- Note: 'edit_history' is intentionally excluded (has its own append-only policy);
   -- 'users' has special rules (below) and is not in this generic set.

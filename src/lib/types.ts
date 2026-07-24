@@ -300,6 +300,15 @@ export interface CostCategory {
 }
 
 /**
+ * Admin-managed zone label for Work Process location fields (e.g. "Zone A").
+ * A coarse human tag; real position comes from the coordinate on the same field.
+ */
+export interface Zone {
+  id: string;
+  Name: string;
+}
+
+/**
  * One purchased line as printed on a receipt. Receipts vary wildly, so every
  * part is optional — we keep whatever the scan could read, verbatim.
  */
