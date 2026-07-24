@@ -12,6 +12,9 @@ import "leaflet/dist/leaflet.css";
  * icon-asset breakage under Vite and keeps it CSP-clean (no external images).
  */
 
+/** What a point represents — drives the glyph shape on the Pelan (SVG) plan. */
+export type MapPointKind = "tree" | "scan" | "photo" | "application" | "soil" | "observation";
+
 export interface MapPoint {
   id: string;
   lat: number;
@@ -21,6 +24,10 @@ export interface MapPoint {
   color?: string;
   /** Outline-only marker (e.g. photo evidence) vs filled (e.g. a tree). */
   hollow?: boolean;
+  /** Category, used by the Pelan plan to pick a distinct glyph. */
+  kind?: MapPointKind;
+  /** Treatment group name (trees only), for the Pelan legend. */
+  group?: string;
 }
 
 /** Pan/zoom to fit all points whenever they change. */

@@ -1,7 +1,7 @@
 import { BentoCard } from "@/components/BentoCard";
 import {
   useTrees, useReadings, useSoilSamples, usePlotObservations, usePlotApplications,
-  usePlotComparisons, usePhotos, useUpsert,
+  usePlotComparisons, usePhotos, useScans, useUpsert,
 } from "@/hooks/useCollection";
 import { StoredImage } from "@/components/StoredImage";
 import { CapturePhotoDialog } from "@/components/capture/CapturePhotoDialog";
@@ -25,7 +25,7 @@ import {
   PLOT_SECTIONS, GROWTH_COLUMNS, HEALTH_COLUMNS, YIELD_COLUMNS,
   buildSectionRows, groupReadingsByTree, type PlotSectionDef,
 } from "@/lib/testingPlotSections";
-import type { Tree, SoilSample, PlotObservation, PlotApplication, PlotComparison, GeotaggedPhoto } from "@/lib/types";
+import type { Tree, SoilSample, PlotObservation, PlotApplication, PlotComparison, GeotaggedPhoto, TreeScan } from "@/lib/types";
 import { Collections } from "@/lib/collections";
 import { fmt, fmtPrice } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
@@ -170,14 +170,31 @@ function SectionHeader({ def, action }: { def: PlotSectionDef; action?: React.Re
 /** Colours per treatment group, cycling. Shared by the SVG plan and the map. */
 const PLOT_GROUP_COLORS = ["#22c55e", "#38bdf8", "#f59e0b", "#a78bfa", "#f472b6"];
 
+/** Colours for the non-tree evidence layers, shared by both plot views. */
+const KIND_COLORS = {
+  scan: "#10b981",
+  photo: "#94a3b8",
+  application: "#f59e0b",
+  soil: "#a16207",
+  observation: "#0ea5e9",
+} as const;
+
 /** Everything on the plot that carries a coordinate, as map points. */
 function plotPoints(
   trees: Tree[], photos: GeotaggedPhoto[], applications: PlotApplication[],
-  soilSamples: SoilSample[], observations: PlotObservation[]
+  soilSamples: SoilSample[], observations: PlotObservation[], scans: TreeScan[]
 ): MapPoint[] {
   const groups = Array.from(new Set(trees.map((t) => t.TreatmentGroup?.trim()).filter(Boolean)));
   const colorFor = (g?: string) =>
     PLOT_GROUP_COLORS[Math.max(0, groups.indexOf((g ?? "").trim())) % PLOT_GROUP_COLORS.length];
+  // Geotagged plot trees, by id — the authoritative positions on the plan.
+  const treePos = new Map<string, { lat: number; lng: number; code: string }>();
+  trees.forEach((t) => {
+    const la = Number(t.Latitude), lo = Number(t.Longitude);
+    if (t.Latitude && t.Longitude && Number.isFinite(la) && Number.isFinite(lo)) {
+      treePos.set(t.id, { lat: la, lng: lo, code: t.TreeCode || t.id });
+    }
+  });
   const out: MapPoint[] = [];
   const push = (id: string, label: string, lat?: string, lng?: string, opts?: Partial<MapPoint>) => {
     const y = Number(lat);
@@ -185,17 +202,36 @@ function plotPoints(
     if (!lat || !lng || !Number.isFinite(y) || !Number.isFinite(x)) return;
     out.push({ id, label, lat: y, lng: x, ...opts });
   };
-  trees.forEach((t) => push(t.id, t.TreeCode || t.id, t.Latitude, t.Longitude, { color: colorFor(t.TreatmentGroup) }));
-  photos.forEach((p) => push(`ph-${p.id}`, p.Description || "Bukti foto", p.Latitude, p.Longitude, { hollow: true, color: "#94a3b8" }));
+  trees.forEach((t) => push(t.id, t.TreeCode || t.id, t.Latitude, t.Longitude, { kind: "tree", color: colorFor(t.TreatmentGroup), group: t.TreatmentGroup?.trim() || "Ungrouped" }));
+  // A scan documents a tree, so anchor it to that tree's position rather than
+  // the scan image's own GPS (which is where the phone was, often kilometres
+  // off — it would blow out the plot scale). Multiple scans on one tree fan out
+  // in a small phyllotaxis ring (~3 m) so they don't stack invisibly. A scan of
+  // an ungeotagged tree can't be placed, so it's omitted.
+  const scanN = new Map<string, number>();
+  scans
+    .filter((s) => treePos.has(s.TreeId))
+    .forEach((s) => {
+      const tp = treePos.get(s.TreeId)!;
+      const n = scanN.get(s.TreeId) ?? 0;
+      scanN.set(s.TreeId, n + 1);
+      const ang = n * 2.399963; // golden angle, so successive scans spread evenly
+      const rad = n === 0 ? 0 : 0.00003 * (1 + n * 0.12); // ~3 m + a little per scan
+      const lat = tp.lat + rad * Math.cos(ang);
+      const lng = tp.lng + rad * Math.sin(ang);
+      push(`scan-${s.id}`, `Imbasan · ${tp.code}${s.HealthStatus ? ` · ${s.HealthStatus}` : ""}`,
+        String(lat), String(lng), { kind: "scan", color: KIND_COLORS.scan });
+    });
+  photos.forEach((p) => push(`ph-${p.id}`, p.Description || "Bukti foto", p.Latitude, p.Longitude, { kind: "photo", hollow: true, color: KIND_COLORS.photo }));
   applications.forEach((a) =>
     push(`app-${a.id}`, `Aplikasi${a.Product ? ` · ${a.Product}` : ""}${a.Date ? ` · ${a.Date}` : ""}`,
-      a.Latitude, a.Longitude, { color: "#f59e0b" }));
+      a.Latitude, a.Longitude, { kind: "application", color: KIND_COLORS.application }));
   soilSamples.forEach((s) =>
     push(`soil-${s.id}`, `Sampel tanah${s.TreeId ? ` · ${s.TreeId}` : ""}${s.Parameter ? ` · ${s.Parameter}` : ""}`,
-      s.Latitude, s.Longitude, { color: "#a16207" }));
+      s.Latitude, s.Longitude, { kind: "soil", color: KIND_COLORS.soil }));
   observations.forEach((o) =>
     push(`obs-${o.id}`, `Pemerhatian${o.Date ? ` · ${o.Date}` : ""}`,
-      o.Latitude, o.Longitude, { hollow: true, color: "#0ea5e9" }));
+      o.Latitude, o.Longitude, { kind: "observation", hollow: true, color: KIND_COLORS.observation }));
   return out;
 }
 
@@ -206,10 +242,11 @@ function PlotOverview({
   trees: Tree[]; applications: PlotApplication[]; soilSamples: SoilSample[]; observations: PlotObservation[];
 }) {
   const { data: photos = [] } = usePhotos();
+  const { data: scans = [] } = useScans();
   const [view, setView] = useState<"map" | "plan">("map");
   const points = useMemo(
-    () => plotPoints(trees, photos, applications, soilSamples, observations),
-    [trees, photos, applications, soilSamples, observations]
+    () => plotPoints(trees, photos, applications, soilSamples, observations, scans),
+    [trees, photos, applications, soilSamples, observations, scans]
   );
   return (
     <BentoCard>
@@ -241,7 +278,7 @@ function PlotOverview({
           </p>
         )
       ) : (
-        <PlotMap trees={trees} photos={photos} />
+        <PlotMap points={points} />
       )}
     </BentoCard>
   );
