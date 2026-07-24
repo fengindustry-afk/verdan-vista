@@ -8,6 +8,7 @@ import { Collections } from "@/lib/collections";
 import { SOIL_PARAMS } from "@/lib/testingPlotSummary";
 import type { SoilSample } from "@/lib/types";
 import { useNumericField } from "@/hooks/useNumericField";
+import { MapPicker } from "@/components/map/MapPicker";
 import { toast } from "sonner";
 
 type Props = {
@@ -147,6 +148,16 @@ export function EditSoilSampleDialog({ sample, groups = [], open, onOpenChange }
               placeholder="Makmal / pemerhatian…"
               className="mt-1"
             />
+          </div>
+          <div className="sm:col-span-2">
+            <Label className="text-xs">Lokasi sampel (tap peta untuk tanda)</Label>
+            <div className="mt-1">
+              <MapPicker
+                lat={form.Latitude}
+                lng={form.Longitude}
+                onChange={(la, lo) => setForm((f) => ({ ...f, Latitude: la, Longitude: lo }))}
+              />
+            </div>
           </div>
         </div>
         <DialogFooter className="sm:justify-between">

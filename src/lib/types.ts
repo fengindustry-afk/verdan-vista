@@ -150,6 +150,9 @@ export interface SoilSample {
   InitialReading?: number | null;
   FinalReading?: number | null;
   Date?: string;
+  /** Where the sample was taken — placed on the plot map. Crucial for MRV. */
+  Latitude?: string;
+  Longitude?: string;
   Note?: string;
 }
 
@@ -171,6 +174,9 @@ export interface PlotObservation {
   SoilCondition?: string;
   /** CATATAN — free-text remarks. */
   Notes?: string;
+  /** Where the observation was made — placed on the plot map. Crucial for MRV. */
+  Latitude?: string;
+  Longitude?: string;
   RecordedBy?: string;
 }
 

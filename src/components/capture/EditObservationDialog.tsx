@@ -7,6 +7,7 @@ import { useUpsert, useDelete } from "@/hooks/useCollection";
 import { Collections } from "@/lib/collections";
 import { useAuth } from "@/lib/auth";
 import type { PlotObservation } from "@/lib/types";
+import { MapPicker } from "@/components/map/MapPicker";
 import { toast } from "sonner";
 
 type Props = {
@@ -94,6 +95,16 @@ export function EditObservationDialog({ observation, groups, open, onOpenChange 
           <div className="sm:col-span-2">
             <Label className="text-xs">Catatan (notes)</Label>
             <Input value={form.Notes ?? ""} onChange={set("Notes")} placeholder="Any remarks…" className="mt-1" />
+          </div>
+          <div className="sm:col-span-2">
+            <Label className="text-xs">Lokasi pemerhatian (tap peta untuk tanda)</Label>
+            <div className="mt-1">
+              <MapPicker
+                lat={form.Latitude}
+                lng={form.Longitude}
+                onChange={(la, lo) => setForm((f) => ({ ...f, Latitude: la, Longitude: lo }))}
+              />
+            </div>
           </div>
         </div>
         <DialogFooter className="sm:justify-between">

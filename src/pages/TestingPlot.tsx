@@ -110,7 +110,7 @@ export default function TestingPlot() {
           />
           <SectionA trees={trees} readingsByTree={readingsByTree} canEdit={canEdit} />
           <EvidencePhotos />
-          <PlotOverview trees={trees} applications={applications} />
+          <PlotOverview trees={trees} applications={applications} soilSamples={soilSamples} observations={observations} />
         </TabsContent>
 
         <TabsContent value="B" className="pt-4 space-y-4">
@@ -170,8 +170,11 @@ function SectionHeader({ def, action }: { def: PlotSectionDef; action?: React.Re
 /** Colours per treatment group, cycling. Shared by the SVG plan and the map. */
 const PLOT_GROUP_COLORS = ["#22c55e", "#38bdf8", "#f59e0b", "#a78bfa", "#f472b6"];
 
-/** Trees, evidence photos, and applications that carry a coordinate. */
-function plotPoints(trees: Tree[], photos: GeotaggedPhoto[], applications: PlotApplication[]): MapPoint[] {
+/** Everything on the plot that carries a coordinate, as map points. */
+function plotPoints(
+  trees: Tree[], photos: GeotaggedPhoto[], applications: PlotApplication[],
+  soilSamples: SoilSample[], observations: PlotObservation[]
+): MapPoint[] {
   const groups = Array.from(new Set(trees.map((t) => t.TreatmentGroup?.trim()).filter(Boolean)));
   const colorFor = (g?: string) =>
     PLOT_GROUP_COLORS[Math.max(0, groups.indexOf((g ?? "").trim())) % PLOT_GROUP_COLORS.length];
@@ -187,14 +190,27 @@ function plotPoints(trees: Tree[], photos: GeotaggedPhoto[], applications: PlotA
   applications.forEach((a) =>
     push(`app-${a.id}`, `Aplikasi${a.Product ? ` · ${a.Product}` : ""}${a.Date ? ` · ${a.Date}` : ""}`,
       a.Latitude, a.Longitude, { color: "#f59e0b" }));
+  soilSamples.forEach((s) =>
+    push(`soil-${s.id}`, `Sampel tanah${s.TreeId ? ` · ${s.TreeId}` : ""}${s.Parameter ? ` · ${s.Parameter}` : ""}`,
+      s.Latitude, s.Longitude, { color: "#a16207" }));
+  observations.forEach((o) =>
+    push(`obs-${o.id}`, `Pemerhatian${o.Date ? ` · ${o.Date}` : ""}`,
+      o.Latitude, o.Longitude, { hollow: true, color: "#0ea5e9" }));
   return out;
 }
 
 /** Plot seen from above — a real OSM map or a to-scale top-view plan. */
-function PlotOverview({ trees, applications }: { trees: Tree[]; applications: PlotApplication[] }) {
+function PlotOverview({
+  trees, applications, soilSamples, observations,
+}: {
+  trees: Tree[]; applications: PlotApplication[]; soilSamples: SoilSample[]; observations: PlotObservation[];
+}) {
   const { data: photos = [] } = usePhotos();
   const [view, setView] = useState<"map" | "plan">("map");
-  const points = useMemo(() => plotPoints(trees, photos, applications), [trees, photos, applications]);
+  const points = useMemo(
+    () => plotPoints(trees, photos, applications, soilSamples, observations),
+    [trees, photos, applications, soilSamples, observations]
+  );
   return (
     <BentoCard>
       <div className="mb-3 flex items-center justify-between gap-2">
