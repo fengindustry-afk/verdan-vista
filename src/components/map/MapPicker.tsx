@@ -30,6 +30,23 @@ function ClickToSet({ onSet }: { onSet: (lat: number, lng: number) => void }) {
   return null;
 }
 
+/** Per-device memory of the last pin dropped, so the next empty picker opens
+ *  near where you're actually working rather than the world default. */
+const LAST_CENTER_KEY = "mapPicker.lastCenter";
+
+function readLastCenter(): [number, number] | null {
+  try {
+    const v = JSON.parse(localStorage.getItem(LAST_CENTER_KEY) ?? "null");
+    return Array.isArray(v) && v.length === 2 && v.every((n) => Number.isFinite(n)) ? [v[0], v[1]] : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeLastCenter(c: [number, number]) {
+  try { localStorage.setItem(LAST_CENTER_KEY, JSON.stringify(c)); } catch { /* ignore */ }
+}
+
 export function MapPicker({
   lat,
   lng,
@@ -42,11 +59,17 @@ export function MapPicker({
   onChange: (lat: string, lng: string) => void;
   height?: number;
 }) {
+  // Where empty pickers open. The device is usually far from where the data
+  // lives (KL is 60 km from the Esterra plot), so remember the last pin dropped
+  // and open there — the second tree in a plot lands one tap away, not a
+  // pan-and-zoom across the country. Falls back to KL on a fresh install.
+  const stored = useMemo(readLastCenter, []);
   const initial = useMemo<[number, number]>(() => {
     const y = Number(lat);
     const x = Number(lng);
-    return Number.isFinite(y) && Number.isFinite(x) && (y || x) ? [y, x] : [3.139, 101.6869];
-  }, [lat, lng]);
+    if (Number.isFinite(y) && Number.isFinite(x) && (y || x)) return [y, x];
+    return stored ?? [3.139, 101.6869];
+  }, [lat, lng, stored]);
 
   const [pos, setPos] = useState<[number, number] | null>(
     Number(lat) || Number(lng) ? initial : null
@@ -56,6 +79,7 @@ export function MapPicker({
   const set = (y: number, x: number) => {
     setPos([y, x]);
     onChange(y.toFixed(6), x.toFixed(6));
+    writeLastCenter([y, x]);
   };
 
   const useMyLocation = () => {
@@ -71,7 +95,7 @@ export function MapPicker({
   return (
     <div className="space-y-1.5">
       <div className="overflow-hidden rounded-lg border border-border" style={{ height }}>
-        <MapContainer center={initial} zoom={pos ? 18 : 13} scrollWheelZoom style={{ height: "100%", width: "100%" }}>
+        <MapContainer center={initial} zoom={pos ? 18 : stored ? 17 : 13} scrollWheelZoom style={{ height: "100%", width: "100%" }}>
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
