@@ -18,7 +18,9 @@
 -- groups gate WHICH rows they see.
 --
 -- Run AFTER security/rls.sql (needs public.has_role) in the Supabase SQL
--- editor. Safe to re-run (idempotent). Composes with
+-- editor. Safe to re-run (idempotent) — re-running also picks up any table
+-- added to the loop below since your last run (e.g. plot_comparisons, added
+-- after its own create-plot-comparisons.sql shipped). Composes with
 -- security/migrate-personal-ledger-privacy.sql for cost_entries.
 -- ============================================================================
 
@@ -127,6 +129,7 @@ begin
       ('soil_samples',         'testing-plot'),
       ('plot_observations',    'testing-plot'),
       ('plot_applications',    'testing-plot'),
+      ('plot_comparisons',     'testing-plot'),
       ('work_process_entries', 'workflow'),
       ('readiness_status',     'workflow'),
       ('sensor_devices',       'sensors'),

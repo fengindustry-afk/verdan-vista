@@ -9,7 +9,7 @@ export const MODULES = [
   { id: "custody", label: "Custody & Batches", description: "Feedstock sourcing, asset locations, geotagged photos" },
   { id: "biomass", label: "Biomass & MRV", description: "ESA satellite, ground truth and fused biomass data" },
   { id: "trees", label: "Trees & Scans", description: "Tree registry, readings, health scans, labels" },
-  { id: "testing-plot", label: "Testing Plot", description: "Plot observations, applications, soil samples" },
+  { id: "testing-plot", label: "Testing Plot", description: "Plot observations, applications, soil samples, comparisons" },
   { id: "workflow", label: "Workflow & Readiness", description: "Work process entries, production readiness" },
   { id: "sensors", label: "Sensors (dMRV)", description: "Sensor devices and ingested readings" },
   { id: "cost-tracker", label: "Cost Tracker & Receipts", description: "Expenses, budgets, categories, digitised receipts" },

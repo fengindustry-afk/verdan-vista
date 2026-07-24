@@ -108,7 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .getSession()
       .then(async ({ data }) => {
         const s = data.session;
-        if (active && s?.user?.email && !localStorage.getItem(STORAGE_KEY)) {
+        if (active && s?.user?.email) {
           const profile = await resolveProfile(s.user.email, s.user.id);
           localStorage.setItem(STORAGE_KEY, JSON.stringify(profile));
           if (active) setUser(profile);

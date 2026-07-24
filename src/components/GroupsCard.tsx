@@ -22,7 +22,7 @@ export function GroupsCard() {
   const upsertGroup = useUpsert<Group>(Collections.groups, { surfaceErrors: true });
   const deleteGroup = useDelete(Collections.groups);
   // Membership changes are security-relevant — keep them in the audit trail.
-  const upsertUser = useUpsert<UserProfile>(Collections.users);
+  const upsertUser = useUpsert<UserProfile>(Collections.users, { surfaceErrors: true });
 
   const isAdmin = user?.Role === "Admin";
   const myGroups = groupsOf(user, groups);
@@ -58,9 +58,16 @@ export function GroupsCard() {
   };
 
   const removeGroup = async (g: Group) => {
+    const members = memberEmails(g).length;
+    if (!window.confirm(
+      `Delete "${g.Name}"?\n\n${members} member${members === 1 ? "" : "s"} will lose this group's access. `
+      + `Records already stamped with it stay in the database but only Admins will see them.`
+    )) return;
     // Detach members first so no profile points at a dead group id.
     for (const u of memberEmails(g)) {
-      await upsertUser.mutateAsync({ ...u, Groups: (u.Groups ?? []).filter((id) => id !== g.id) });
+      await upsertUser
+        .mutateAsync({ ...u, Groups: (u.Groups ?? []).filter((id) => id !== g.id) })
+        .catch(() => {});
     }
     await deleteGroup.mutateAsync(g.id);
     toast.success(`Group "${g.Name}" deleted`);
@@ -71,7 +78,8 @@ export function GroupsCard() {
     const next = current.includes(g.id)
       ? current.filter((id) => id !== g.id)
       : [...current, g.id];
-    await upsertUser.mutateAsync({ ...u, Groups: next });
+    // useUpsert toasts the RLS rejection; swallow so the click doesn't reject.
+    await upsertUser.mutateAsync({ ...u, Groups: next }).catch(() => {});
   };
 
   const toggleModule = (moduleId: string) => {
@@ -116,6 +124,7 @@ export function GroupsCard() {
             }}
             className="rounded-lg border border-border bg-background px-2 py-1 text-xs text-foreground"
           >
+            <option value="">Shared (no group)</option>
             {myGroups.map((g) => (
               <option key={g.id} value={g.id}>{g.Name}</option>
             ))}
