@@ -195,6 +195,32 @@ export function distanceMeters(
 
 export interface GeoPoint { Latitude?: string; Longitude?: string }
 
+/** A round metres/km string for distances shown to people. */
+export function formatMeters(m: number): string {
+  return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`;
+}
+
+/**
+ * How far a scan's own GPS may sit from its tree before we flag it (metres). A
+ * scan is photographed standing at the tree, so tens of metres of drift is
+ * normal; hundreds means a mis-tagged scan (or an ungeotagged / mislocated
+ * tree). MRV evidence should be locatable to the thing it documents.
+ */
+export const SCAN_GPS_TOLERANCE_M = 50;
+
+/**
+ * Metres between a scan's own GPS and its tree's position, or null when either
+ * isn't geotagged (nothing to compare against). A large value is a data-quality
+ * signal, not a hard error — see SCAN_GPS_TOLERANCE_M.
+ */
+export function scanTreeGapMeters(scan: GeoPoint, tree?: GeoPoint | null): number | null {
+  if (!scan.Latitude || !scan.Longitude || !tree?.Latitude || !tree?.Longitude) return null;
+  const sLat = Number(scan.Latitude), sLon = Number(scan.Longitude);
+  const tLat = Number(tree.Latitude), tLon = Number(tree.Longitude);
+  if (![sLat, sLon, tLat, tLon].every(Number.isFinite)) return null;
+  return distanceMeters(sLat, sLon, tLat, tLon);
+}
+
 /**
  * Metres from `fix` to the nearest point that has usable coordinates, or null
  * when none do — with no reference points there is nothing to check against,

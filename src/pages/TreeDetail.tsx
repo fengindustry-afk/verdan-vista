@@ -1,6 +1,6 @@
 import { BentoCard } from "@/components/BentoCard";
 import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, TreePine, Loader2, MapPin } from "lucide-react";
+import { ArrowLeft, TreePine, Loader2, MapPin, AlertTriangle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useTrees, useReadings, useScans } from "@/hooks/useCollection";
 import { StoredImage } from "@/components/StoredImage";
@@ -9,6 +9,7 @@ import { EditReadingDialog } from "@/components/capture/EditReadingDialog";
 import { EditScanDialog } from "@/components/capture/EditScanDialog";
 import { Buckets } from "@/lib/storage";
 import { healthTone } from "@/lib/health";
+import { scanTreeGapMeters, SCAN_GPS_TOLERANCE_M, formatMeters } from "@/lib/capture";
 import { useAuth } from "@/lib/auth";
 import { hasPermission, Permission } from "@/lib/rbac";
 import { LineChart, Line, ResponsiveContainer, XAxis, YAxis, Tooltip } from "recharts";
@@ -39,6 +40,16 @@ export default function TreeDetail() {
   const treeScans = useMemo(
     () => scans.filter((s) => s.TreeId === tree?.id).reverse(),
     [scans, tree]
+  );
+  // Scans whose own GPS sits well away from the tree — a mis-tagged image, or a
+  // tree/scan pair that isn't where it claims. Null gaps (either side ungeotagged)
+  // aren't flagged: there's nothing to compare.
+  const offLocationCount = useMemo(
+    () => treeScans.filter((s) => {
+      const gap = scanTreeGapMeters(s, tree);
+      return gap != null && gap > SCAN_GPS_TOLERANCE_M;
+    }).length,
+    [treeScans, tree]
   );
   const chartData = treeReadings
     .filter((r) => r.HeightCm != null)
@@ -133,7 +144,17 @@ export default function TreeDetail() {
 
         <BentoCard>
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-foreground">Scans ({treeScans.length})</h3>
+            <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+              Scans ({treeScans.length})
+              {offLocationCount > 0 && (
+                <span
+                  className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400"
+                  title="These scans were GPS-tagged far from this tree — check the tag or geotag the tree."
+                >
+                  <AlertTriangle className="h-3 w-3" /> {offLocationCount} off-location
+                </span>
+              )}
+            </h3>
             <HistoryButton
               title="Scans history"
               filter={{ collection: Collections.scans, documentIds: treeScans.map((s) => s.id) }}
@@ -172,6 +193,17 @@ export default function TreeDetail() {
                         {s.HealthStatus}
                       </span>
                     )}
+                    {(() => {
+                      const gap = scanTreeGapMeters(s, tree);
+                      return gap != null && gap > SCAN_GPS_TOLERANCE_M ? (
+                        <span
+                          className="absolute top-1 right-1 inline-flex items-center gap-0.5 rounded-full border border-amber-500/40 bg-background/80 backdrop-blur px-1.5 py-0.5 text-[9px] font-semibold text-amber-600 dark:text-amber-400"
+                          title={`GPS-tagged ${formatMeters(gap)} from this tree`}
+                        >
+                          <AlertTriangle className="h-2.5 w-2.5" /> {formatMeters(gap)}
+                        </span>
+                      ) : null;
+                    })()}
                   </div>
                   <p className="text-[10px] text-muted-foreground truncate flex items-center gap-1">
                     {s.Latitude ? <MapPin className="h-2.5 w-2.5" /> : null}{s.Timestamp?.slice(0, 10)}

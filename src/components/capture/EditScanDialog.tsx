@@ -2,12 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Trash2, Activity, MapPin, ImageOff, Upload } from "lucide-react";
-import { useUpsert, useDelete } from "@/hooks/useCollection";
+import { Loader2, Trash2, Activity, MapPin, ImageOff, Upload, AlertTriangle } from "lucide-react";
+import { useUpsert, useDelete, useTrees } from "@/hooks/useCollection";
 import { Collections } from "@/lib/collections";
 import type { TreeScan } from "@/lib/types";
 import { resolveImageUrl, Buckets } from "@/lib/storage";
-import { reuploadStoredImage } from "@/lib/capture";
+import { reuploadStoredImage, scanTreeGapMeters, SCAN_GPS_TOLERANCE_M, formatMeters } from "@/lib/capture";
 import { healthTone, type HealthResult } from "@/lib/health";
 import {
   analyzeTreeScan, scanEngineLabel, SCAN_PHASE_LABEL,
@@ -39,6 +39,13 @@ const PHASE_RANGE: Record<ScanPhase, [number, number]> = {
 export function EditScanDialog({ scan, open, onOpenChange }: Props) {
   const upsert = useUpsert<TreeScan>(Collections.scans);
   const del = useDelete(Collections.scans);
+  const { data: trees = [] } = useTrees();
+  // The scan's GPS records where the photo was taken; the tree's records where
+  // the tree is. In good data they agree within metres — a big gap means a
+  // mis-tagged scan (or the tree isn't geotagged / is mislocated).
+  const tree = trees.find((t) => t.id === scan.TreeId);
+  const gpsGap = scanTreeGapMeters(scan, tree);
+  const gpsOff = gpsGap != null && gpsGap > SCAN_GPS_TOLERANCE_M;
   const [notes, setNotes] = useState(scan.Notes ?? "");
   const [url, setUrl] = useState<string | null>(null);
   const [triedFallback, setTriedFallback] = useState(false);
@@ -268,6 +275,21 @@ export function EditScanDialog({ scan, open, onOpenChange }: Props) {
               {scan.Latitude ? `${scan.Latitude}, ${scan.Longitude} · ` : ""}{scan.Timestamp}
             </p>
           )}
+
+          {/* Chain-of-custody check: does the scan's GPS match its tree? */}
+          {gpsOff ? (
+            <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-300">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>
+                This scan was GPS-tagged <b>{formatMeters(gpsGap!)}</b> from {tree?.TreeCode ? `tree ${tree.TreeCode}` : "its tree"}.
+                Re-tag the scan, or geotag the tree, so the evidence locates to the tree it documents.
+              </span>
+            </div>
+          ) : gpsGap != null ? (
+            <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <MapPin className="h-3 w-3 text-primary" /> GPS matches {tree?.TreeCode ? `tree ${tree.TreeCode}` : "the tree"} (~{formatMeters(gpsGap)}).
+            </p>
+          ) : null}
 
           <div>
             <Label className="text-xs">Notes</Label>
