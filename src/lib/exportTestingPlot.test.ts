@@ -17,10 +17,10 @@ const populated: TestingPlotData = {
     { id: "r2", TreeId: "t1", Date: "2026-03-01", HeightCm: 150 },
   ],
   soilSamples: [
-    { id: "s1", TreatmentGroup: "Control", Parameter: "pH Tanah", InitialReading: 5, FinalReading: 6 },
+    { id: "s1", TreatmentGroup: "Control", Parameter: "pH Tanah", InitialReading: 5, FinalReading: 6, Latitude: "2.8248", Longitude: "101.7695" },
   ],
-  observations: [{ id: "o1", Date: "2026-02-01", LeafCondition: "Sihat" }],
-  applications: [{ id: "a1", Date: "2026-01-15", Product: "Biochar", BiocharKg: 10, UnitPrice: 2.5 }],
+  observations: [{ id: "o1", Date: "2026-02-01", LeafCondition: "Sihat", Latitude: "2.8246", Longitude: "101.7693" }],
+  applications: [{ id: "a1", Date: "2026-01-15", Product: "Biochar", BiocharKg: 10, UnitPrice: 2.5, Latitude: "2.8249", Longitude: "101.7698" }],
   comparisons: [{ id: "c1", Parameter: "HeightCm", BiocharPct: 40, NonBiocharPct: 20 }],
   photos: [{ id: "PHOTO-1", Latitude: "2.8", Longitude: "101.7", Sha256: "abc", TimestampSource: "exif" }],
 };
@@ -63,6 +63,16 @@ describe("buildTestingPlotWorkbook", () => {
     const wb = buildTestingPlotWorkbook(populated);
     const h = rows(wb, wb.SheetNames.find((n) => n.startsWith("H"))!);
     expect(h[0]["Jumlah Kos (RM)"]).toBe(25);
+  });
+
+  it("carries coordinates into soil, observation and application sheets", () => {
+    const wb = buildTestingPlotWorkbook(populated);
+    const e = rows(wb, wb.SheetNames.find((n) => n.startsWith("E"))!);
+    const f = rows(wb, wb.SheetNames.find((n) => n.startsWith("F"))!);
+    const h = rows(wb, wb.SheetNames.find((n) => n.startsWith("H"))!);
+    expect(e[0].Latitude).toBe(2.8248);
+    expect(f[0].Longitude).toBe(101.7693);
+    expect(h[0].Latitude).toBe(2.8249);
   });
 
   it("leaves an unmeasured percentage blank rather than reporting 0%", () => {

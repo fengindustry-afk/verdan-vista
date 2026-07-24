@@ -155,7 +155,7 @@ export function buildTestingPlotWorkbook(data: TestingPlotData): XLSX.WorkBook {
     [12, 12, ...YIELD_COLUMNS.flatMap(() => [16, 16, 10])]);
 
   // ── E · Analisis Tanah ────────────────────────────────────────────────────
-  addSheet(wb, sheetName("E"), soilSamples.map((s) => ({
+  const sheetE = addSheet(wb, sheetName("E"), soilSamples.map((s) => ({
     "Bil Pokok": s.TreeNo ?? "",
     "ID Pokok": s.TreeId ?? "",
     Kumpulan: s.TreatmentGroup ?? "",
@@ -164,10 +164,13 @@ export function buildTestingPlotWorkbook(data: TestingPlotData): XLSX.WorkBook {
     Akhir: round2(s.FinalReading),
     Tarikh: s.Date ?? "",
     Catatan: s.Note ?? "",
-  })), [10, 10, 12, 26, 12, 12, 12, 30]);
+    Latitude: coord(s.Latitude),
+    Longitude: coord(s.Longitude),
+  })), [10, 10, 12, 26, 12, 12, 12, 30, 12, 12]);
+  formatCoordColumns(sheetE, ["I", "J"]); // Latitude, Longitude
 
   // ── F · Pemerhatian Visual ────────────────────────────────────────────────
-  addSheet(wb, sheetName("F"), observations.map((o) => ({
+  const sheetF = addSheet(wb, sheetName("F"), observations.map((o) => ({
     Tarikh: o.Date ?? "",
     Kumpulan: o.TreatmentGroup ?? "",
     "Keadaan Daun": o.LeafCondition ?? "",
@@ -175,7 +178,10 @@ export function buildTestingPlotWorkbook(data: TestingPlotData): XLSX.WorkBook {
     "Keadaan Tanah": o.SoilCondition ?? "",
     Catatan: o.Notes ?? "",
     "Direkod Oleh": o.RecordedBy ?? "",
-  })), [12, 12, 22, 22, 22, 34, 18]);
+    Latitude: coord(o.Latitude),
+    Longitude: coord(o.Longitude),
+  })), [12, 12, 22, 22, 22, 34, 18, 12, 12]);
+  formatCoordColumns(sheetF, ["H", "I"]); // Latitude, Longitude
 
   // ── G · Control vs ESTERRA ────────────────────────────────────────────────
   const byParam = new Map(comparisons.map((c) => [c.Parameter, c]));
@@ -192,7 +198,7 @@ export function buildTestingPlotWorkbook(data: TestingPlotData): XLSX.WorkBook {
   }), [30, 12, 16, 18, 18, 30]);
 
   // ── H · Rekod Aplikasi Produk ─────────────────────────────────────────────
-  addSheet(wb, sheetName("H"), applications.map((a) => ({
+  const sheetH = addSheet(wb, sheetName("H"), applications.map((a) => ({
     Tarikh: a.Date ?? "",
     Produk: a.Product ?? "",
     "Kadar (kg/pokok)": round2(a.RatePerTreeKg),
@@ -206,7 +212,10 @@ export function buildTestingPlotWorkbook(data: TestingPlotData): XLSX.WorkBook {
     Pegawai: a.Officer ?? "",
     Supervisor: a.Supervisor ?? "",
     Catatan: a.Notes ?? "",
-  })), [12, 22, 16, 14, 14, 18, 16, 14, 18, 18, 30]);
+    Latitude: coord(a.Latitude),
+    Longitude: coord(a.Longitude),
+  })), [12, 22, 16, 14, 14, 18, 16, 14, 18, 18, 30, 12, 12]);
+  formatCoordColumns(sheetH, ["L", "M"]); // Latitude, Longitude
 
   // ── Bukti Foto — evidence provenance, so an auditor can verify offline ────
   if (data.photos?.length) {
