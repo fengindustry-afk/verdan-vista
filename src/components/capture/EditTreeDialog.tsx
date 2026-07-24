@@ -7,6 +7,7 @@ import { useUpsert, useDelete } from "@/hooks/useCollection";
 import { Collections } from "@/lib/collections";
 import type { Tree } from "@/lib/types";
 import { getCurrentPosition } from "@/lib/capture";
+import { MapPicker } from "@/components/map/MapPicker";
 import { toast } from "sonner";
 
 /** Add a new tree, or edit an existing one, in the Testing Plot. */
@@ -99,6 +100,15 @@ export function EditTreeDialog({ tree }: { tree?: Tree }) {
               {locating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Crosshair className="h-3 w-3" />}
               {form.Latitude ? "Re-tag GPS" : "Tag GPS"}
             </button>
+          </div>
+          {/* Tap the map to place the tree — the easy path when you're not
+              standing at it (GPS) or transcribing a surveyed coordinate. */}
+          <div className="sm:col-span-2">
+            <MapPicker
+              lat={form.Latitude}
+              lng={form.Longitude}
+              onChange={(la, lo) => setForm((f) => ({ ...f, Latitude: la, Longitude: lo }))}
+            />
           </div>
           {/* Typed entry for the times GPS isn't an option: correcting a bad
               fix, or transcribing a surveyed coordinate from paper. */}

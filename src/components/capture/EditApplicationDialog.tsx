@@ -8,6 +8,7 @@ import { Collections } from "@/lib/collections";
 import type { PlotApplication } from "@/lib/types";
 import { fmt, fmtPrice } from "@/lib/format";
 import { useNumericField } from "@/hooks/useNumericField";
+import { MapPicker } from "@/components/map/MapPicker";
 import { toast } from "sonner";
 
 type Props = {
@@ -101,6 +102,16 @@ export function EditApplicationDialog({ application, open, onOpenChange }: Props
           <div className="sm:col-span-2 rounded-lg bg-muted/50 border border-border px-3 py-2 text-xs text-muted-foreground flex items-center justify-between">
             <span>Biochar: <span className="text-foreground font-medium">{biocharKg != null ? `${fmt(biocharKg, 1)} kg` : "—"}</span></span>
             <span>Total cost: <span className="text-foreground font-medium">{totalCost != null ? `RM ${fmtPrice(totalCost)}` : "—"}</span></span>
+          </div>
+          <div className="sm:col-span-2">
+            <Label className="text-xs">Lokasi aplikasi (tap peta untuk tanda)</Label>
+            <div className="mt-1">
+              <MapPicker
+                lat={form.Latitude}
+                lng={form.Longitude}
+                onChange={(la, lo) => setForm((f) => ({ ...f, Latitude: la, Longitude: lo }))}
+              />
+            </div>
           </div>
         </div>
         <DialogFooter className="sm:justify-between">

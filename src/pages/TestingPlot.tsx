@@ -19,12 +19,13 @@ import { EditApplicationDialog } from "@/components/capture/EditApplicationDialo
 import { TestingPlotSummary } from "@/components/TestingPlotSummary";
 import { PairTable } from "@/components/testing-plot/PairTable";
 import { PlotMap } from "@/components/testing-plot/PlotMap";
+import { MapView, type MapPoint } from "@/components/map/MapView";
 import { soilPercentChange, summarizeTestingPlot, SUMMARY_PARAMS } from "@/lib/testingPlotSummary";
 import {
   PLOT_SECTIONS, GROWTH_COLUMNS, HEALTH_COLUMNS, YIELD_COLUMNS,
   buildSectionRows, groupReadingsByTree, type PlotSectionDef,
 } from "@/lib/testingPlotSections";
-import type { Tree, SoilSample, PlotObservation, PlotApplication, PlotComparison } from "@/lib/types";
+import type { Tree, SoilSample, PlotObservation, PlotApplication, PlotComparison, GeotaggedPhoto } from "@/lib/types";
 import { Collections } from "@/lib/collections";
 import { fmt, fmtPrice } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
@@ -109,7 +110,7 @@ export default function TestingPlot() {
           />
           <SectionA trees={trees} readingsByTree={readingsByTree} canEdit={canEdit} />
           <EvidencePhotos />
-          <PlotOverview trees={trees} />
+          <PlotOverview trees={trees} applications={applications} />
         </TabsContent>
 
         <TabsContent value="B" className="pt-4 space-y-4">
@@ -166,15 +167,66 @@ function SectionHeader({ def, action }: { def: PlotSectionDef; action?: React.Re
   );
 }
 
-/** Plot seen from above — trees and evidence drawn to scale. */
-function PlotOverview({ trees }: { trees: Tree[] }) {
+/** Colours per treatment group, cycling. Shared by the SVG plan and the map. */
+const PLOT_GROUP_COLORS = ["#22c55e", "#38bdf8", "#f59e0b", "#a78bfa", "#f472b6"];
+
+/** Trees, evidence photos, and applications that carry a coordinate. */
+function plotPoints(trees: Tree[], photos: GeotaggedPhoto[], applications: PlotApplication[]): MapPoint[] {
+  const groups = Array.from(new Set(trees.map((t) => t.TreatmentGroup?.trim()).filter(Boolean)));
+  const colorFor = (g?: string) =>
+    PLOT_GROUP_COLORS[Math.max(0, groups.indexOf((g ?? "").trim())) % PLOT_GROUP_COLORS.length];
+  const out: MapPoint[] = [];
+  const push = (id: string, label: string, lat?: string, lng?: string, opts?: Partial<MapPoint>) => {
+    const y = Number(lat);
+    const x = Number(lng);
+    if (!lat || !lng || !Number.isFinite(y) || !Number.isFinite(x)) return;
+    out.push({ id, label, lat: y, lng: x, ...opts });
+  };
+  trees.forEach((t) => push(t.id, t.TreeCode || t.id, t.Latitude, t.Longitude, { color: colorFor(t.TreatmentGroup) }));
+  photos.forEach((p) => push(`ph-${p.id}`, p.Description || "Bukti foto", p.Latitude, p.Longitude, { hollow: true, color: "#94a3b8" }));
+  applications.forEach((a) =>
+    push(`app-${a.id}`, `Aplikasi${a.Product ? ` · ${a.Product}` : ""}${a.Date ? ` · ${a.Date}` : ""}`,
+      a.Latitude, a.Longitude, { color: "#f59e0b" }));
+  return out;
+}
+
+/** Plot seen from above — a real OSM map or a to-scale top-view plan. */
+function PlotOverview({ trees, applications }: { trees: Tree[]; applications: PlotApplication[] }) {
   const { data: photos = [] } = usePhotos();
+  const [view, setView] = useState<"map" | "plan">("map");
+  const points = useMemo(() => plotPoints(trees, photos, applications), [trees, photos, applications]);
   return (
     <BentoCard>
-      <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-        Pelan plot (pandangan atas)
-      </h3>
-      <PlotMap trees={trees} photos={photos} />
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Pelan plot (pandangan atas)
+        </h3>
+        <div className="inline-flex rounded-lg bg-muted p-0.5 border border-border">
+          {(["map", "plan"] as const).map((v) => (
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              aria-pressed={view === v}
+              className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                view === v ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {v === "map" ? "Peta" : "Pelan"}
+            </button>
+          ))}
+        </div>
+      </div>
+      {view === "map" ? (
+        points.length > 0 ? (
+          <MapView points={points} />
+        ) : (
+          <p className="py-6 text-center text-xs text-muted-foreground">
+            Tiada koordinat lagi — tag GPS pada pokok atau bukti foto untuk melihatnya di peta.
+          </p>
+        )
+      ) : (
+        <PlotMap trees={trees} photos={photos} />
+      )}
     </BentoCard>
   );
 }

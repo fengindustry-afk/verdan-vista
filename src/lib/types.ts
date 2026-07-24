@@ -202,6 +202,9 @@ export interface PlotApplication {
   Officer?: string;
   /** SUPERVISOR. */
   Supervisor?: string;
+  /** Where the application happened — placed on the plot map. Crucial for MRV. */
+  Latitude?: string;
+  Longitude?: string;
   Notes?: string;
 }
 
