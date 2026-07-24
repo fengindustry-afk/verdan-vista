@@ -19,7 +19,7 @@ import { EditApplicationDialog } from "@/components/capture/EditApplicationDialo
 import { TestingPlotSummary } from "@/components/TestingPlotSummary";
 import { PairTable } from "@/components/testing-plot/PairTable";
 import { PlotMap } from "@/components/testing-plot/PlotMap";
-import { MapView, type MapPoint } from "@/components/map/MapView";
+import { MapView, type MapPoint, type MapPointKind } from "@/components/map/MapView";
 import { soilPercentChange, summarizeTestingPlot, SUMMARY_PARAMS } from "@/lib/testingPlotSummary";
 import {
   PLOT_SECTIONS, GROWTH_COLUMNS, HEALTH_COLUMNS, YIELD_COLUMNS,
@@ -180,6 +180,13 @@ const KIND_COLORS = {
   observation: "#0ea5e9",
 } as const;
 
+/** Record types in legend/filter order, with their Malay labels. */
+const KIND_ORDER: MapPointKind[] = ["tree", "scan", "photo", "application", "soil", "observation"];
+const KIND_LABELS: Record<MapPointKind, string> = {
+  tree: "Pokok", scan: "Imbasan", photo: "Bukti foto",
+  application: "Aplikasi", soil: "Sampel tanah", observation: "Pemerhatian",
+};
+
 /** Everything on the plot that carries a coordinate, as map points. */
 function plotPoints(
   trees: Tree[], photos: GeotaggedPhoto[], applications: PlotApplication[],
@@ -245,10 +252,26 @@ function PlotOverview({
   const { data: photos = [] } = usePhotos();
   const { data: scans = [] } = useScans();
   const [view, setView] = useState<"map" | "plan">("map");
+  const [hidden, setHidden] = useState<Set<MapPointKind>>(new Set());
   const points = useMemo(
     () => plotPoints(trees, photos, applications, soilSamples, observations, scans),
     [trees, photos, applications, soilSamples, observations, scans]
   );
+  // Filter chips: one per record type present, toggling which dots the plan shows.
+  const counts = useMemo(() => {
+    const m: Partial<Record<MapPointKind, number>> = {};
+    for (const p of points) { const k = p.kind ?? "tree"; m[k] = (m[k] ?? 0) + 1; }
+    return m;
+  }, [points]);
+  const presentKinds = KIND_ORDER.filter((k) => counts[k]);
+  const shown = useMemo(() => points.filter((p) => !hidden.has(p.kind ?? "tree")), [points, hidden]);
+  const toggleKind = (k: MapPointKind) =>
+    setHidden((h) => {
+      const n = new Set(h);
+      if (n.has(k)) n.delete(k); else n.add(k);
+      return n;
+    });
+
   return (
     <BentoCard>
       <div className="mb-3 flex items-center justify-between gap-2">
@@ -270,16 +293,43 @@ function PlotOverview({
           ))}
         </div>
       </div>
+
+      {presentKinds.length > 1 && (
+        <div className="mb-3 flex flex-wrap gap-1.5">
+          {presentKinds.map((k) => {
+            const off = hidden.has(k);
+            return (
+              <button
+                key={k}
+                onClick={() => toggleKind(k)}
+                aria-pressed={!off}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                  off ? "border-border text-muted-foreground opacity-60" : "border-primary/30 bg-primary/5 text-foreground"
+                }`}
+              >
+                <span
+                  className="h-2 w-2 rounded-full"
+                  style={{ background: off ? "hsl(var(--muted-foreground))" : k === "tree" ? "#22c55e" : KIND_COLORS[k] }}
+                />
+                {KIND_LABELS[k]} <span className="tabular-nums text-muted-foreground">{counts[k]}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {view === "map" ? (
-        points.length > 0 ? (
-          <MapView points={points} />
+        shown.length > 0 ? (
+          <MapView points={shown} />
         ) : (
           <p className="py-6 text-center text-xs text-muted-foreground">
-            Tiada koordinat lagi — tag GPS pada pokok atau bukti foto untuk melihatnya di peta.
+            {points.length === 0
+              ? "Tiada koordinat lagi — tag GPS pada pokok atau bukti foto untuk melihatnya di peta."
+              : "Semua jenis disembunyikan — pilih sekurang-kurangnya satu penapis di atas."}
           </p>
         )
       ) : (
-        <PlotMap points={points} />
+        <PlotMap points={shown} />
       )}
     </BentoCard>
   );
