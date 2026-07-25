@@ -2,7 +2,8 @@ import { BentoCard } from "@/components/BentoCard";
 import { useParams, Link } from "react-router-dom";
 import { ArrowLeft, TreePine, Loader2, MapPin, AlertTriangle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { useTrees, useReadings, useScans } from "@/hooks/useCollection";
+import { useTrees, useReadings, useScans, useUpsert } from "@/hooks/useCollection";
+import { toast } from "sonner";
 import { StoredImage } from "@/components/StoredImage";
 import { CaptureScanDialog } from "@/components/capture/CaptureScanDialog";
 import { EditReadingDialog } from "@/components/capture/EditReadingDialog";
@@ -44,13 +45,29 @@ export default function TreeDetail() {
   // Scans whose own GPS sits well away from the tree — a mis-tagged image, or a
   // tree/scan pair that isn't where it claims. Null gaps (either side ungeotagged)
   // aren't flagged: there's nothing to compare.
-  const offLocationCount = useMemo(
+  const offLocationScans = useMemo(
     () => treeScans.filter((s) => {
       const gap = scanTreeGapMeters(s, tree);
       return gap != null && gap > SCAN_GPS_TOLERANCE_M;
-    }).length,
+    }),
     [treeScans, tree]
   );
+  const offLocationCount = offLocationScans.length;
+
+  const upsertScan = useUpsert<TreeScan>(Collections.scans, { surfaceErrors: true });
+  // Snap the flagged scans onto the tree's coordinate. Only offered when the
+  // tree itself is geotagged — otherwise there's no truth to snap them to.
+  const matchScansToTree = async () => {
+    if (!tree?.Latitude || !tree?.Longitude) return;
+    let fixed = 0;
+    for (const s of offLocationScans) {
+      const saved = await upsertScan
+        .mutateAsync({ ...s, Latitude: tree.Latitude, Longitude: tree.Longitude })
+        .catch(() => null);
+      if (saved) fixed++;
+    }
+    if (fixed) toast.success(`Matched ${fixed} scan${fixed === 1 ? "" : "s"} to ${tree.TreeCode}`);
+  };
   const chartData = treeReadings
     .filter((r) => r.HeightCm != null)
     .map((r) => ({ date: r.Date, height: r.HeightCm, canopy: r.CanopyCm }));
@@ -155,10 +172,23 @@ export default function TreeDetail() {
                 </span>
               )}
             </h3>
-            <HistoryButton
-              title="Scans history"
-              filter={{ collection: Collections.scans, documentIds: treeScans.map((s) => s.id) }}
-            />
+            <div className="flex items-center gap-2">
+              {canEdit && offLocationCount > 0 && tree.Latitude && tree.Longitude && (
+                <button
+                  onClick={() => void matchScansToTree()}
+                  disabled={upsertScan.isPending}
+                  title={`Set the ${offLocationCount} flagged scans' GPS to this tree's coordinate`}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 text-primary px-2.5 py-1 text-xs font-medium hover:bg-primary/10 disabled:opacity-60"
+                >
+                  {upsertScan.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <MapPin className="h-3 w-3" />}
+                  Match GPS to tree
+                </button>
+              )}
+              <HistoryButton
+                title="Scans history"
+                filter={{ collection: Collections.scans, documentIds: treeScans.map((s) => s.id) }}
+              />
+            </div>
           </div>
           {treeScans.length === 0 && scansLoading ? (
             // While the scans collection downloads (rows carry inline image
