@@ -4,6 +4,7 @@ import {
   usePlotComparisons, usePhotos, useScans, useUpsert,
 } from "@/hooks/useCollection";
 import { StoredImage } from "@/components/StoredImage";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { CapturePhotoDialog } from "@/components/capture/CapturePhotoDialog";
 import { Buckets } from "@/lib/storage";
 import { TreePine, Loader2, Plus, Pencil, GripVertical, FileDown } from "lucide-react";
@@ -188,15 +189,31 @@ const KIND_LABELS: Record<MapPointKind, string> = {
 };
 
 /** Everything on the plot that carries a coordinate, as map points. */
+const coordRow = (lat?: string, lng?: string): [string, string] =>
+  ["Koordinat", lat && lng ? `${lat}, ${lng}` : "—"];
+const optRow = (label: string, value?: string | number | null): [string, string][] =>
+  value != null && value !== "" ? [[label, String(value)]] : [];
+
+/**
+ * Coordinate-bearing plot records as map points, enriched with a detail card
+ * (and evidence image) for the click-through popup.
+ *
+ * `anchorScansToTree`: the Pelan schematic anchors a scan to its tree (a scan
+ * documents a tree, and the tree is the authoritative plot geometry) and fans
+ * multiple scans into a small ring. The real map (`false`) instead plots each
+ * scan at its OWN GPS — where the photo was actually taken — so the map shows
+ * ground truth, however far that sits from the tree.
+ */
 function plotPoints(
   trees: Tree[], photos: GeotaggedPhoto[], applications: PlotApplication[],
-  soilSamples: SoilSample[], observations: PlotObservation[], scans: TreeScan[]
+  soilSamples: SoilSample[], observations: PlotObservation[], scans: TreeScan[],
+  opts: { anchorScansToTree: boolean }
 ): MapPoint[] {
   const groups = Array.from(new Set(trees.map((t) => t.TreatmentGroup?.trim()).filter(Boolean)));
   const colorFor = (g?: string) =>
     PLOT_GROUP_COLORS[Math.max(0, groups.indexOf((g ?? "").trim())) % PLOT_GROUP_COLORS.length];
-  // Geotagged plot trees, by id — the authoritative positions on the plan.
   const treePos = new Map<string, { lat: number; lng: number; code: string }>();
+  const treeCode = new Map(trees.map((t) => [t.id, t.TreeCode || t.id]));
   trees.forEach((t) => {
     const la = Number(t.Latitude), lo = Number(t.Longitude);
     if (t.Latitude && t.Longitude && Number.isFinite(la) && Number.isFinite(lo)) {
@@ -204,42 +221,71 @@ function plotPoints(
     }
   });
   const out: MapPoint[] = [];
-  const push = (id: string, label: string, lat?: string, lng?: string, opts?: Partial<MapPoint>) => {
+  const push = (id: string, label: string, lat?: string, lng?: string, extra?: Partial<MapPoint>) => {
     const y = Number(lat);
     const x = Number(lng);
     if (!lat || !lng || !Number.isFinite(y) || !Number.isFinite(x)) return;
-    out.push({ id, label, lat: y, lng: x, ...opts });
+    out.push({ id, label, lat: y, lng: x, ...extra });
   };
-  trees.forEach((t) => push(t.id, t.TreeCode || t.id, t.Latitude, t.Longitude, { kind: "tree", color: colorFor(t.TreatmentGroup), group: t.TreatmentGroup?.trim() || "Ungrouped" }));
-  // A scan documents a tree, so anchor it to that tree's position rather than
-  // the scan image's own GPS (which is where the phone was, often kilometres
-  // off — it would blow out the plot scale). Multiple scans on one tree fan out
-  // in a small phyllotaxis ring (~3 m) so they don't stack invisibly. A scan of
-  // an ungeotagged tree can't be placed, so it's omitted.
-  const scanN = new Map<string, number>();
-  scans
-    .filter((s) => treePos.has(s.TreeId))
-    .forEach((s) => {
+
+  trees.forEach((t) => push(t.id, t.TreeCode || t.id, t.Latitude, t.Longitude, {
+    kind: "tree", color: colorFor(t.TreatmentGroup), group: t.TreatmentGroup?.trim() || "Ungrouped",
+    href: `/testing-plot/${t.id}`,
+    detail: [...optRow("Kumpulan", t.TreatmentGroup), ...optRow("Spesies", t.Species), coordRow(t.Latitude, t.Longitude)],
+  }));
+
+  const scanExtra = (s: TreeScan): Partial<MapPoint> => ({
+    kind: "scan", color: KIND_COLORS.scan,
+    href: `/testing-plot/${s.TreeId}`,
+    image: { bucket: Buckets.scans, stored: s.ImageUrl || undefined, fallback: s.ImageBase64 ? `data:image/jpeg;base64,${s.ImageBase64}` : undefined },
+    detail: [
+      ...optRow("Pokok", treeCode.get(s.TreeId) ?? s.TreeId),
+      ...optRow("Kesihatan", s.HealthStatus && `${s.HealthStatus}${s.HealthScore != null ? ` · ${s.HealthScore}/100` : ""}`),
+      coordRow(s.Latitude, s.Longitude), ...optRow("Masa", s.Timestamp),
+    ],
+  });
+  if (opts.anchorScansToTree) {
+    // Fan each tree's scans into a small phyllotaxis ring around it (~3 m).
+    const scanN = new Map<string, number>();
+    scans.filter((s) => treePos.has(s.TreeId)).forEach((s) => {
       const tp = treePos.get(s.TreeId)!;
       const n = scanN.get(s.TreeId) ?? 0;
       scanN.set(s.TreeId, n + 1);
-      const ang = n * 2.399963; // golden angle, so successive scans spread evenly
-      const rad = n === 0 ? 0 : 0.00003 * (1 + n * 0.12); // ~3 m + a little per scan
-      const lat = tp.lat + rad * Math.cos(ang);
-      const lng = tp.lng + rad * Math.sin(ang);
+      const ang = n * 2.399963;
+      const rad = n === 0 ? 0 : 0.00003 * (1 + n * 0.12);
       push(`scan-${s.id}`, `Imbasan · ${tp.code}${s.HealthStatus ? ` · ${s.HealthStatus}` : ""}`,
-        String(lat), String(lng), { kind: "scan", color: KIND_COLORS.scan });
+        String(tp.lat + rad * Math.cos(ang)), String(tp.lng + rad * Math.sin(ang)), scanExtra(s));
     });
-  photos.forEach((p) => push(`ph-${p.id}`, p.Description || "Bukti foto", p.Latitude, p.Longitude, { kind: "photo", hollow: true, color: KIND_COLORS.photo }));
+  } else {
+    // Real map: each scan at its own GPS (scoped to this plot's trees).
+    scans.filter((s) => treeCode.has(s.TreeId)).forEach((s) =>
+      push(`scan-${s.id}`, `Imbasan · ${treeCode.get(s.TreeId)}${s.HealthStatus ? ` · ${s.HealthStatus}` : ""}`,
+        s.Latitude, s.Longitude, scanExtra(s)));
+  }
+
+  photos.forEach((p) => push(`ph-${p.id}`, p.Description || "Bukti foto", p.Latitude, p.Longitude, {
+    kind: "photo", hollow: true, color: KIND_COLORS.photo,
+    image: { bucket: Buckets.photos, stored: p.PhotoUrl || undefined },
+    detail: [...optRow("Keterangan", p.Description), coordRow(p.Latitude, p.Longitude), ...optRow("Masa", p.Timestamp)],
+  }));
   applications.forEach((a) =>
     push(`app-${a.id}`, `Aplikasi${a.Product ? ` · ${a.Product}` : ""}${a.Date ? ` · ${a.Date}` : ""}`,
-      a.Latitude, a.Longitude, { kind: "application", color: KIND_COLORS.application }));
+      a.Latitude, a.Longitude, {
+        kind: "application", color: KIND_COLORS.application,
+        detail: [...optRow("Produk", a.Product), ...optRow("Tarikh", a.Date), coordRow(a.Latitude, a.Longitude)],
+      }));
   soilSamples.forEach((s) =>
     push(`soil-${s.id}`, `Sampel tanah${s.TreeId ? ` · ${s.TreeId}` : ""}${s.Parameter ? ` · ${s.Parameter}` : ""}`,
-      s.Latitude, s.Longitude, { kind: "soil", color: KIND_COLORS.soil }));
+      s.Latitude, s.Longitude, {
+        kind: "soil", color: KIND_COLORS.soil,
+        detail: [...optRow("Parameter", s.Parameter), ...optRow("Pokok", s.TreeId), coordRow(s.Latitude, s.Longitude)],
+      }));
   observations.forEach((o) =>
     push(`obs-${o.id}`, `Pemerhatian${o.Date ? ` · ${o.Date}` : ""}`,
-      o.Latitude, o.Longitude, { kind: "observation", hollow: true, color: KIND_COLORS.observation }));
+      o.Latitude, o.Longitude, {
+        kind: "observation", hollow: true, color: KIND_COLORS.observation,
+        detail: [...optRow("Tarikh", o.Date), ...optRow("Keadaan daun", o.LeafCondition), coordRow(o.Latitude, o.Longitude)],
+      }));
   return out;
 }
 
@@ -253,18 +299,26 @@ function PlotOverview({
   const { data: scans = [] } = useScans();
   const [view, setView] = useState<"map" | "plan">("map");
   const [hidden, setHidden] = useState<Set<MapPointKind>>(new Set());
-  const points = useMemo(
-    () => plotPoints(trees, photos, applications, soilSamples, observations, scans),
+  const [selected, setSelected] = useState<MapPoint | null>(null);
+  // The real map plots each record at its own GPS; the Pelan plan anchors
+  // scans to their tree for a clean plot-scale schematic.
+  const mapPts = useMemo(
+    () => plotPoints(trees, photos, applications, soilSamples, observations, scans, { anchorScansToTree: false }),
     [trees, photos, applications, soilSamples, observations, scans]
   );
-  // Filter chips: one per record type present, toggling which dots the plan shows.
+  const planPts = useMemo(
+    () => plotPoints(trees, photos, applications, soilSamples, observations, scans, { anchorScansToTree: true }),
+    [trees, photos, applications, soilSamples, observations, scans]
+  );
+  const active = view === "map" ? mapPts : planPts;
+  // Filter chips: one per record type present in the active view, toggling dots.
   const counts = useMemo(() => {
     const m: Partial<Record<MapPointKind, number>> = {};
-    for (const p of points) { const k = p.kind ?? "tree"; m[k] = (m[k] ?? 0) + 1; }
+    for (const p of active) { const k = p.kind ?? "tree"; m[k] = (m[k] ?? 0) + 1; }
     return m;
-  }, [points]);
+  }, [active]);
   const presentKinds = KIND_ORDER.filter((k) => counts[k]);
-  const shown = useMemo(() => points.filter((p) => !hidden.has(p.kind ?? "tree")), [points, hidden]);
+  const shown = useMemo(() => active.filter((p) => !hidden.has(p.kind ?? "tree")), [active, hidden]);
   const toggleKind = (k: MapPointKind) =>
     setHidden((h) => {
       const n = new Set(h);
@@ -320,18 +374,68 @@ function PlotOverview({
 
       {view === "map" ? (
         shown.length > 0 ? (
-          <MapView points={shown} />
+          <MapView points={shown} onSelect={setSelected} />
         ) : (
           <p className="py-6 text-center text-xs text-muted-foreground">
-            {points.length === 0
+            {active.length === 0
               ? "Tiada koordinat lagi — tag GPS pada pokok atau bukti foto untuk melihatnya di peta."
               : "Semua jenis disembunyikan — pilih sekurang-kurangnya satu penapis di atas."}
           </p>
         )
       ) : (
-        <PlotMap points={shown} />
+        <PlotMap points={shown} onSelect={setSelected} />
       )}
+
+      <PointDetailDialog point={selected} onClose={() => setSelected(null)} />
     </BentoCard>
+  );
+}
+
+/** Click-through detail for a plot dot: label, evidence image, fields, link. */
+function PointDetailDialog({ point, onClose }: { point: MapPoint | null; onClose: () => void }) {
+  const img = point?.image;
+  const hasImg = img && (img.stored || img.fallback);
+  return (
+    <Dialog open={!!point} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="text-base">{point?.label}</DialogTitle>
+        </DialogHeader>
+        {point && (
+          <div className="space-y-3">
+            {hasImg && (
+              <StoredImage
+                bucket={img!.bucket}
+                stored={img!.stored}
+                fallback={img!.fallback}
+                alt={point.label}
+                className="w-full max-h-56 rounded-lg object-cover"
+                zoomable
+              />
+            )}
+            {point.detail && point.detail.length > 0 && (
+              <dl className="space-y-1.5">
+                {point.detail.map(([label, value]) => (
+                  <div key={label} className="flex items-start justify-between gap-4 text-sm">
+                    <dt className="text-muted-foreground">{label}</dt>
+                    <dd className="text-right font-medium text-foreground">{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+            {point.href && (
+              <Link
+                to={point.href}
+                onClick={onClose}
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+              >
+                Buka rekod →
+              </Link>
+            )}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 

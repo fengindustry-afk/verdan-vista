@@ -28,6 +28,12 @@ export interface MapPoint {
   kind?: MapPointKind;
   /** Treatment group name (trees only), for the Pelan legend. */
   group?: string;
+  /** Label/value rows shown in the click-through detail popup. */
+  detail?: [string, string][];
+  /** Evidence image (scan / photo) shown in the detail popup. */
+  image?: { bucket: string; stored?: string; fallback?: string };
+  /** Optional link to the record's own page, opened from the popup. */
+  href?: string;
 }
 
 /** Pan/zoom to fit all points whenever they change. */
@@ -53,10 +59,13 @@ export function MapView({
   points,
   height = 340,
   className = "",
+  onSelect,
 }: {
   points: MapPoint[];
   height?: number;
   className?: string;
+  /** Called when a marker is clicked, for a detail popup owned by the parent. */
+  onSelect?: (p: MapPoint) => void;
 }) {
   const center = points[0]
     ? ([points[0].lat, points[0].lng] as [number, number])
@@ -76,11 +85,13 @@ export function MapView({
             key={p.id}
             center={[p.lat, p.lng]}
             radius={7}
+            eventHandlers={onSelect ? { click: () => onSelect(p) } : undefined}
             pathOptions={{
               color: p.color ?? "#22c55e",
               weight: 2,
               fillColor: p.color ?? "#22c55e",
               fillOpacity: p.hollow ? 0 : 0.75,
+              className: onSelect ? "cursor-pointer" : undefined,
             }}
           >
             <Tooltip>

@@ -75,7 +75,7 @@ function LegendGlyph({ kind, color }: { kind: MapPointKind; color: string }) {
   );
 }
 
-export function PlotMap({ points }: { points: MapPoint[] }) {
+export function PlotMap({ points, onSelect }: { points: MapPoint[]; onSelect?: (p: MapPoint) => void }) {
   const view = useMemo(() => {
     if (points.length === 0) return null;
     const lat0 = points.reduce((s, m) => s + m.lat, 0) / points.length;
@@ -196,7 +196,11 @@ export function PlotMap({ points }: { points: MapPoint[] }) {
         {[...view.pts]
           .sort((a, b) => ((a.kind ?? "tree") === "tree" ? 1 : 0) - ((b.kind ?? "tree") === "tree" ? 1 : 0))
           .map((p) => (
-            <g key={`${p.kind ?? "tree"}-${p.id}`}>
+            <g
+              key={`${p.kind ?? "tree"}-${p.id}`}
+              onClick={onSelect ? () => onSelect(p) : undefined}
+              style={onSelect ? { cursor: "pointer" } : undefined}
+            >
               <Glyph p={p} r={r} />
               <title>{`${p.label} · ${p.lat.toFixed(6)}, ${p.lng.toFixed(6)}`}</title>
             </g>
