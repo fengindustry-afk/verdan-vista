@@ -18,6 +18,7 @@ import { retentionYearsLeft, isRetentionExpired } from "@/lib/receipts";
 import { resolveImageUrl, Buckets } from "@/lib/storage";
 import { fmt, money } from "@/lib/format";
 import { CaptureReceiptDialog } from "@/components/CaptureReceiptDialog";
+import { confirmDelete } from "@/components/ConfirmDialog";
 import { ImageLightbox } from "@/components/ImageLightbox";
 import { useAuth } from "@/lib/auth";
 import { hasPermission, Permission } from "@/lib/rbac";
@@ -229,7 +230,7 @@ function ReceiptDetailDialog({
   ];
 
   const remove = async () => {
-    if (!confirm("Delete this receipt? It can be restored from the Audit Trail.")) return;
+    if (!(await confirmDelete({ title: "Delete this receipt?", description: "It can be restored from the Audit Trail." }))) return;
     await del.mutateAsync(receipt.id);
     onClose();
   };
