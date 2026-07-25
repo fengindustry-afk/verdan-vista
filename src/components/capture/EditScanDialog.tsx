@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Loader2, Trash2, Activity, MapPin, ImageOff, Upload, AlertTriangle } from "lucide-react";
 import { useUpsert, useDelete, useTrees } from "@/hooks/useCollection";
 import { Collections } from "@/lib/collections";
+import { confirmDelete } from "@/components/ConfirmDialog";
 import type { TreeScan } from "@/lib/types";
 import { resolveImageUrl, Buckets } from "@/lib/storage";
 import { reuploadStoredImage, scanTreeGapMeters, SCAN_GPS_TOLERANCE_M, formatMeters } from "@/lib/capture";
@@ -177,6 +178,7 @@ export function EditScanDialog({ scan, open, onOpenChange }: Props) {
   };
 
   const remove = async () => {
+    if (!(await confirmDelete({ title: "Delete this scan?", description: "It can be restored from the Audit Trail." }))) return;
     await del.mutateAsync(scan.id);
     toast.success("Scan deleted");
     onOpenChange(false);

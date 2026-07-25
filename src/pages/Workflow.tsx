@@ -12,7 +12,7 @@ import {
   phases, stageByKey, entryTitle, entrySubtitle, formatEntryTimestamp, WORKFLOW_CATALOG,
   type WorkflowStageDef, type WorkProcessEntry,
 } from "@/lib/workProcess";
-import { massBalance, balanceSummary } from "@/lib/massBalance";
+import { massBalance, balanceSummary, isError, NO_BATCH, type BatchBalance } from "@/lib/massBalance";
 import { NewBatchDialog } from "@/components/NewBatchDialog";
 import { useAuth } from "@/lib/auth";
 import { hasPermission, Permission, UserRole } from "@/lib/rbac";
@@ -45,8 +45,8 @@ export default function Workflow() {
       <Tabs defaultValue={initialTab}>
         <TabsList>
           <TabsTrigger value="work-process">Work Process</TabsTrigger>
-          <TabsTrigger value="readiness">Readiness</TabsTrigger>
           <TabsTrigger value="custody">Custody</TabsTrigger>
+          <TabsTrigger value="readiness">Readiness</TabsTrigger>
         </TabsList>
         <TabsContent value="work-process" className="space-y-6 pt-2">
           <WorkProcessHub />
@@ -67,10 +67,45 @@ export default function Workflow() {
  * Biochar mass balance per batch. Clicking a flagged batch drops its ID into the
  * search box so the offending entries are one click away.
  */
+/** Why a batch is flagged, phrased for whoever has to go fix the record. */
+function balanceMessage(r: BatchBalance): string {
+  const n = (c: number, one: string) => `${c} ${c === 1 ? one : one + "s"}`;
+  switch (r.Status) {
+    case "unsourced": return `${fmt(r.Consumed)} kg with no production record`;
+    case "over": return `${fmt(-r.Remaining)} kg over (made ${fmt(r.Produced)}, shipped ${fmt(r.Consumed)})`;
+    case "incomplete":
+      if (r.BatchId === NO_BATCH) return `${n(r.MissingBatchId, "record")} with no batch id`;
+      if (r.MissingAmount > 0) return `${n(r.MissingAmount, "record")} missing a weight`;
+      return `${n(r.ZeroUnverified, "record")} recorded 0 kg — confirm it's correct`;
+    default: return "";
+  }
+}
+
+function BalanceRow({ r, onOpenBatch }: { r: BatchBalance; onOpenBatch: (q: string) => void }) {
+  const err = isError(r.Status);
+  // Untraceable rows have no batch id to search on, so they aren't a link.
+  const orphan = r.BatchId === NO_BATCH;
+  const tone = err
+    ? "border-destructive/20 bg-destructive/5 hover:bg-destructive/10"
+    : "border-amber-500/20 bg-amber-500/5 hover:bg-amber-500/10";
+  const body = (
+    <>
+      <AlertTriangle className={`h-3.5 w-3.5 shrink-0 ${err ? "text-destructive" : "text-amber-500"}`} />
+      <span className="text-xs font-medium text-foreground truncate">{r.BatchId}</span>
+      <span className="text-[11px] text-muted-foreground ml-auto shrink-0">{balanceMessage(r)}</span>
+    </>
+  );
+  const cls = `flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors ${tone}`;
+  return orphan
+    ? <div className={cls.replace("hover:bg-amber-500/10", "").replace("hover:bg-destructive/10", "")}>{body}</div>
+    : <button onClick={() => onOpenBatch(r.BatchId)} className={cls}>{body}</button>;
+}
+
 function MassBalanceCard({ rows, onOpenBatch }: { rows: ReturnType<typeof massBalance>; onOpenBatch: (q: string) => void }) {
   const summary = balanceSummary(rows);
   if (rows.length === 0) return null;
-  const problems = rows.filter((r) => r.Status !== "ok");
+  const errors = rows.filter((r) => isError(r.Status));
+  const warnings = rows.filter((r) => r.Status === "incomplete");
 
   return (
     <BentoCard className="space-y-3">
@@ -78,40 +113,47 @@ function MassBalanceCard({ rows, onOpenBatch }: { rows: ReturnType<typeof massBa
         <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
           <Scale className="h-4 w-4 text-primary" />
         </div>
-        <div>
+        <div className="min-w-0">
           <p className="text-sm font-semibold text-foreground">Biochar Mass Balance</p>
           <p className="text-[11px] text-muted-foreground">
             {fmt(summary.Produced)} kg produced · {fmt(summary.Consumed)} kg applied or sunk · {rows.length} batches
           </p>
         </div>
-        <span
-          className={`ml-auto rounded-full px-2.5 py-1 text-[11px] font-medium ${
-            problems.length ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary"
-          }`}
-        >
-          {problems.length ? `${problems.length} flagged` : "Balanced"}
+        <span className="ml-auto flex shrink-0 items-center gap-1.5">
+          {summary.Errors > 0 && (
+            <span className="rounded-full bg-destructive/10 px-2.5 py-1 text-[11px] font-medium text-destructive">
+              {summary.Errors} error{summary.Errors === 1 ? "" : "s"}
+            </span>
+          )}
+          {summary.Warnings > 0 && (
+            <span className="rounded-full bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-600 dark:text-amber-500">
+              {summary.Warnings} incomplete
+            </span>
+          )}
+          {summary.Errors === 0 && summary.Warnings === 0 && (
+            <span className="rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary">Balanced</span>
+          )}
         </span>
       </div>
 
-      {problems.length > 0 && (
+      {errors.length > 0 && (
         <div className="space-y-1.5">
-          {problems.slice(0, 8).map((r) => (
-            <button
-              key={r.BatchId}
-              onClick={() => onOpenBatch(r.BatchId)}
-              className="flex w-full items-center gap-2 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-left hover:bg-destructive/10 transition-colors"
-            >
-              <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0" />
-              <span className="text-xs font-medium text-foreground truncate">{r.BatchId}</span>
-              <span className="text-[11px] text-muted-foreground ml-auto shrink-0">
-                {r.Status === "unsourced"
-                  ? `${fmt(r.Consumed)} kg with no production record`
-                  : `${fmt(-r.Remaining)} kg over (made ${fmt(r.Produced)}, shipped ${fmt(r.Consumed)})`}
-              </span>
-            </button>
-          ))}
-          {problems.length > 8 && (
-            <p className="text-[11px] text-muted-foreground">+{problems.length - 8} more flagged batches</p>
+          <p className="text-[11px] font-medium uppercase tracking-wide text-destructive">Errors — disqualifying</p>
+          {errors.slice(0, 8).map((r) => <BalanceRow key={r.BatchId} r={r} onOpenBatch={onOpenBatch} />)}
+          {errors.length > 8 && (
+            <p className="text-[11px] text-muted-foreground">+{errors.length - 8} more with errors</p>
+          )}
+        </div>
+      )}
+
+      {warnings.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-amber-600 dark:text-amber-500">
+            Incomplete — fix before audit
+          </p>
+          {warnings.slice(0, 8).map((r) => <BalanceRow key={r.BatchId} r={r} onOpenBatch={onOpenBatch} />)}
+          {warnings.length > 8 && (
+            <p className="text-[11px] text-muted-foreground">+{warnings.length - 8} more incomplete</p>
           )}
         </div>
       )}

@@ -7,18 +7,23 @@ import { Label } from "@/components/ui/label";
 import {
   Plus, Loader2, ArrowLeft, ArrowUp, ChevronRight, ChevronDown, Search,
   Folder, FileText, Pencil, LayoutGrid, Rows3, X, History, Eye, Trash2, ExternalLink,
+  LocateFixed, ShieldCheck, ShieldAlert,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useDelete, useFeedstock, useLocations, useUpsert, useWorkProcessEntries, useZones } from "@/hooks/useCollection";
 import { feedstockForEntry } from "@/lib/feedstock";
+import { amountFieldForStage, ZERO_OK_SUFFIX } from "@/lib/massBalance";
+import {
+  getCurrentPosition, geofenceCheck, formatMeters, accuracyMeters, GEOFENCE_RADIUS_M,
+} from "@/lib/capture";
+import type { LocationData } from "@/lib/types";
 import { Collections } from "@/lib/collections";
 import { useAuth } from "@/lib/auth";
-import { hasPermission, Permission } from "@/lib/rbac";
+import { hasPermission, Permission, UserRole } from "@/lib/rbac";
 import {
   type WorkflowStageDef, type WorkProcessEntry, type FormField,
   stageFields, entryTitle, entrySubtitle, formatEntryTimestamp, phases, COORDS_SUFFIX, DEFAULT_ZONES,
 } from "@/lib/workProcess";
-import { MapPicker } from "@/components/map/MapPicker";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogHeader, AlertDialogTitle,
@@ -34,6 +39,9 @@ type SortKey = "name" | "date" | "by";
 
 /** Remembers the Name column width across sessions. */
 const NAME_WIDTH_KEY = "workProcess.nameWidth";
+/** Remembers the preview-pane width across sessions; font scales with it. */
+const PREVIEW_WIDTH_KEY = "workProcess.previewWidth";
+const PREVIEW_BASE = 288; // px — the old w-72, and the 1× font baseline.
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -82,6 +90,10 @@ export function WorkProcessStageDialog({
   // Draggable width of the Name column, so long batch IDs can be read in full.
   const [nameWidth, setNameWidth] = useState(
     () => Number(localStorage.getItem(NAME_WIDTH_KEY)) || 320
+  );
+  // Draggable width of the preview pane; the font size scales off it.
+  const [previewWidth, setPreviewWidth] = useState(
+    () => Number(localStorage.getItem(PREVIEW_WIDTH_KEY)) || PREVIEW_BASE
   );
 
   useEffect(() => {
@@ -162,6 +174,31 @@ export function WorkProcessStageDialog({
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
+  };
+
+  // Drag the pane's left edge: leftward widens it (and enlarges the font).
+  // Pointer capture keeps the drag glued to the handle even as the cursor
+  // races over the content list, so it never "sticks" mid-glide.
+  const startPreviewResize = (ev: React.PointerEvent) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    const el = ev.currentTarget as HTMLElement;
+    el.setPointerCapture(ev.pointerId);
+    const startX = ev.clientX;
+    const startW = previewWidth;
+    const move = (m: PointerEvent) =>
+      setPreviewWidth(Math.min(640, Math.max(240, startW + startX - m.clientX)));
+    const up = () => {
+      el.releasePointerCapture(ev.pointerId);
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", up);
+      setPreviewWidth((w) => {
+        localStorage.setItem(PREVIEW_WIDTH_KEY, String(w));
+        return w;
+      });
+    };
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
   };
 
   const toggleSort = (key: SortKey) =>
@@ -492,9 +529,25 @@ export function WorkProcessStageDialog({
                 )}
               </div>
 
-              {/* Preview pane */}
+              {/* Preview pane — draggable left edge; font scales with width */}
               {selected && stage && (
-                <aside className="absolute inset-y-0 right-0 z-10 w-72 shrink-0 overflow-auto border-l border-border bg-background p-3 lg:static lg:bg-muted/20">
+                <aside
+                  style={{ width: previewWidth, fontSize: `${(previewWidth / PREVIEW_BASE) * 0.8125}rem` }}
+                  className="absolute inset-y-0 right-0 z-10 shrink-0 overflow-auto border-l border-border bg-background p-3 lg:relative lg:inset-auto lg:bg-muted/20"
+                >
+                  {/* Resize handle */}
+                  <span
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label="Resize preview pane"
+                    onPointerDown={startPreviewResize}
+                    onDoubleClick={() => {
+                      localStorage.removeItem(PREVIEW_WIDTH_KEY);
+                      setPreviewWidth(PREVIEW_BASE);
+                    }}
+                    title="Drag to resize · double-click to reset"
+                    className="absolute -left-1 top-0 z-20 h-full w-3 cursor-col-resize touch-none bg-transparent hover:bg-primary/40"
+                  />
                   <button
                     onClick={() => setSelectedId(null)}
                     aria-label="Close preview"
@@ -505,8 +558,8 @@ export function WorkProcessStageDialog({
                   <div className="mb-3 flex items-start gap-2">
                     <FileText className="mt-0.5 h-8 w-8 shrink-0 text-primary" strokeWidth={1.5} />
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-foreground">{entryTitle(selected)}</p>
-                      <p className="text-[11px] text-muted-foreground">{stage.Title}</p>
+                      <p className="truncate text-[1.08em] font-semibold text-foreground">{entryTitle(selected)}</p>
+                      <p className="text-[0.85em] text-muted-foreground">{stage.Title}</p>
                     </div>
                   </div>
                   <dl className="space-y-1.5">
@@ -514,19 +567,19 @@ export function WorkProcessStageDialog({
                       .filter((f) => selected.Values[f.Key]?.trim())
                       .map((f) => (
                         <div key={f.Key} className="border-b border-border/30 pb-1.5">
-                          <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                          <dt className="text-[0.77em] uppercase tracking-wide text-muted-foreground">
                             {f.Label}{f.Unit ? ` (${f.Unit})` : ""}
                           </dt>
-                          <dd className="break-words text-xs text-foreground">{selected.Values[f.Key]}</dd>
+                          <dd className="break-words text-[0.92em] text-foreground">{selected.Values[f.Key]}</dd>
                           {f.Type === "location" && selected.Values[f.Key + COORDS_SUFFIX] && (
-                            <dd className="font-mono text-[10px] text-muted-foreground">
+                            <dd className="font-mono text-[0.77em] text-muted-foreground">
                               {selected.Values[f.Key + COORDS_SUFFIX]}
                             </dd>
                           )}
                         </div>
                       ))}
                   </dl>
-                  <p className="mt-3 text-[11px] text-muted-foreground">
+                  <p className="mt-3 text-[0.85em] text-muted-foreground">
                     Recorded by {selected.CapturedBy}
                     {selected.CapturedByEmail && selected.CapturedByEmail !== selected.CapturedBy
                       ? ` (${selected.CapturedByEmail})` : ""}
@@ -535,7 +588,7 @@ export function WorkProcessStageDialog({
                   {feedstockForEntry(selected.Values, feedstock) && (
                     <button
                       onClick={() => openFeedstock(selected)}
-                      className="mt-3 flex w-full items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
+                      className="mt-3 flex w-full items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-[0.92em] font-medium text-primary hover:bg-primary/10 transition-colors"
                     >
                       <ExternalLink className="h-3.5 w-3.5" /> View linked feedstock detail
                     </button>
@@ -584,21 +637,43 @@ export function WorkProcessStageDialog({
                         {section.Title}
                       </p>
                     )}
-                    {section.Fields.map((field) => (
-                      <FieldInput
-                        key={field.Key}
-                        field={field}
-                        value={values[field.Key] ?? ""}
-                        coords={values[field.Key + COORDS_SUFFIX] ?? ""}
-                        onChange={(v, coords) =>
-                          setValues((prev) => ({
-                            ...prev,
-                            [field.Key]: v,
-                            ...(coords === undefined ? {} : { [field.Key + COORDS_SUFFIX]: coords }),
-                          }))
-                        }
-                      />
-                    ))}
+                    {section.Fields.map((field) => {
+                      const isZeroAmount =
+                        field.Key === amountFieldForStage(stage.Key) && values[field.Key]?.trim() === "0";
+                      return (
+                        <div key={field.Key}>
+                          <FieldInput
+                            field={field}
+                            value={values[field.Key] ?? ""}
+                            coords={values[field.Key + COORDS_SUFFIX] ?? ""}
+                            onChange={(v, coords) =>
+                              setValues((prev) => ({
+                                ...prev,
+                                [field.Key]: v,
+                                ...(coords === undefined ? {} : { [field.Key + COORDS_SUFFIX]: coords }),
+                              }))
+                            }
+                          />
+                          {/* A recorded 0 is held as an audit warning until confirmed real. */}
+                          {isZeroAmount && (
+                            <label className="mt-1.5 flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-foreground cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={values[field.Key + ZERO_OK_SUFFIX] === "true"}
+                                onChange={(e) =>
+                                  setValues((prev) => ({
+                                    ...prev,
+                                    [field.Key + ZERO_OK_SUFFIX]: e.target.checked ? "true" : "",
+                                  }))
+                                }
+                                className="accent-amber-500"
+                              />
+                              This is really 0 kg — verified (clears the mass-balance warning)
+                            </label>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 ))}
               </div>
@@ -738,6 +813,130 @@ const WORK_PROCESS_FOLDERS = phases().reduce(
   0
 );
 
+/**
+ * A site field. The coordinate comes from a pre-configured Asset location the
+ * user picks — that's the trusted origin/receiving coordinate. Capturing your
+ * *own* GPS is gated: it's only accepted when your live position falls inside
+ * the chosen site's geofence, so a recorded coordinate genuinely means you were
+ * there. Editing the pre-configured list (Save as asset) is admin-only.
+ */
+function LocationField({
+  field,
+  label,
+  value,
+  coords,
+  onChange,
+}: {
+  field: FormField;
+  label: React.ReactNode;
+  value: string;
+  coords?: string;
+  onChange: (v: string, coords?: string) => void;
+}) {
+  const { data: locations = [] } = useLocations();
+  const { role } = useAuth();
+  const isAdmin = role === UserRole.Admin;
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<null | { ok: boolean; msg: string }>(null);
+
+  const selected = locations.find((l) => (l.Name || l.id) === value) ?? null;
+  // Keep a legacy free-text value (e.g. an imported "Cyberjaya") selectable so
+  // switching this field to coordinates never drops what was already recorded.
+  const legacy: LocationData | null =
+    value && !selected ? ({ id: value, Name: value, Latitude: "", Longitude: "" } as LocationData) : null;
+  const options = legacy ? [legacy, ...locations] : locations;
+
+  const pickSite = (name: string) => {
+    const loc = locations.find((l) => (l.Name || l.id) === name);
+    onChange(name, loc && loc.Latitude && loc.Longitude ? `${loc.Latitude}, ${loc.Longitude}` : "");
+    setStatus(null);
+  };
+
+  /** Capture the operator's live GPS, but only accept it inside the site fence. */
+  const verifyOnSite = async () => {
+    if (!selected || !selected.Latitude || !selected.Longitude) {
+      setStatus({ ok: false, msg: "Pick a pre-configured site first — its fence is what we check you against." });
+      return;
+    }
+    setBusy(true);
+    setStatus(null);
+    try {
+      const fix = await getCurrentPosition();
+      const radius = Number(selected.GeofenceRadius) || GEOFENCE_RADIUS_M;
+      const r = geofenceCheck(fix, [selected], radius);
+      if (r.outside) {
+        setStatus({
+          ok: false,
+          msg: `You're ${formatMeters(r.distance ?? 0)} from ${selected.Name} — outside its ${radius} m fence. Keeping the pre-set coordinate.`,
+        });
+        return;
+      }
+      onChange(value, `${fix.Latitude}, ${fix.Longitude}`);
+      setStatus({
+        ok: true,
+        msg: `On-site confirmed (${formatMeters(r.distance ?? 0)} away, ±${accuracyMeters(fix)} m). Using your live GPS as the coordinate.`,
+      });
+    } catch (e) {
+      setStatus({ ok: false, msg: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div>
+      {label}
+      <select
+        value={value}
+        onChange={(e) => pickSite(e.target.value)}
+        className="mt-1 w-full rounded-lg bg-muted border border-border px-3 py-2 text-sm text-foreground"
+      >
+        <option value="">— pre-configured site —</option>
+        {options.map((l) => <option key={l.id}>{l.Name || l.id}</option>)}
+      </select>
+
+      <div className="mt-1 flex items-center justify-between gap-2">
+        <p className="text-[10px] text-muted-foreground font-mono truncate">
+          {coords || (value ? "No coordinate on this site" : "Pick a site to load its coordinate")}
+        </p>
+        {isAdmin && (
+          <AddLocationDialog
+            onSaved={(l) => onChange(l.Name ?? "", `${l.Latitude}, ${l.Longitude}`)}
+            trigger={
+              <button type="button" className="shrink-0 text-[10px] text-primary hover:underline">
+                + Save as asset
+              </button>
+            }
+          />
+        )}
+      </div>
+
+      {isAdmin && (
+        <button
+          type="button"
+          onClick={verifyOnSite}
+          disabled={busy || !selected}
+          className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-muted disabled:opacity-50 transition-colors"
+        >
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LocateFixed className="h-3.5 w-3.5 text-primary" />}
+          Use my location (on-site only)
+        </button>
+      )}
+
+      {status && (
+        <p
+          className={`mt-1.5 flex items-start gap-1.5 text-[11px] ${
+            status.ok ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"
+          }`}
+        >
+          {status.ok ? <ShieldCheck className="mt-px h-3.5 w-3.5 shrink-0" /> : <ShieldAlert className="mt-px h-3.5 w-3.5 shrink-0" />}
+          {status.msg}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function FieldInput({
   field,
   value,
@@ -750,7 +949,6 @@ function FieldInput({
   coords?: string;
   onChange: (v: string, coords?: string) => void;
 }) {
-  const { data: locations = [] } = useLocations();
   const { data: zones = [] } = useZones();
   const label = (
     <Label className="text-xs">
@@ -760,46 +958,7 @@ function FieldInput({
   );
 
   if (field.Type === "location") {
-    // coords is "lat, lng" — split for the map picker, rejoin on change.
-    const [clat = "", clng = ""] = coords ? coords.split(",").map((s) => s.trim()) : [];
-    return (
-      <div>
-        {label}
-        <select
-          value={value}
-          onChange={(e) => {
-            const name = e.target.value;
-            const loc = locations.find((l) => (l.Name || l.id) === name);
-            onChange(name, loc ? `${loc.Latitude}, ${loc.Longitude}` : coords ?? "");
-          }}
-          className="mt-1 w-full rounded-lg bg-muted border border-border px-3 py-2 text-sm text-foreground"
-        >
-          <option value="">— saved site (optional) —</option>
-          {locations.map((l) => <option key={l.id}>{l.Name || l.id}</option>)}
-        </select>
-        <div className="mt-1 flex items-center justify-between gap-2">
-          <p className="text-[10px] text-muted-foreground font-mono truncate">
-            {coords || "No coordinate yet — tap the map below"}
-          </p>
-          <AddLocationDialog
-            onSaved={(l) => onChange(l.Name ?? "", `${l.Latitude}, ${l.Longitude}`)}
-            trigger={
-              <button type="button" className="shrink-0 text-[10px] text-primary hover:underline">
-                + Save as asset
-              </button>
-            }
-          />
-        </div>
-        <div className="mt-2">
-          <MapPicker
-            lat={clat}
-            lng={clng}
-            height={200}
-            onChange={(la, lo) => onChange(value, `${la}, ${lo}`)}
-          />
-        </div>
-      </div>
-    );
+    return <LocationField field={field} label={label} value={value} coords={coords} onChange={onChange} />;
   }
 
   if (field.Type === "zone") {

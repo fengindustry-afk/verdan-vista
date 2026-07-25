@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { confirmDelete } from "@/components/ConfirmDialog";
 import { BentoCard } from "@/components/BentoCard";
 import { ArrowLeft, Trash2 } from "lucide-react";
 import {
@@ -139,7 +140,7 @@ export function GroupDetail({ dimension, groupKey, onBack }: Props) {
                   {canDelete && (
                     <td className="px-4 py-3 text-right">
                       <button
-                        onClick={() => del.mutate(e.id)}
+                        onClick={() => void confirmDelete({ title: `Delete "${e.Title}"?`, description: "It can be restored from the Audit Trail." }).then((ok) => ok && del.mutate(e.id))}
                         className="text-muted-foreground hover:text-destructive transition-colors"
                         aria-label={`Delete ${e.Title}`}
                       >

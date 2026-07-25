@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Loader2, Trash2 } from "lucide-react";
 import { useUpsert, useDelete } from "@/hooks/useCollection";
 import { Collections } from "@/lib/collections";
+import { confirmDelete } from "@/components/ConfirmDialog";
 import type { PlotApplication } from "@/lib/types";
 import { fmt, fmtPrice } from "@/lib/format";
 import { useNumericField } from "@/hooks/useNumericField";
@@ -70,6 +71,7 @@ export function EditApplicationDialog({ application, open, onOpenChange }: Props
 
   const remove = async () => {
     if (!application) return;
+    if (!(await confirmDelete({ title: "Padam aplikasi ini?", description: "Ia boleh dipulihkan dari Audit Trail.", confirmLabel: "Padam", cancelLabel: "Batal" }))) return;
     await del.mutateAsync(application.id);
     toast.success("Aplikasi dipadam");
     onOpenChange(false);

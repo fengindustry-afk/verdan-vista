@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { confirmDelete } from "@/components/ConfirmDialog";
 import { toast } from "sonner";
 import { KeyRound, Plus, Trash2, Copy, ShieldAlert } from "lucide-react";
 import { BentoCard } from "@/components/BentoCard";
@@ -62,7 +63,7 @@ export function ApiKeysCard() {
   };
 
   const revoke = async (k: ApiKey) => {
-    if (!confirm(`Revoke "${k.Label}"? Any client using it stops working immediately.`)) return;
+    if (!(await confirmDelete({ title: `Revoke "${k.Label}"?`, description: "Any client using this key stops working immediately.", confirmLabel: "Revoke" }))) return;
     await del.mutateAsync(k.id);
     toast.success(`Key "${k.Label}" revoked`);
   };

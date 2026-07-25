@@ -123,7 +123,7 @@ export const WORKFLOW_CATALOG: WorkflowStageDef[] = [
     Icon: Truck, Description: "Daily biomass receiving & laydown storage",
     Sections: [S("Receiving",
       T("Batch ID", "ZA-01-11-24"), D("Pre-Processing Date"),
-      P("Biomass Type", ...BIOMASS), T("Origin Location"),
+      P("Biomass Type", ...BIOMASS), L("Origin Location"),
       T("Transport Size", "5 MT Lorry"), P("Transport Fuel", ...FUELS),
       Z("Storage Location"), L("Receiving Site"), N("Weight", "kg"), N("Moisture", "%"),
       P("Storage Type", "Covered", "Open"),

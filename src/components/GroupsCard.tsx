@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { confirmDelete } from "@/components/ConfirmDialog";
 import { toast } from "sonner";
 import { UsersRound, Plus, Pencil, Trash2, Check, X } from "lucide-react";
 import { BentoCard } from "@/components/BentoCard";
@@ -59,10 +60,11 @@ export function GroupsCard() {
 
   const removeGroup = async (g: Group) => {
     const members = memberEmails(g).length;
-    if (!window.confirm(
-      `Delete "${g.Name}"?\n\n${members} member${members === 1 ? "" : "s"} will lose this group's access. `
-      + `Records already stamped with it stay in the database but only Admins will see them.`
-    )) return;
+    if (!(await confirmDelete({
+      title: `Delete "${g.Name}"?`,
+      description: `${members} member${members === 1 ? "" : "s"} will lose this group's access. `
+        + "Records already stamped with it stay in the database but only Admins will see them.",
+    }))) return;
     // Detach members first so no profile points at a dead group id.
     for (const u of memberEmails(g)) {
       await upsertUser

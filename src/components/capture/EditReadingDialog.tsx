@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Loader2, Trash2 } from "lucide-react";
 import { useUpsert, useDelete } from "@/hooks/useCollection";
 import { Collections } from "@/lib/collections";
+import { confirmDelete } from "@/components/ConfirmDialog";
 import type { TreeReading } from "@/lib/types";
 import { useNumericField } from "@/hooks/useNumericField";
 import { toast } from "sonner";
@@ -59,6 +60,7 @@ export function EditReadingDialog({ treeId, reading, open, onOpenChange }: Props
 
   const remove = async () => {
     if (!reading) return;
+    if (!(await confirmDelete({ title: "Delete this reading?", description: "It can be restored from the Audit Trail." }))) return;
     await del.mutateAsync(reading.id);
     toast.success("Reading deleted");
     onOpenChange(false);

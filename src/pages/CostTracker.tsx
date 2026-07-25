@@ -1,4 +1,5 @@
 import { BentoCard } from "@/components/BentoCard";
+import { confirmDelete } from "@/components/ConfirmDialog";
 import { Loader2, Trash2 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useSearchParams } from "react-router-dom";
@@ -119,7 +120,7 @@ export default function CostTracker() {
                           {canDelete && (
                             <td className="px-4 py-3 text-right">
                               <button
-                                onClick={() => del.mutate(e.id)}
+                                onClick={() => void confirmDelete({ title: `Delete "${e.Title}"?`, description: "It can be restored from the Audit Trail." }).then((ok) => ok && del.mutate(e.id))}
                                 className="text-muted-foreground hover:text-destructive transition-colors"
                                 aria-label={`Delete ${e.Title}`}
                               >

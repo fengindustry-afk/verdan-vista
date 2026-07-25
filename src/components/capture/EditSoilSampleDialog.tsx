@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Loader2, Trash2 } from "lucide-react";
 import { useUpsert, useDelete } from "@/hooks/useCollection";
 import { Collections } from "@/lib/collections";
+import { confirmDelete } from "@/components/ConfirmDialog";
 import { SOIL_PARAMS } from "@/lib/testingPlotSummary";
 import type { SoilSample } from "@/lib/types";
 import { useNumericField } from "@/hooks/useNumericField";
@@ -53,6 +54,7 @@ export function EditSoilSampleDialog({ sample, groups = [], open, onOpenChange }
 
   const remove = async () => {
     if (!sample) return;
+    if (!(await confirmDelete({ title: "Padam sampel tanah ini?", description: "Ia boleh dipulihkan dari Audit Trail.", confirmLabel: "Padam", cancelLabel: "Batal" }))) return;
     await del.mutateAsync(sample.id);
     toast.success("Sampel tanah dipadam");
     onOpenChange(false);

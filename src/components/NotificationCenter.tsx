@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { confirmDelete } from "@/components/ConfirmDialog";
 import { Bell, CloudOff, ImageOff, Activity, Trash2, CheckCheck, HardDrive, ShieldAlert } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -55,6 +56,7 @@ export function NotificationCenter() {
   };
 
   const clearAll = async () => {
+    if (!(await confirmDelete({ title: "Clear all notifications?", description: "This removes every logged system notification and cannot be undone.", confirmLabel: "Clear all" }))) return;
     const { error } = await supabase.from("ops_events").delete().neq("id", "");
     if (error) return toast.error(`Could not clear: ${error.message}`);
     qc.invalidateQueries({ queryKey: [Collections.opsEvents] });

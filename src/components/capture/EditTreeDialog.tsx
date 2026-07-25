@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Crosshair, Loader2, MapPin, Plus, Pencil, Trash2 } from "lucide-react";
 import { useUpsert, useDelete } from "@/hooks/useCollection";
 import { Collections } from "@/lib/collections";
+import { confirmDelete } from "@/components/ConfirmDialog";
 import type { Tree } from "@/lib/types";
 import { getCurrentPosition } from "@/lib/capture";
 import { MapPicker } from "@/components/map/MapPicker";
@@ -55,7 +56,7 @@ export function EditTreeDialog({ tree }: { tree?: Tree }) {
    *  record's prior state before it goes. */
   const remove = async () => {
     if (!tree) return;
-    if (!confirm(`Delete tree "${tree.TreeCode}"? Its readings stay in the database.`)) return;
+    if (!(await confirmDelete({ title: `Delete tree "${tree.TreeCode}"?`, description: "Its readings stay in the database. The tree can be restored from the Audit Trail." }))) return;
     await del.mutateAsync(tree.id);
     toast.success(`Tree "${tree.TreeCode}" deleted`);
     setOpen(false);

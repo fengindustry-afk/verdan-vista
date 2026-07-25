@@ -3,11 +3,13 @@ import { AiUsageCard } from "@/components/AiUsageCard";
 import { GroupsCard } from "@/components/GroupsCard";
 import { ApiKeysCard } from "@/components/ApiKeysCard";
 import { isSupabaseConfigured } from "@/lib/supabase";
-import { Database, Wifi, WifiOff, Palette, Moon, Sun, Check } from "lucide-react";
+import { Database, Wifi, WifiOff, Palette, Moon, Sun, Check, AlertTriangle, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTheme } from "@/lib/theme-context";
 import { THEME_SETS, swatches } from "@/lib/theme";
-import { isEffectivelyOffline, onConnectivityChange, onOfflineSync, pendingSyncCount } from "@/lib/data";
+import { isEffectivelyOffline, onConnectivityChange, onOfflineSync, pendingSyncCount, clearDataCache } from "@/lib/data";
+import { confirmDelete } from "@/components/ConfirmDialog";
+import { toast } from "sonner";
 
 export default function Settings() {
   const [online, setOnline] = useState(() => !isEffectivelyOffline());
@@ -112,11 +114,55 @@ export default function Settings() {
         )}
       </BentoCard>
 
+      <AiUsageCard />
+
+      {/* Management cards with destructive actions (delete group, revoke key) kept last. */}
       <GroupsCard />
 
       <ApiKeysCard />
 
-      <AiUsageCard />
+      <DangerZone pending={pending} />
     </div>
+  );
+}
+
+/** Irreversible actions, fenced off at the very bottom in a red-tinted card. */
+function DangerZone({ pending }: { pending: number }) {
+  const clearCache = async () => {
+    if (!(await confirmDelete({
+      title: "Clear cached data on this device?",
+      description: pending > 0
+        ? `${pending} change${pending === 1 ? "" : "s"} queued offline will be discarded and cannot be recovered. Server data is not affected.`
+        : "Local cached data is removed and reloaded from the server. Server data is not affected.",
+      confirmLabel: "Clear cache",
+    }))) return;
+    clearDataCache();
+    toast.success("Cache cleared — reloading");
+    setTimeout(() => window.location.reload(), 400);
+  };
+
+  return (
+    <BentoCard className="border border-destructive/40">
+      <h3 className="text-sm font-semibold text-destructive mb-1 flex items-center gap-2">
+        <AlertTriangle className="h-4 w-4" /> Danger Zone
+      </h3>
+      <p className="text-[11px] text-muted-foreground mb-4">
+        Irreversible actions. Double-check before you use these.
+      </p>
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-sm text-foreground">Clear cached data on this device</p>
+          <p className="text-[11px] text-muted-foreground">
+            Drops locally cached rows{pending > 0 ? ` and ${pending} queued offline change${pending === 1 ? "" : "s"}` : ""}, then reloads from the server.
+          </p>
+        </div>
+        <button
+          onClick={() => void clearCache()}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-destructive/40 text-destructive px-3 py-2 text-sm font-medium hover:bg-destructive/10 transition-colors"
+        >
+          <Trash2 className="h-4 w-4" /> Clear cache
+        </button>
+      </div>
+    </BentoCard>
   );
 }

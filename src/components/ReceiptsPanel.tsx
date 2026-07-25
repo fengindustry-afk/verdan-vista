@@ -229,6 +229,7 @@ function ReceiptDetailDialog({
   ];
 
   const remove = async () => {
+    if (!confirm("Delete this receipt? It can be restored from the Audit Trail.")) return;
     await del.mutateAsync(receipt.id);
     onClose();
   };

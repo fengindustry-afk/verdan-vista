@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Loader2, Trash2 } from "lucide-react";
 import { useUpsert, useDelete } from "@/hooks/useCollection";
 import { Collections } from "@/lib/collections";
+import { confirmDelete } from "@/components/ConfirmDialog";
 import { useAuth } from "@/lib/auth";
 import type { PlotObservation } from "@/lib/types";
 import { MapPicker } from "@/components/map/MapPicker";
@@ -53,6 +54,7 @@ export function EditObservationDialog({ observation, groups, open, onOpenChange 
 
   const remove = async () => {
     if (!observation) return;
+    if (!(await confirmDelete({ title: "Delete this observation?", description: "It can be restored from the Audit Trail." }))) return;
     await del.mutateAsync(observation.id);
     toast.success("Observation deleted");
     onOpenChange(false);

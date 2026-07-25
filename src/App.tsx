@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { initOfflineAutoSync, onConnectivityChange, onOfflineSync } from "@/lib/data";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
+import { ConfirmHost } from "@/components/ConfirmDialog";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppLayout } from "@/components/AppLayout";
 import { AuthProvider } from "@/lib/auth";
@@ -97,6 +98,7 @@ const App = () => (
       <OfflineSyncManager />
       <Toaster />
       <Sonner />
+      <ConfirmHost />
       <AuthProvider>
       <BrowserRouter>
         <Routes>

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { massBalance, balanceSummary } from "./massBalance";
+import { massBalance, balanceSummary, NO_BATCH } from "./massBalance";
 import type { WorkProcessEntry } from "./workProcess";
 
 function entry(StageKey: string, Values: Record<string, string>): WorkProcessEntry {
@@ -41,25 +41,64 @@ describe("massBalance", () => {
     expect(rows[0]).toMatchObject({ BatchId: "ZA-01-11-24", Produced: 1000, Consumed: 600, Status: "ok" });
   });
 
-  it("skips stages and batch ids that carry no biochar movement", () => {
+  it("skips stages that carry no biochar movement", () => {
     const rows = massBalance([
       entry("receiving", { batch_id: "B3", weight: "5000" }),
       entry("drying", { batch_id: "B3", output_quantity: "4000" }),
-      entry("production_05", { batch_id: "-", final_biochar_amount: "900" }),
-      entry("production_05", { batch_id: "", final_biochar_amount: "900" }),
     ]);
     expect(rows).toEqual([]);
   });
 
-  it("sorts problems first and tolerates blank or junk numbers", () => {
+  it("collects untraceable movement entries under NO_BATCH as incomplete", () => {
     const rows = massBalance([
-      entry("production_05", { batch_id: "OK", final_biochar_amount: "9000" }),
-      entry("carbon_sink", { batch_id: "OK", quantity: "" }),
-      entry("carbon_sink", { batch_id: "BAD", quantity: "1,200" }),
+      entry("production_05", { batch_id: "-", final_biochar_amount: "900" }),
+      entry("production_05", { batch_id: "", final_biochar_amount: "900" }),
     ]);
-    expect(rows.map((r) => r.BatchId)).toEqual(["BAD", "OK"]);
-    expect(rows[0].Consumed).toBe(1200); // thousands separator parsed
-    expect(rows[1].Consumed).toBe(0);
-    expect(balanceSummary(rows)).toEqual({ Produced: 9000, Consumed: 1200, Problems: 1 });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ BatchId: NO_BATCH, Status: "incomplete", MissingBatchId: 2 });
+  });
+
+  it("flags a batch with a recorded movement but a blank weight as incomplete, not over", () => {
+    const rows = massBalance([
+      entry("production_05", { batch_id: "B4", final_biochar_amount: "" }), // weight not recorded
+      entry("application", { batch_id: "B4", quantity_applied: "300" }),
+    ]);
+    // A blank produced weight must not masquerade as over-shipment.
+    expect(rows[0]).toMatchObject({ BatchId: "B4", Status: "incomplete", MissingAmount: 1, HasProduction: true });
+  });
+
+  it("holds a literal 0 kg as incomplete until it is verified", () => {
+    const rows = massBalance([
+      entry("production_05", { batch_id: "Z1", final_biochar_amount: "0" }),
+    ]);
+    expect(rows[0]).toMatchObject({ BatchId: "Z1", Status: "incomplete", ZeroUnverified: 1 });
+  });
+
+  it("clears the zero warning once the operator confirms it is real", () => {
+    const rows = massBalance([
+      entry("production_05", { batch_id: "Z2", final_biochar_amount: "0", final_biochar_amount_zero_ok: "true" }),
+    ]);
+    expect(rows[0]).toMatchObject({ BatchId: "Z2", Status: "ok", ZeroUnverified: 0 });
+  });
+
+  it("does not call an unconfirmed-0 production over-shipment", () => {
+    const rows = massBalance([
+      entry("production_10", { batch_id: "Z3", final_biochar_amount: "0" }),
+      entry("carbon_sink", { batch_id: "Z3", quantity: "500" }),
+    ]);
+    // 0 produced vs 500 shipped looks like over-shipment, but the 0 is unconfirmed.
+    expect(rows[0].Status).toBe("incomplete");
+  });
+
+  it("groups errors ahead of warnings and tolerates blank or junk numbers", () => {
+    const rows = massBalance([
+      entry("production_05", { batch_id: "GAP", final_biochar_amount: "9000" }),
+      entry("carbon_sink", { batch_id: "GAP", quantity: "" }),            // incomplete: no quantity
+      entry("carbon_sink", { batch_id: "BAD", quantity: "1,200" }),       // error: unsourced
+    ]);
+    expect(rows.map((r) => r.BatchId)).toEqual(["BAD", "GAP"]); // errors sort first
+    expect(rows[0]).toMatchObject({ Status: "unsourced", Consumed: 1200 }); // thousands separator parsed
+    expect(rows[1]).toMatchObject({ Status: "incomplete", MissingAmount: 1 });
+    expect(balanceSummary(rows)).toEqual({ Produced: 9000, Consumed: 1200, Errors: 1, Warnings: 1 });
   });
 });
