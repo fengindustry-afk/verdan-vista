@@ -1,5 +1,6 @@
 import type { Feedstock } from "./types";
-import type { WorkProcessEntry } from "./workProcess";
+import { TRAIL, type WorkProcessEntry } from "./workProcess";
+import { legEmissionsTco2e } from "./transport";
 
 /**
  * Chain-of-custody + CORC (CO₂ Removal Certificate) business logic, ported
@@ -119,6 +120,22 @@ export function wpMeasured(entries: WorkProcessEntry[]): {
 }
 
 /**
+ * Transport emissions for a batch, summed over the Feedstock Collection legs
+ * recorded against it (see TRAIL in lib/workProcess). Several legs means several
+ * deliveries feeding one batch, so they add up. Returns 0 when no leg carries a
+ * distance — an unrecorded haul is charged nothing, which is why the Distance
+ * field matters: a blank one quietly issues more credits than the batch earned.
+ */
+export function wpTransportTco2e(entries: WorkProcessEntry[]): number {
+  let total = 0;
+  for (const e of entries) {
+    if (e.StageKey !== "receiving") continue;
+    total += legEmissionsTco2e(e.Values?.[TRAIL.distanceKey], e.Values?.[TRAIL.fuelKey]);
+  }
+  return total;
+}
+
+/**
  * Copies of each batch with measured work-process values filled into blank
  * CORC input fields (BiocharYieldKg / CarbonContentPct / HCorgRatio), which
  * corcMetrics already prefers over defaults — so aggregates and exports pick
@@ -129,11 +146,14 @@ export function withMeasuredCorcInputs(feedstock: Feedstock[], wpAll: WorkProces
   if (!wpAll.length) return feedstock;
   return feedstock.map((f) => {
     const rec = f as unknown as Record<string, unknown>;
-    const m = wpMeasured(wpEntriesForBatch(f.Title ?? "", wpAll));
+    const entries = wpEntriesForBatch(f.Title ?? "", wpAll);
+    const m = wpMeasured(entries);
     const out = { ...rec };
     if (!(Number(rec.BiocharYieldKg ?? 0) > 0) && m.yieldKg > 0) out.BiocharYieldKg = m.yieldKg;
     if (!(Number(rec.CarbonContentPct ?? 0) > 0) && m.carbonPct > 0) out.CarbonContentPct = m.carbonPct;
     if (!(Number(rec.HCorgRatio ?? 0) > 0) && m.hcorg > 0) out.HCorgRatio = m.hcorg;
+    const transport = wpTransportTco2e(entries);
+    if (transport > 0) out.TransportTco2e = transport;
     return out as unknown as Feedstock;
   });
 }
@@ -150,6 +170,8 @@ export interface CorcMetrics {
   durabilityClass: string;
   grossRemovalTco2e: number;
   durableRemovalTco2e: number;
+  /** Measured haulage for the batch. 0 = no leg recorded a distance, not "no emissions". */
+  transportTco2e: number;
   effectiveLca: number;
   netCorc: number;
 }
@@ -189,7 +211,17 @@ export function corcMetrics(f: Feedstock, wp?: WorkProcessEntry[]): CorcMetrics 
   const grossRemovalTco2e =
     (effectiveYieldKg * (effectiveCarbonPct / 100.0) * CO2_PER_CARBON) / 1000.0;
   const durableRemovalTco2e = grossRemovalTco2e * permanenceFactor;
-  const effectiveLca = lca > 0 ? lca : durableRemovalTco2e * 0.08;
+  // Measured haulage for this batch: from the work-process entries when we have
+  // them, else the value withMeasuredCorcInputs baked onto the record (so callers
+  // that don't hold the entries still charge for transport).
+  const transportTco2e = wp?.length ? wpTransportTco2e(wp) : Number(rec.TransportTco2e ?? 0);
+
+  // An explicit LCA figure is the operator's own full-scope number, so it wins
+  // outright. Otherwise take the WORSE of the blanket 8% proxy and measured
+  // transport: the proxy is meant to cover all project emissions including
+  // haulage, so adding them would double-count, but a haul that alone exceeds
+  // the proxy proves the proxy is too low. Never issues more than the 8% rule did.
+  const effectiveLca = lca > 0 ? lca : Math.max(durableRemovalTco2e * 0.08, transportTco2e);
   const netCorc = isCorcEligible
     ? Math.max(0, durableRemovalTco2e - effectiveLca)
     : 0;
@@ -205,6 +237,7 @@ export function corcMetrics(f: Feedstock, wp?: WorkProcessEntry[]): CorcMetrics 
     durabilityClass,
     grossRemovalTco2e,
     durableRemovalTco2e,
+    transportTco2e,
     effectiveLca,
     netCorc,
   };

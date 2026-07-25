@@ -23,7 +23,9 @@ import { hasPermission, Permission, UserRole } from "@/lib/rbac";
 import {
   type WorkflowStageDef, type WorkProcessEntry, type FormField,
   stageFields, entryTitle, entrySubtitle, formatEntryTimestamp, phases, COORDS_SUFFIX, DEFAULT_ZONES,
+  TRAIL, trailStraightLineKm,
 } from "@/lib/workProcess";
+import { legEmissionsTco2e, hasDistance } from "@/lib/transport";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogHeader, AlertDialogTitle,
@@ -640,6 +642,10 @@ export function WorkProcessStageDialog({
                     {section.Fields.map((field) => {
                       const isZeroAmount =
                         field.Key === amountFieldForStage(stage.Key) && values[field.Key]?.trim() === "0";
+                      // Sanity check for the trail's Distance: how far origin and drop
+                      // actually sit apart. Never auto-filled — see trailStraightLineKm.
+                      const straightKm =
+                        field.Key === TRAIL.distanceKey ? trailStraightLineKm(values) : null;
                       return (
                         <div key={field.Key}>
                           <FieldInput
@@ -670,6 +676,35 @@ export function WorkProcessStageDialog({
                               />
                               This is really 0 kg — verified (clears the mass-balance warning)
                             </label>
+                          )}
+                          {/* Straight-line floor between origin and drop. The road is
+                              always longer, so this only flags an implausible entry. */}
+                          {field.Key === TRAIL.distanceKey && (
+                            <p className="mt-1.5 text-[11px] text-muted-foreground">
+                              {hasDistance(values[field.Key]) && (
+                                <>
+                                  Hauling this {Number(values[field.Key])} km on{" "}
+                                  {values[TRAIL.fuelKey] || "Other"} emits ≈{" "}
+                                  <span className="font-medium text-foreground">
+                                    {(legEmissionsTco2e(values[field.Key], values[TRAIL.fuelKey]) * 1000).toFixed(1)} kg CO₂e
+                                  </span>
+                                  , which comes off this batch's CORCs.{" "}
+                                </>
+                              )}
+                              {straightKm !== null && (
+                                <>
+                                  Origin and drop sit {straightKm.toFixed(1)} km apart in a straight
+                                  line, so the road figure must exceed that — use the odometer.
+                                </>
+                              )}
+                              {straightKm !== null &&
+                                Number(values[field.Key]) > 0 &&
+                                Number(values[field.Key]) < straightKm && (
+                                  <span className="text-amber-500">
+                                    {" "}This entry is shorter than the straight line, so it can't be right.
+                                  </span>
+                                )}
+                            </p>
                           )}
                         </div>
                       );

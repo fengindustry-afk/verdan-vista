@@ -95,6 +95,57 @@ describe("corcMetrics", () => {
     expect(corcMetrics(batch(), wp).effectiveYieldKg).toBe(500);
     expect(corcMetrics(batch({ BiocharYieldKg: 999 } as Partial<Feedstock>), wp).effectiveYieldKg).toBe(999);
   });
+
+  // ── Transport deduction: a longer diesel haul must issue fewer credits ──
+  const haul = (km: string, fuel = "Diesel") =>
+    wpEntry({
+      StageKey: "receiving", StageTitle: "Feedstock Collection",
+      Values: { batch_id: "Test Batch", distance: km, transport_fuel: fuel },
+    });
+
+  it("charges a recorded haul against the batch", () => {
+    // 400 km diesel = 400 * 0.9 / 1000 = 0.36 tCO2e, above the 0.113 t proxy.
+    const m = corcMetrics(batch({ HCorgRatio: 0.5 }), [haul("400")]);
+    expect(m.transportTco2e).toBeCloseTo(0.36, 3);
+    expect(m.effectiveLca).toBeCloseTo(0.36, 3);
+  });
+
+  it("issues fewer credits the further the feedstock travelled", () => {
+    const near = corcMetrics(batch({ HCorgRatio: 0.5 }), [haul("50")]).netCorc;
+    const far = corcMetrics(batch({ HCorgRatio: 0.5 }), [haul("900")]).netCorc;
+    expect(far).toBeLessThan(near);
+  });
+
+  it("never issues more than the 8% proxy alone would have", () => {
+    const baseline = corcMetrics(batch({ HCorgRatio: 0.5 })).netCorc;
+    for (const km of ["1", "50", "400", "5000"]) {
+      expect(corcMetrics(batch({ HCorgRatio: 0.5 }), [haul(km)]).netCorc).toBeLessThanOrEqual(baseline);
+    }
+  });
+
+  it("keeps the 8% proxy when a short haul falls under it", () => {
+    // 10 km = 0.009 t, well below the 0.113 t proxy — proxy still governs.
+    const m = corcMetrics(batch({ HCorgRatio: 0.5 }), [haul("10")]);
+    expect(m.transportTco2e).toBeCloseTo(0.009, 4);
+    expect(m.effectiveLca).toBeCloseTo(m.durableRemovalTco2e * 0.08, 4);
+  });
+
+  it("lets an explicit LCA figure override the measured haul", () => {
+    const m = corcMetrics(
+      batch({ HCorgRatio: 0.5, LcaEmissionsTco2e: 0.5 } as Partial<Feedstock>),
+      [haul("400")]
+    );
+    expect(m.effectiveLca).toBe(0.5);
+  });
+
+  it("adds up several deliveries feeding one batch", () => {
+    const m = corcMetrics(batch({ HCorgRatio: 0.5 }), [haul("100"), haul("300")]);
+    expect(m.transportTco2e).toBeCloseTo(0.36, 3);
+  });
+
+  it("charges nothing when no leg recorded a distance", () => {
+    expect(corcMetrics(batch({ HCorgRatio: 0.5 }), [haul("")]).transportTco2e).toBe(0);
+  });
 });
 
 describe("withMeasuredCorcInputs", () => {

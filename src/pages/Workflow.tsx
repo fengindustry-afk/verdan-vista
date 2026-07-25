@@ -1,6 +1,6 @@
 import { BentoCard } from "@/components/BentoCard";
 import { useFeedstock, useWorkProcessEntries } from "@/hooks/useCollection";
-import { corcMetrics, CUSTODY_STAGES, OPERATIONS_STAGE_COUNT } from "@/lib/feedstock";
+import { corcMetrics, withMeasuredCorcInputs, CUSTODY_STAGES, OPERATIONS_STAGE_COUNT } from "@/lib/feedstock";
 import { fmt } from "@/lib/format";
 import { Truck, Settings2, Flame, FlaskConical, Warehouse, Sprout, Trees, Loader2, ChevronRight, ChevronDown, Search, X, Scale, AlertTriangle } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -372,7 +372,11 @@ function WorkProcessHub() {
 
 // ── Custody overview: batches per custody stage (the original Workflow content) ──
 function CustodyOverview() {
-  const { data: feedstock = [], isLoading } = useFeedstock();
+  const { data: rawFeedstock = [], isLoading } = useFeedstock();
+  const { data: wpAll = [] } = useWorkProcessEntries();
+  // Measured yield/carbon and haulage baked in, so the per-stage CORC totals here
+  // match the Dashboard, Reports and each batch's own detail page.
+  const feedstock = useMemo(() => withMeasuredCorcInputs(rawFeedstock, wpAll), [rawFeedstock, wpAll]);
   const { role } = useAuth();
   const canAdd = hasPermission(role, Permission.AddFeedstock);
   const [openStage, setOpenStage] = useState<string | null>(null);

@@ -10,6 +10,7 @@ import {
   Truck, Settings2, Droplets, Flame, FlaskConical, Warehouse, Sprout, Trees, Factory,
   type LucideIcon,
 } from "lucide-react";
+import { distanceMeters } from "./capture";
 
 export type FieldType = "text" | "number" | "date" | "picker" | "multiline" | "location" | "zone";
 
@@ -105,6 +106,38 @@ export const DEFAULT_ZONES = ["Zone A", "Zone B", "Zone C", "Zone D"];
 export const COORDS_SUFFIX = "_coords";
 
 /**
+ * The transport leg captured on Feedstock Collection: where the load came from,
+ * which road it took, how far it ran, and where it was dropped. Origin and drop
+ * are `location` fields, so each already carries a `<key>_coords` pair.
+ */
+export const TRAIL = {
+  fromKey: slug("Origin Location"),
+  routeKey: slug("Route Taken"),
+  distanceKey: slug("Distance"),
+  fuelKey: slug("Transport Fuel"),
+  toKey: slug("Receiving Site"),
+} as const;
+
+/** The "lat,lng" of a location field, or null when it isn't a usable pair. */
+function coordsOf(values: Record<string, string>, key: string): [number, number] | null {
+  const [lat, lng] = (values[key + COORDS_SUFFIX] ?? "").split(",").map(Number);
+  return Number.isFinite(lat) && Number.isFinite(lng) ? [lat, lng] : null;
+}
+
+/**
+ * Straight-line km between the trail's origin and drop coordinates, or null when
+ * either is missing. This is a FLOOR, not the distance driven — real roads bend,
+ * so transport emissions must come from the odometer figure the driver types into
+ * `Distance`. Offered only as a sanity check against that entry.
+ */
+export function trailStraightLineKm(values: Record<string, string>): number | null {
+  const from = coordsOf(values, TRAIL.fromKey);
+  const to = coordsOf(values, TRAIL.toKey);
+  if (!from || !to) return null;
+  return distanceMeters(from[0], from[1], to[0], to[1]) / 1000;
+}
+
+/**
  * The batch this stage consumed. `batch_id` identifies the output; this names
  * the input, which is what makes the chain traceable backwards from a sink to
  * the feedstock that produced it. Blank on Feedstock Collection — that stage is
@@ -125,6 +158,7 @@ export const WORKFLOW_CATALOG: WorkflowStageDef[] = [
       T("Batch ID", "ZA-01-11-24"), D("Pre-Processing Date"),
       P("Biomass Type", ...BIOMASS), L("Origin Location"),
       T("Transport Size", "5 MT Lorry"), P("Transport Fuel", ...FUELS),
+      T("Route Taken", "Federal Route 1 → LEKAS → Jln Broga"), N("Distance", "km"),
       Z("Storage Location"), L("Receiving Site"), N("Weight", "kg"), N("Moisture", "%"),
       P("Storage Type", "Covered", "Open"),
       T("Supporting Document", "DO / Invoice / Receipt"), M("Remarks"))],

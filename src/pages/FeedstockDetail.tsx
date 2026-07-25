@@ -53,6 +53,14 @@ export default function FeedstockDetail() {
     { label: "Gross removal", value: `${fmt(m.grossRemovalTco2e, 2)} tCO₂e` },
     { label: "Durable removal", value: `${fmt(m.durableRemovalTco2e, 2)} tCO₂e` },
     { label: "LCA emissions", value: `− ${fmt(m.effectiveLca, 2)} tCO₂e` },
+    // Only shown once a haul is actually recorded — a 0 here would read as
+    // "no transport emissions" when it really means "no distance entered".
+    ...(m.transportTco2e > 0
+      ? [{
+          label: m.transportTco2e >= m.effectiveLca ? "· of which haulage" : "· haulage (under the 8% proxy)",
+          value: `${fmt(m.transportTco2e, 2)} tCO₂e`,
+        }]
+      : []),
   ];
 
   return (
