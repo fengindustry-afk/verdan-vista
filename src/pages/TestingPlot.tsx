@@ -962,7 +962,10 @@ function SectionH({ applications, canEdit }: { applications: PlotApplication[]; 
             <thead>
               <tr className="border-b border-border/50 bg-muted/40 text-muted-foreground">
                 {["Tarikh", "Produk", "Kadar (kg/ml/pokok)", "Bilangan pokok", "Total Application (kg/ml)", "Total Application Cost (RM/kg/ml)", "Total cost (RM)", "Kaedah", "Pegawai", "Supervisor", ""].map((h) => (
-                  <th key={h} className="text-left font-medium px-3 py-2 whitespace-nowrap">{h}</th>
+                  <th key={h} className="text-left font-medium px-3 py-2 whitespace-nowrap">
+                    {/* Last column holds the pencil, which carries no label a phone can read. */}
+                    {h || <InfoTip text="Pensel pada setiap baris membuka rekod aplikasi itu untuk kemas kini — kadar, bilangan pokok, kos dan pegawai." />}
+                  </th>
                 ))}
               </tr>
             </thead>
