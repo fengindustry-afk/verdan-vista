@@ -22,8 +22,11 @@ export const CUSTODY_STAGES = [
 export type CustodyStage = (typeof CUSTODY_STAGES)[number];
 
 export const OPERATIONS_STAGE_COUNT = 4;
+/** Durably stored — the dashboard's "Sink-Confirmed" bucket. Not the end of the chain: see LAST_CUSTODY_STAGE. */
 export const FINAL_STAGE = "Carbon Sink";
 export const APPLICATION_STAGE = "Application";
+/** The true end of custody (registry-certified). Drives advanceStage's terminal cap and auto-verify. */
+export const LAST_CUSTODY_STAGE = CUSTODY_STAGES[CUSTODY_STAGES.length - 1];
 
 export function phaseOf(stage: string): "Operations" | "Storage" {
   const i = CUSTODY_STAGES.indexOf(stage as CustodyStage);

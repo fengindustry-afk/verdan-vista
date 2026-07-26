@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { appendAudit, advanceStage, verifyBatch, createBatch } from "./feedstockActions";
-import { parseAuditLog, parseCustodyLog, CUSTODY_STAGES, FINAL_STAGE } from "./feedstock";
+import { parseAuditLog, parseCustodyLog, CUSTODY_STAGES, LAST_CUSTODY_STAGE } from "./feedstock";
 import type { Feedstock } from "./types";
 
 function batch(overrides: Partial<Feedstock> = {}): Feedstock {
@@ -41,12 +41,12 @@ describe("advanceStage", () => {
   it("auto-verifies the batch on reaching the final stage", () => {
     const nearFinal = batch({ CurrentStage: CUSTODY_STAGES[CUSTODY_STAGES.length - 2] });
     const updated = advanceStage(nearFinal, "Nurul", "Manager", "Sink Site")!;
-    expect(updated.CurrentStage).toBe(FINAL_STAGE);
+    expect(updated.CurrentStage).toBe(LAST_CUSTODY_STAGE);
     expect(updated.Status).toBe("Verified");
   });
 
   it("returns null when already at the final stage", () => {
-    expect(advanceStage(batch({ CurrentStage: FINAL_STAGE }), "A", "Operator", "X")).toBeNull();
+    expect(advanceStage(batch({ CurrentStage: LAST_CUSTODY_STAGE }), "A", "Operator", "X")).toBeNull();
   });
 });
 

@@ -4,7 +4,7 @@ import {
   parseCustodyLog,
   currentStageIndex,
   CUSTODY_STAGES,
-  FINAL_STAGE,
+  LAST_CUSTODY_STAGE,
   type AuditEntry,
   type CustodyLeg,
 } from "./feedstock";
@@ -73,8 +73,8 @@ export function advanceStage(
   const label = coords ? `${location} (${coords})` : location;
   updated = appendAudit(updated, `Advanced to ${next} · ${label}`, actor, role);
 
-  // Final leg credits the batch — keep verification status in sync.
-  if (next === FINAL_STAGE && (updated.Status ?? "").toLowerCase() !== "verified") {
+  // Final leg (registry certification) credits the batch — keep verification status in sync.
+  if (next === LAST_CUSTODY_STAGE && (updated.Status ?? "").toLowerCase() !== "verified") {
     updated = { ...updated, Status: "Verified" };
   }
   return updated;
