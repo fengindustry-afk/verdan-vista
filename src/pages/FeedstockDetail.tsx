@@ -7,6 +7,7 @@ import {
   corcMetrics,
   currentStageIndex,
   CUSTODY_STAGES,
+  massBalance,
   parseAuditLog,
   parseCustodyLog,
   phaseOf,
@@ -40,6 +41,7 @@ export default function FeedstockDetail() {
 
   const wpEntries = wpEntriesForBatch(f.Title ?? "", wpAll);
   const m = corcMetrics(f, wpEntries);
+  const mb = massBalance(wpEntries);
   const stageIdx = currentStageIndex(f);
   const audit = parseAuditLog(f);
   const custody = parseCustodyLog(f);
@@ -53,14 +55,30 @@ export default function FeedstockDetail() {
     { label: "Gross removal", value: `${fmt(m.grossRemovalTco2e, 2)} tCO₂e` },
     { label: "Durable removal", value: `${fmt(m.durableRemovalTco2e, 2)} tCO₂e` },
     { label: "LCA emissions", value: `− ${fmt(m.effectiveLca, 2)} tCO₂e` },
-    // Only shown once a haul is actually recorded — a 0 here would read as
-    // "no transport emissions" when it really means "no distance entered".
+    // Only shown once measured — a 0 here would read as "no emissions" when it
+    // really means "not recorded yet".
     ...(m.transportTco2e > 0
       ? [{
           label: m.transportTco2e >= m.effectiveLca ? "· of which haulage" : "· haulage (under the 8% proxy)",
           value: `${fmt(m.transportTco2e, 2)} tCO₂e`,
         }]
       : []),
+    ...(m.processEmissionTco2e > 0
+      ? [{
+          label: "· of which pyrolysis fuel",
+          value: `${fmt(m.processEmissionTco2e, 2)} tCO₂e`,
+        }]
+      : []),
+  ];
+
+  const massBalanceRows = [
+    { label: "Raw biomass collected", value: `${fmt(mb.rawBiomassKg, 0)} kg` },
+    { label: "Feedstock (post-sieving)", value: `${fmt(mb.feedstockKg, 0)} kg` },
+    { label: "Feedstock conversion rate", value: `${fmt(mb.conversionRatePct, 1)} %` },
+    { label: "Reject (powder) share", value: `${fmt(mb.rejectPct, 1)} %` },
+    { label: "Usage efficiency", value: `${fmt(mb.usageEfficiencyPct, 1)} %` },
+    { label: "Raw biochar", value: `${fmt(mb.biocharKg, 0)} kg` },
+    { label: "Biochar conversion rate", value: `${fmt(mb.biocharConversionRatePct, 1)} %` },
   ];
 
   return (
@@ -140,6 +158,21 @@ export default function FeedstockDetail() {
           </BentoCard>
         </div>
       </div>
+
+      {/* Mass balance along the value chain */}
+      {wpEntries.length > 0 && (
+        <BentoCard>
+          <h3 className="text-sm font-semibold text-foreground mb-4">Mass Balance</h3>
+          <dl className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {massBalanceRows.map((r) => (
+              <div key={r.label}>
+                <dt className="text-[10px] text-muted-foreground">{r.label}</dt>
+                <dd className="text-sm font-medium text-foreground">{r.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </BentoCard>
+      )}
 
       {/* Work-process entries sharing this batch ID */}
       <BentoCard>

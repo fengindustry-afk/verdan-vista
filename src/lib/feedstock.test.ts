@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { corcMetrics, currentStageIndex, parseAuditLog, wpEntriesForBatch, CUSTODY_STAGES } from "./feedstock";
+import { corcMetrics, currentStageIndex, massBalance, parseAuditLog, planProduction, wpEntriesForBatch, wpProcessEmissionTco2e, CUSTODY_STAGES } from "./feedstock";
 import type { Feedstock } from "./types";
 import type { WorkProcessEntry } from "./workProcess";
 
@@ -29,9 +29,9 @@ function batch(overrides: Partial<Feedstock> = {}): Feedstock {
 }
 
 describe("corcMetrics", () => {
-  it("uses defaults (30% yield, 80% C, 0.5 H/C) when biochar inputs are blank", () => {
+  it("uses defaults (33% yield, 80% C, 0.5 H/C) when biochar inputs are blank", () => {
     const m = corcMetrics(batch());
-    expect(m.effectiveYieldKg).toBe(600); // 2000 * 0.30
+    expect(m.effectiveYieldKg).toBe(660); // 2000 * 0.33
     expect(m.effectiveCarbonPct).toBe(80);
     expect(m.effectiveHCorg).toBe(0.5);
   });
@@ -63,12 +63,12 @@ describe("corcMetrics", () => {
   });
 
   it("computes a positive net CORC for an eligible, durable batch", () => {
-    // gross = 600kg * 0.80 * (44/12) / 1000 = 1.76 tCO2e
-    // durable = 1.76 * 0.80 = 1.408 ; lca = 1.408 * 0.08 ; net = durable - lca
+    // gross = 660kg * 0.80 * (44/12) / 1000 = 1.936 tCO2e
+    // durable = 1.936 * 0.80 = 1.5488 ; lca = 1.5488 * 0.08 ; net = durable - lca
     const m = corcMetrics(batch({ HCorgRatio: 0.5 }));
-    expect(m.grossRemovalTco2e).toBeCloseTo(1.76, 2);
-    expect(m.durableRemovalTco2e).toBeCloseTo(1.408, 2);
-    expect(m.netCorc).toBeCloseTo(1.295, 2);
+    expect(m.grossRemovalTco2e).toBeCloseTo(1.936, 2);
+    expect(m.durableRemovalTco2e).toBeCloseTo(1.5488, 2);
+    expect(m.netCorc).toBeCloseTo(1.425, 2);
     expect(m.isCorcEligible).toBe(true);
   });
 
@@ -145,6 +145,64 @@ describe("corcMetrics", () => {
 
   it("charges nothing when no leg recorded a distance", () => {
     expect(corcMetrics(batch({ HCorgRatio: 0.5 }), [haul("")]).transportTco2e).toBe(0);
+  });
+
+  it("charges a haul recorded on a downstream stage (warehouse/application/carbon_sink), not just receiving", () => {
+    const wp = [wpEntry({ StageKey: "carbon_sink", Values: { distance: "400", transport_fuel: "Diesel" } })];
+    expect(corcMetrics(batch({ HCorgRatio: 0.5 }), wp).transportTco2e).toBeCloseTo(0.36, 3);
+  });
+
+  it("charges pyrolysis fuel and folds it into effectiveLca alongside transport", () => {
+    const wp = [wpEntry({ StageKey: "production_05", Values: { weight_of_fuel: "1000" } })]; // 1000kg diesel
+    const m = corcMetrics(batch({ HCorgRatio: 0.5 }), wp);
+    expect(m.processEmissionTco2e).toBeCloseTo((1000 * 2.68) / 1000, 3); // 2.68 tCO2e
+    expect(m.effectiveLca).toBeCloseTo(m.processEmissionTco2e, 3); // exceeds the 8% proxy
+  });
+});
+
+describe("wpProcessEmissionTco2e", () => {
+  it("converts production_10's MJ energy reading to the same tCO2e basis as production_05's kg reading", () => {
+    // 36 MJ/L, diesel ~0.832 kg/L => 43.27 MJ/kg; 100 MJ => 2.311kg diesel => 0.00619 tCO2e
+    const wp = [wpEntry({ StageKey: "production_10", Values: { diesel_energy_36_mj_l: "100" } })];
+    expect(wpProcessEmissionTco2e(wp)).toBeCloseTo(0.00619, 4);
+  });
+});
+
+describe("planProduction", () => {
+  it("matches the report's Ecosfera 0.5 worked example (2000kg target -> 6154kg, 31 batches, 372h)", () => {
+    const p = planProduction(2000, "Ecosfera 0.5");
+    expect(p.feedstockKg).toBeCloseTo(6153.8, 0);
+    expect(p.batches).toBe(31);
+    expect(p.hours).toBe(31 * 12);
+  });
+
+  it("matches the report's Ecosfera 1.0 worked example (2000kg target -> 6006kg, ~119h)", () => {
+    const p = planProduction(2000, "Ecosfera 1.0");
+    expect(p.feedstockKg).toBeCloseTo(6006, 0);
+    expect(p.hours).toBeCloseTo(119, 0);
+    expect(p.batches).toBeUndefined();
+  });
+});
+
+describe("massBalance", () => {
+  it("computes conversion, reject, usage-efficiency and biochar-conversion ratios from recorded weights", () => {
+    const wp = [
+      wpEntry({ StageKey: "receiving", Values: { weight: "1000" } }),
+      wpEntry({ StageKey: "isolation", Values: { good_feedstock_quantity: "800", reject_quantity: "200" } }),
+      wpEntry({ StageKey: "production_05", Values: { final_biochar_amount: "240" } }),
+    ];
+    const mb = massBalance(wp);
+    expect(mb.conversionRatePct).toBeCloseTo(80, 4); // 800/1000
+    expect(mb.rejectPct).toBeCloseTo(20, 4); // 200/1000
+    expect(mb.usageEfficiencyPct).toBeCloseTo(80, 4); // 800/1000
+    expect(mb.biocharConversionRatePct).toBeCloseTo(30, 4); // 240/800
+  });
+
+  it("returns all zeros for a batch with no recorded weights", () => {
+    expect(massBalance([])).toEqual({
+      rawBiomassKg: 0, feedstockKg: 0, rejectKg: 0, biocharKg: 0,
+      conversionRatePct: 0, rejectPct: 0, usageEfficiencyPct: 0, biocharConversionRatePct: 0,
+    });
   });
 });
 

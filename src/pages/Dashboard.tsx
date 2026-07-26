@@ -43,10 +43,10 @@ export default function Dashboard() {
 
   const stats = [
     {
-      label: "Net CORCs",
+      label: "Potential CORC",
       value: fmt(agg.netCorc, 2),
       icon: Leaf,
-      tip: "Total tCO₂e locked across every batch: gross carbon stored minus the emissions from haulage, drying and pyrolysis.",
+      tip: "Total tCO₂e across every batch, whatever custody stage it's at: gross carbon stored minus the emissions from haulage and pyrolysis. Not yet issued — see Sink-Confirmed for that.",
     },
     {
       label: "Batches Tracked",
@@ -102,8 +102,8 @@ export default function Dashboard() {
           {/* CORC credit visibility */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {[
-              { label: "Credited (Carbon Sink)", value: agg.credited, color: "text-primary", tip: "CORCs from batches that reached the Carbon Sink stage. These are durably removed and countable as issued." },
-              { label: "In Submission (Application)", value: agg.inSubmission, color: "text-cyan-400", tip: "CORCs from batches at the Application stage, applied to soil and awaiting registry sign-off." },
+              { label: "Sink-Confirmed", value: agg.credited, color: "text-primary", tip: "Potential CORC from batches that reached the Carbon Sink stage — durably removed, but still not issued until a registry verifies and certifies it (Carbon Certification stage)." },
+              { label: "In Submission (Application)", value: agg.inSubmission, color: "text-cyan-400", tip: "Potential CORC from batches at the Application stage, applied to soil and awaiting registry sign-off." },
               { label: "Pending Pipeline", value: agg.pending, color: "text-amber-400", tip: "Everything still upstream of Application: collection, pre-processing, conversion, sampling and storage." },
             ].map((c, i) => (
               <BentoCard key={c.label} delay={0.2 + i * 0.06}>
@@ -117,8 +117,8 @@ export default function Dashboard() {
           <div className="grid lg:grid-cols-5 gap-4">
             <BentoCard className="lg:col-span-3" delay={0.3}>
               <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-1.5">
-                CORCs by Custody Stage
-                <InfoTip text="Net CORC held at each step of the custody chain, from Collection through to Carbon Sink. Hover a point for the exact tonnage." />
+                Potential CORC by Custody Stage
+                <InfoTip text="Not issued credits — potential CORC currently sitting at each step of the custody chain, from Collection through to Carbon Certification. A batch moves right as it advances; only Carbon Certification is a registry-confirmed number. Hover a point for the exact tonnage." />
               </h3>
               <div className="h-56">
                 <ResponsiveContainer width="100%" height="100%">
@@ -140,7 +140,7 @@ export default function Dashboard() {
                         fontSize: 12,
                       }}
                     />
-                    <Area type="monotone" dataKey="corc" name="Net CORC" stroke="hsl(160, 64%, 40%)" fill="url(#emeraldGrad)" strokeWidth={2} />
+                    <Area type="monotone" dataKey="corc" name="Potential CORC" stroke="hsl(160, 64%, 40%)" fill="url(#emeraldGrad)" strokeWidth={2} />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>

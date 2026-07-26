@@ -211,6 +211,7 @@ export const WORKFLOW_CATALOG: WorkflowStageDef[] = [
       T("Batch ID"), L("Sampling Site"), D("Sampling Date"),
       P("Sample Type", "Biochar", "Feedstock", "Liquid / Tar"),
       N("H/C Ratio"), N("Moisture Content", "%"), N("Carbon Content", "%"),
+      N("Sample Weight", "kg"), N("Density Raw Biochar", "MT/m3"), N("Density Liquid", "kg/L"),
       T("Lab / Method"), M("Remarks"))],
   },
 
@@ -220,9 +221,10 @@ export const WORKFLOW_CATALOG: WorkflowStageDef[] = [
     Icon: Warehouse, Description: "Cured biochar & product in storage",
     Sections: [S("Warehouse",
       T("Batch ID"), SOURCE, D("Date"),
-      P("Product", "Biochar", "Liquid / Tar", "Fertiliser", "External Biochar"),
+      P("Product", "Biochar", "Biochar Powder", "Liquid / Tar", "Fertiliser", "External Biochar"),
       N("Quantity", "kg"), T("Storage Location"), L("Warehouse Site"), Z("Zone"),
-      P("Storage Type", "Covered", "Open"), M("Remarks"))],
+      P("Storage Type", "Covered", "Open"),
+      N("Distance", "km"), P("Transport Fuel", ...FUELS), M("Remarks"))],
   },
   {
     Key: "application", Title: "Application", Phase: "Inventory Management", Group: "",
@@ -232,7 +234,7 @@ export const WORKFLOW_CATALOG: WorkflowStageDef[] = [
         T("Batch ID"), SOURCE, T("Biochar DO"), D("Application Date"), N("Quantity Applied", "kg"),
         L("Application Site"),
         P("Application Type", "Fertilizer", "Construction", "Animal Feedlot", "Soil", "Additives", "R&D"),
-        T("Delivery Mode"), P("Transport Fuel", ...FUELS),
+        T("Delivery Mode"), N("Distance", "km"), P("Transport Fuel", ...FUELS),
         T("Location of Mixing / Processing"), T("Location of Storage"),
         T("Supporting Document", "DO / Invoice / Receipt"), M("Remarks")),
       S("Liquid Usage",
@@ -248,7 +250,16 @@ export const WORKFLOW_CATALOG: WorkflowStageDef[] = [
       D("Procurement / Delivery Date"), D("Usage Date"), N("Quantity", "kg"),
       P("Carbon Sink Type", "Small Holder", "Community", "Municipality", "Estate", "Afforestation"),
       L("Sink Site"), T("Location of Final Permanent Application"), T("Project Type"),
+      N("Distance", "km"), P("Transport Fuel", ...FUELS),
       T("Evidence"), M("Remarks"), T("References"))],
+  },
+  {
+    Key: "certification", Title: "Carbon Certification", Phase: "Inventory Management", Group: "",
+    Icon: FlaskConical, Description: "Registry verification & certification of issued CORCs",
+    Sections: [S("Certification",
+      T("Batch ID"), SOURCE, D("Verification Date"), T("Registry / Auditor"),
+      N("Verified CORC", "tCO2e"), N("Certified CORC", "tCO2e"),
+      T("Certificate Reference"), T("Evidence"), M("Remarks"))],
   },
 ];
 

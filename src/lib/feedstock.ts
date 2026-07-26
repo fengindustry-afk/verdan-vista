@@ -16,6 +16,7 @@ export const CUSTODY_STAGES = [
   "Storage",
   "Application",
   "Carbon Sink",
+  "Carbon Certification",
 ] as const;
 
 export type CustodyStage = (typeof CUSTODY_STAGES)[number];
@@ -42,10 +43,62 @@ const ELIGIBLE_BIOMASS = new Set(
   ].map((s) => s.toLowerCase())
 );
 
-const DEFAULT_YIELD_FRACTION = 0.3;
+// 0.325 (Ecosfera 0.5) and 0.333 (Ecosfera 1.0) averaged, per the raw-woodchip
+// production runs in "Pengiraan Keperluan Bahan Mentah Dan Tempoh Pengeluaran
+// Biochar" — replaces the earlier round 0.30 guess with a measured figure.
+const DEFAULT_YIELD_FRACTION = 0.33;
 const DEFAULT_CARBON_PCT = 80.0;
 const DEFAULT_HCORG = 0.5;
 const CO2_PER_CARBON = 44.0 / 12.0;
+
+/**
+ * Reactor throughput, from the same report: batch size/cycle time for the
+ * Ecosfera 0.5 (batch process) and steady-state rate for the Ecosfera 1.0
+ * (continuous process). Grade-A yield only — off-spec biochar doesn't count.
+ */
+export const REACTOR_MODELS = ["Ecosfera 0.5", "Ecosfera 1.0"] as const;
+export type ReactorModel = (typeof REACTOR_MODELS)[number];
+
+interface ReactorProfile {
+  /** Grade-A biochar out per kg of raw woodchip in. */
+  yieldFraction: number;
+  /** Batch process: kg of raw material per batch and hours per batch. */
+  batch?: { feedstockKg: number; cycleHours: number };
+  /** Continuous process: kg of Grade-A biochar produced per hour. */
+  ratePerHour?: number;
+}
+
+const REACTOR_PROFILE: Record<ReactorModel, ReactorProfile> = {
+  "Ecosfera 0.5": { yieldFraction: 0.325, batch: { feedstockKg: 200, cycleHours: 12 } },
+  "Ecosfera 1.0": { yieldFraction: 0.333, ratePerHour: 90 / 5.37 },
+};
+
+export interface ProductionPlan {
+  feedstockKg: number;
+  feedstockTan: number;
+  hours: number;
+  days: number;
+  /** Only set for a batch reactor (Ecosfera 0.5). */
+  batches?: number;
+}
+
+/** Expected Grade-A biochar out of a given raw-woodchip input, at this reactor's measured yield. */
+export function expectedGradeAYieldKg(inputKg: number, reactor: ReactorModel): number {
+  return inputKg * REACTOR_PROFILE[reactor].yieldFraction;
+}
+
+/** Raw-woodchip feedstock and production time needed to hit a Grade-A biochar target. */
+export function planProduction(targetBiocharKg: number, reactor: ReactorModel): ProductionPlan {
+  const p = REACTOR_PROFILE[reactor];
+  const feedstockKg = targetBiocharKg / p.yieldFraction;
+  if (p.batch) {
+    const batches = Math.ceil(feedstockKg / p.batch.feedstockKg);
+    const hours = batches * p.batch.cycleHours;
+    return { feedstockKg, feedstockTan: feedstockKg / 1000, hours, days: hours / 24, batches };
+  }
+  const hours = targetBiocharKg / (p.ratePerHour as number);
+  return { feedstockKg, feedstockTan: feedstockKg / 1000, hours, days: hours / 24 };
+}
 
 export function parseLeadingNumber(text?: string): number {
   if (!text) return 0;
@@ -120,19 +173,90 @@ export function wpMeasured(entries: WorkProcessEntry[]): {
 }
 
 /**
- * Transport emissions for a batch, summed over the Feedstock Collection legs
- * recorded against it (see TRAIL in lib/workProcess). Several legs means several
- * deliveries feeding one batch, so they add up. Returns 0 when no leg carries a
- * distance — an unrecorded haul is charged nothing, which is why the Distance
- * field matters: a blank one quietly issues more credits than the batch earned.
+ * Transport emissions for a batch, summed over every custody leg recorded
+ * against it: Feedstock Collection plus every downstream haul (Warehouse,
+ * Application, Carbon Sink) that shares the same Distance/Transport Fuel field
+ * pair. Several legs means several hauls feeding or moving one batch, so they
+ * add up. Returns 0 when no leg carries a distance — an unrecorded haul is
+ * charged nothing, which is why the Distance field matters: a blank one quietly
+ * issues more credits than the batch earned.
  */
 export function wpTransportTco2e(entries: WorkProcessEntry[]): number {
   let total = 0;
   for (const e of entries) {
-    if (e.StageKey !== "receiving") continue;
     total += legEmissionsTco2e(e.Values?.[TRAIL.distanceKey], e.Values?.[TRAIL.fuelKey]);
   }
   return total;
+}
+
+// kg CO2e per kg diesel burned (combustion only, no upstream extraction/refining).
+// ROUND PLACEHOLDER like FUEL_KGCO2E_PER_KM in transport.ts — swap for an audited
+// factor before this touches an issued credit.
+const DIESEL_KGCO2E_PER_KG = 2.68;
+// production_10 records energy in MJ using the reactor's own "36 MJ/L" rating;
+// diesel density ~0.832 kg/L converts that back to kg burned.
+const DIESEL_MJ_PER_KG = 36 / 0.832;
+
+/**
+ * Pyrolysis fuel emissions for a batch: diesel burned running the reactor
+ * (production_05's Weight of Fuel, production_10's Diesel Energy), converted to
+ * tCO2e. This is a project emission the 8% LCA proxy is meant to stand in for,
+ * same reasoning as wpTransportTco2e — see corcMetrics.
+ */
+export function wpProcessEmissionTco2e(entries: WorkProcessEntry[]): number {
+  let kg = 0;
+  for (const e of entries) {
+    if (e.StageKey === "production_05") {
+      kg += parseLeadingNumber(e.Values?.weight_of_fuel);
+    } else if (e.StageKey === "production_10") {
+      kg += parseLeadingNumber(e.Values?.diesel_energy_36_mj_l) / DIESEL_MJ_PER_KG;
+    }
+  }
+  return (kg * DIESEL_KGCO2E_PER_KG) / 1000;
+}
+
+/** Mass-balance ratios along the value chain, derived from recorded work-process weights. */
+export interface MassBalance {
+  rawBiomassKg: number;
+  feedstockKg: number;
+  rejectKg: number;
+  biocharKg: number;
+  /** (Feedstock / raw biomass) * 100 — how much of what was collected became usable feedstock. */
+  conversionRatePct: number;
+  /** Reject (powder) share of isolation output. */
+  rejectPct: number;
+  /** 1 - reject share, i.e. how much of the isolation output was usable. */
+  usageEfficiencyPct: number;
+  /** (Raw biochar / feedstock) * 100. */
+  biocharConversionRatePct: number;
+}
+
+export function massBalance(entries: WorkProcessEntry[]): MassBalance {
+  let rawBiomassKg = 0;
+  let feedstockKg = 0;
+  let rejectKg = 0;
+  let biocharKg = 0;
+  for (const e of entries) {
+    if (e.StageKey === "receiving") rawBiomassKg += parseLeadingNumber(e.Values?.weight);
+    if (e.StageKey === "isolation") {
+      feedstockKg += parseLeadingNumber(e.Values?.good_feedstock_quantity);
+      rejectKg += parseLeadingNumber(e.Values?.reject_quantity);
+    }
+    if (e.StageKey === "production_05" || e.StageKey === "production_10") {
+      biocharKg += parseLeadingNumber(e.Values?.final_biochar_amount);
+    }
+  }
+  const isolationOutputKg = feedstockKg + rejectKg;
+  return {
+    rawBiomassKg,
+    feedstockKg,
+    rejectKg,
+    biocharKg,
+    conversionRatePct: rawBiomassKg > 0 ? (feedstockKg / rawBiomassKg) * 100 : 0,
+    rejectPct: isolationOutputKg > 0 ? (rejectKg / isolationOutputKg) * 100 : 0,
+    usageEfficiencyPct: isolationOutputKg > 0 ? (feedstockKg / isolationOutputKg) * 100 : 0,
+    biocharConversionRatePct: feedstockKg > 0 ? (biocharKg / feedstockKg) * 100 : 0,
+  };
 }
 
 /**
@@ -172,6 +296,8 @@ export interface CorcMetrics {
   durableRemovalTco2e: number;
   /** Measured haulage for the batch. 0 = no leg recorded a distance, not "no emissions". */
   transportTco2e: number;
+  /** Measured pyrolysis fuel burn for the batch. 0 = no fuel amount recorded. */
+  processEmissionTco2e: number;
   effectiveLca: number;
   netCorc: number;
 }
@@ -215,13 +341,15 @@ export function corcMetrics(f: Feedstock, wp?: WorkProcessEntry[]): CorcMetrics 
   // them, else the value withMeasuredCorcInputs baked onto the record (so callers
   // that don't hold the entries still charge for transport).
   const transportTco2e = wp?.length ? wpTransportTco2e(wp) : Number(rec.TransportTco2e ?? 0);
+  const processEmissionTco2e = wp?.length ? wpProcessEmissionTco2e(wp) : 0;
 
   // An explicit LCA figure is the operator's own full-scope number, so it wins
   // outright. Otherwise take the WORSE of the blanket 8% proxy and measured
-  // transport: the proxy is meant to cover all project emissions including
-  // haulage, so adding them would double-count, but a haul that alone exceeds
-  // the proxy proves the proxy is too low. Never issues more than the 8% rule did.
-  const effectiveLca = lca > 0 ? lca : Math.max(durableRemovalTco2e * 0.08, transportTco2e);
+  // transport + pyrolysis fuel: the proxy is meant to cover all project
+  // emissions, so adding them on top would double-count, but measured emissions
+  // that alone exceed the proxy prove the proxy is too low. Never issues more
+  // CORCs than the 8% rule alone would have.
+  const effectiveLca = lca > 0 ? lca : Math.max(durableRemovalTco2e * 0.08, transportTco2e + processEmissionTco2e);
   const netCorc = isCorcEligible
     ? Math.max(0, durableRemovalTco2e - effectiveLca)
     : 0;
@@ -238,6 +366,7 @@ export function corcMetrics(f: Feedstock, wp?: WorkProcessEntry[]): CorcMetrics 
     grossRemovalTco2e,
     durableRemovalTco2e,
     transportTco2e,
+    processEmissionTco2e,
     effectiveLca,
     netCorc,
   };

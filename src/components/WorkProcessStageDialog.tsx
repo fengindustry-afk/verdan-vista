@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useDelete, useFeedstock, useLocations, useUpsert, useWorkProcessEntries, useZones } from "@/hooks/useCollection";
-import { feedstockForEntry } from "@/lib/feedstock";
+import { expectedGradeAYieldKg, feedstockForEntry, type ReactorModel } from "@/lib/feedstock";
 import { amountFieldForStage, ZERO_OK_SUFFIX } from "@/lib/massBalance";
 import {
   getCurrentPosition, geofenceCheck, formatMeters, accuracyMeters, GEOFENCE_RADIUS_M,
@@ -646,6 +646,17 @@ export function WorkProcessStageDialog({
                       // actually sit apart. Never auto-filled — see trailStraightLineKm.
                       const straightKm =
                         field.Key === TRAIL.distanceKey ? trailStraightLineKm(values) : null;
+                      // Expected Grade-A output at this reactor's measured yield, from
+                      // "Pengiraan Keperluan Bahan Mentah Dan Tempoh Pengeluaran Biochar".
+                      // A hint only — never overwrites what the operator actually measures.
+                      const reactorModel: ReactorModel | null =
+                        stage.Key === "production_05" ? "Ecosfera 0.5"
+                        : stage.Key === "production_10" ? "Ecosfera 1.0"
+                        : null;
+                      const expectedYieldKg =
+                        reactorModel && field.Key === "biomass_input_amount" && parseFloat(values[field.Key] || "0") > 0
+                          ? expectedGradeAYieldKg(parseFloat(values[field.Key]), reactorModel)
+                          : null;
                       return (
                         <div key={field.Key}>
                           <FieldInput
@@ -676,6 +687,13 @@ export function WorkProcessStageDialog({
                               />
                               This is really 0 kg — verified (clears the mass-balance warning)
                             </label>
+                          )}
+                          {expectedYieldKg !== null && (
+                            <p className="mt-1.5 text-[11px] text-muted-foreground">
+                              At this reactor's measured yield, expect ≈{" "}
+                              <span className="font-medium text-foreground">{expectedYieldKg.toFixed(0)} kg</span>{" "}
+                              Grade-A biochar. Record what actually comes out, not this estimate.
+                            </p>
                           )}
                           {/* Straight-line floor between origin and drop. The road is
                               always longer, so this only flags an implausible entry. */}

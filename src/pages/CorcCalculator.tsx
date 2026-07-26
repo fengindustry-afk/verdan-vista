@@ -2,10 +2,10 @@ import { BentoCard } from "@/components/BentoCard";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { useState, useMemo } from "react";
-import { corcMetrics } from "@/lib/feedstock";
+import { corcMetrics, planProduction, REACTOR_MODELS, type ReactorModel } from "@/lib/feedstock";
 import type { Feedstock } from "@/lib/types";
 import { fmt } from "@/lib/format";
-import { Calculator, CheckCircle2, XCircle } from "lucide-react";
+import { Calculator, CheckCircle2, Factory, XCircle } from "lucide-react";
 
 const ELIGIBLE_TYPES = [
   "Empty Fruit Bunches", "POME", "Palm Kernel Shells", "Palm Fronds",
@@ -19,6 +19,13 @@ export default function CorcCalculator() {
   const [carbonPct, setCarbonPct] = useState("");
   const [hcorg, setHcorg] = useState("");
   const [lca, setLca] = useState("");
+
+  const [targetBiocharKg, setTargetBiocharKg] = useState("2000");
+  const [reactor, setReactor] = useState<ReactorModel>("Ecosfera 0.5");
+  const plan = useMemo(
+    () => planProduction(Number(targetBiocharKg) || 0, reactor),
+    [targetBiocharKg, reactor]
+  );
 
   const m = useMemo(() => {
     const draft: Feedstock = {
@@ -76,7 +83,7 @@ export default function CorcCalculator() {
             </div>
             {[
               { label: "Feedstock amount (kg)", value: amount, set: setAmount, ph: "2000" },
-              { label: "Biochar yield (kg) — blank = 30% of amount", value: yieldKg, set: setYieldKg, ph: "auto" },
+              { label: "Biochar yield (kg) — blank = 33% of amount", value: yieldKg, set: setYieldKg, ph: "auto" },
               { label: "Carbon content (%) — blank = 80%", value: carbonPct, set: setCarbonPct, ph: "80" },
               { label: "H/C₍org₎ ratio — blank = 0.5", value: hcorg, set: setHcorg, ph: "0.5" },
               { label: "LCA emissions (tCO₂e) — blank = 8% of durable", value: lca, set: setLca, ph: "auto" },
@@ -133,6 +140,62 @@ export default function CorcCalculator() {
             </dl>
           </BentoCard>
         </div>
+      </div>
+
+      <div>
+        <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
+          <Factory className="h-5 w-5 text-primary" /> Production Planner
+        </h2>
+        <p className="text-sm text-muted-foreground mt-1">
+          Raw woodchip and cycle time needed to hit a Grade-A biochar target, from measured Ecosfera yields.
+        </p>
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-4">
+        <BentoCard>
+          <h3 className="text-sm font-semibold text-foreground mb-4">Inputs</h3>
+          <div className="space-y-4">
+            <div>
+              <Label className="text-xs">Reactor</Label>
+              <select
+                value={reactor}
+                onChange={(e) => setReactor(e.target.value as ReactorModel)}
+                className="mt-1 w-full rounded-lg bg-muted border border-border px-3 py-2 text-sm text-foreground"
+              >
+                {REACTOR_MODELS.map((r) => <option key={r}>{r}</option>)}
+              </select>
+            </div>
+            <div>
+              <Label className="text-xs">Target Grade-A biochar (kg)</Label>
+              <Input
+                type="number"
+                value={targetBiocharKg}
+                placeholder="2000"
+                onChange={(e) => setTargetBiocharKg(e.target.value)}
+                className="mt-1"
+              />
+            </div>
+          </div>
+        </BentoCard>
+
+        <BentoCard>
+          <h3 className="text-sm font-semibold text-foreground mb-3">Plan</h3>
+          <dl className="space-y-2">
+            {[
+              { label: "Raw woodchip needed", value: `${fmt(plan.feedstockKg, 0)} kg (${fmt(plan.feedstockTan, 2)} tan)` },
+              ...(plan.batches !== undefined ? [{ label: "Batches", value: `${plan.batches}` }] : []),
+              { label: "Production time", value: `${fmt(plan.hours, 0)} hours ≈ ${fmt(plan.days, 1)} days` },
+            ].map((r) => (
+              <div key={r.label} className="flex items-center justify-between text-xs">
+                <dt className="text-muted-foreground">{r.label}</dt>
+                <dd className="text-foreground font-medium">{r.value}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="mt-3 text-[11px] text-muted-foreground">
+            Based on raw woodchip at {reactor === "Ecosfera 0.5" ? "32.5%" : "33.3%"} measured Grade-A yield.
+          </p>
+        </BentoCard>
       </div>
     </div>
   );
