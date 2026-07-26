@@ -1,8 +1,18 @@
 import { useEffect, useRef, useState } from "react";
-import Hls from "hls.js";
+import Hls, { FetchLoader } from "hls.js";
 import { Loader2, VideoOff } from "lucide-react";
 
-/** HLS (.m3u8) video player using hls.js, with native fallback for Safari. */
+/**
+ * HLS (.m3u8) video player using hls.js, with native fallback for Safari.
+ *
+ * Requests go out with NO referrer. Public webcams commonly run hotlink
+ * protection that rejects a request carrying someone else's page URL — the
+ * Warsaw feed answers 200 with no Referer and 403 with one, so the default
+ * policy makes the stream unplayable. This is scoped to the video loader
+ * alone and changes nothing about the rest of the app's requests. It also
+ * needs the fetch loader: hls.js defaults to XHR, and Referer is a forbidden
+ * header there, so it cannot be removed.
+ */
 export function HlsPlayer({ url }: { url: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [status, setStatus] = useState<"loading" | "playing" | "error">("loading");
@@ -17,7 +27,13 @@ export function HlsPlayer({ url }: { url: string }) {
     video.addEventListener("playing", onPlaying);
 
     if (Hls.isSupported()) {
-      hls = new Hls({ enableWorker: true, lowLatencyMode: true });
+      hls = new Hls({
+        enableWorker: true,
+        lowLatencyMode: true,
+        loader: FetchLoader,
+        fetchSetup: (context, initParams) =>
+          new Request(context.url, { ...initParams, referrerPolicy: "no-referrer" }),
+      });
       hls.loadSource(url);
       hls.attachMedia(video);
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
