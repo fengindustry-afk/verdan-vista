@@ -20,6 +20,7 @@ import { WorkProcessStageDialog } from "@/components/WorkProcessStageDialog";
 import { ManageZonesDialog } from "@/components/ManageZonesDialog";
 import { ReadinessBoard } from "@/components/ReadinessBoard";
 import { MonthPicker } from "@/components/MonthPicker";
+import { InfoTip } from "@/components/InfoTip";
 
 const STAGE_META: Record<string, { icon: typeof Truck; desc: string }> = {
   "Feedstock Collection": { icon: Truck, desc: "Biomass gathered from source" },
@@ -44,9 +45,18 @@ export default function Workflow() {
 
       <Tabs defaultValue={initialTab}>
         <TabsList>
-          <TabsTrigger value="work-process">Work Process</TabsTrigger>
-          <TabsTrigger value="custody">Custody</TabsTrigger>
-          <TabsTrigger value="readiness">Readiness</TabsTrigger>
+          <TabsTrigger value="work-process" className="gap-1.5">
+            Work Process
+            <InfoTip text="Where field data gets logged. Each card is one work-process stage with its own form; the number is how many entries have been recorded against it." />
+          </TabsTrigger>
+          <TabsTrigger value="custody" className="gap-1.5">
+            Custody
+            <InfoTip text="Chain of custody by batch: how many batches sit at each stage from Collection to Carbon Sink, and the CORC tonnage held there." />
+          </TabsTrigger>
+          <TabsTrigger value="readiness" className="gap-1.5">
+            Readiness
+            <InfoTip text="The production-readiness checklist. Tracks which operational activities are done, in progress or not started before the site goes live." />
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="work-process" className="space-y-6 pt-2">
           <WorkProcessHub />
@@ -114,7 +124,10 @@ function MassBalanceCard({ rows, onOpenBatch }: { rows: ReturnType<typeof massBa
           <Scale className="h-4 w-4 text-primary" />
         </div>
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-foreground">Biochar Mass Balance</p>
+          <p className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+            Biochar Mass Balance
+            <InfoTip text="Checks that biochar shipped or applied never exceeds what was produced, per batch. Errors disqualify a batch from issuance; incomplete rows just need a missing weight or batch ID filled in. Click a flagged row to jump to its entries." />
+          </p>
           <p className="text-[11px] text-muted-foreground">
             {fmt(summary.Produced)} kg produced · {fmt(summary.Consumed)} kg applied or sunk · {rows.length} batches
           </p>
@@ -285,6 +298,10 @@ function WorkProcessHub() {
             <X className="h-3.5 w-3.5" /> Clear
           </button>
         )}
+        <InfoTip
+          className="ml-auto"
+          text="Search across every logged entry by batch ID, stage name or any recorded value. The month and work-process filters narrow it further, and all three apply together."
+        />
       </div>
 
       {filtering ? (
@@ -316,7 +333,10 @@ function WorkProcessHub() {
       ) : (
         phases().map((phase) => (
         <div key={phase.Name} className="space-y-3">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{phase.Name} Phase</h2>
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+            {phase.Name} Phase
+            <InfoTip text={`Work-process stages belonging to the ${phase.Name} phase. Open a card to log a new entry against that stage.`} />
+          </h2>
           {phase.Groups.map((group, gi) => {
             if (!group.Title) {
               // Ungrouped stages render directly.
@@ -413,7 +433,14 @@ function CustodyOverview() {
       )}
       {(["Operations", "Storage"] as const).map((phase) => (
         <div key={phase} className="space-y-3">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{phase} Phase</h2>
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+            {phase} Phase
+            <InfoTip
+              text={phase === "Operations"
+                ? "Stages where the biomass is still being handled: collected, prepped, converted and sampled. Click a card to see the batches sitting there."
+                : "Stages after conversion: cured biochar in storage, applied to soil, then credited as a durable carbon sink."}
+            />
+          </h2>
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {stages
               .filter((s) => s.phase === phase)

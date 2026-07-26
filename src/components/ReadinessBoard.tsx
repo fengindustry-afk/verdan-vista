@@ -10,6 +10,7 @@ import { useAuth } from "@/lib/auth";
 import { hasPermission, Permission } from "@/lib/rbac";
 import { Progress } from "@/components/ui/progress";
 import { BentoCard } from "@/components/BentoCard";
+import { InfoTip } from "@/components/InfoTip";
 import {
   READINESS_CATALOG,
   READINESS_ATTR_LABELS,
@@ -116,7 +117,10 @@ export function ReadinessBoard() {
       <BentoCard className="!p-4">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <p className="text-sm font-semibold text-foreground">Operation Readiness · Ecosfera 3.0 Bukit Damar</p>
+            <p className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+              Operation Readiness · Ecosfera 3.0 Bukit Damar
+              <InfoTip text="Share of the 78-activity readiness checklist marked complete. Only activities set to Done count towards the percentage." />
+            </p>
             <p className="text-[11px] text-muted-foreground mt-0.5">
               {totals.done} of {totals.total} activities complete
             </p>
@@ -141,7 +145,10 @@ export function ReadinessBoard() {
               <Plus className="h-4 w-4 text-primary" />
             </div>
             <div>
-              <p className="text-sm font-semibold text-foreground">Custom Tasks</p>
+              <p className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+                Custom Tasks
+                <InfoTip text="Activities you add yourself, on top of the standard checklist. They count towards the readiness percentage the same way." />
+              </p>
               <p className="text-[11px] text-muted-foreground">{customTasks.length} task{customTasks.length !== 1 ? "s" : ""}</p>
             </div>
           </div>

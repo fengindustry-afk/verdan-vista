@@ -1,4 +1,5 @@
 import { BentoCard } from "@/components/BentoCard";
+import { InfoTip } from "@/components/InfoTip";
 import { Leaf, Zap, BarChart3, Activity, Loader2 } from "lucide-react";
 import { AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip } from "recharts";
 import { useFeedstock, useWorkProcessEntries } from "@/hooks/useCollection";
@@ -41,10 +42,30 @@ export default function Dashboard() {
   }, [feedstock]);
 
   const stats = [
-    { label: "Net CORCs", value: fmt(agg.netCorc, 2), icon: Leaf },
-    { label: "Batches Tracked", value: fmt(feedstock.length), icon: BarChart3 },
-    { label: "CORC-Eligible", value: fmt(agg.eligible), icon: Zap },
-    { label: "Verified Batches", value: fmt(agg.verified), icon: Activity },
+    {
+      label: "Net CORCs",
+      value: fmt(agg.netCorc, 2),
+      icon: Leaf,
+      tip: "Total tCO₂e locked across every batch: gross carbon stored minus the emissions from haulage, drying and pyrolysis.",
+    },
+    {
+      label: "Batches Tracked",
+      value: fmt(feedstock.length),
+      icon: BarChart3,
+      tip: "Every feedstock batch on record, whatever custody stage it sits in.",
+    },
+    {
+      label: "CORC-Eligible",
+      value: fmt(agg.eligible),
+      icon: Zap,
+      tip: "Batches that pass the eligibility rules (measured yield, carbon content and permanence) and can be put forward for issuance.",
+    },
+    {
+      label: "Verified Batches",
+      value: fmt(agg.verified),
+      icon: Activity,
+      tip: "Batches marked Verified after lab sampling and document checks.",
+    },
   ];
 
   return (
@@ -70,6 +91,7 @@ export default function Dashboard() {
                   <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
                     <stat.icon className="h-4 w-4 text-primary" />
                   </div>
+                  <InfoTip text={stat.tip} />
                 </div>
                 <p className="text-2xl font-bold text-foreground mt-3">{stat.value}</p>
                 <p className="text-xs text-muted-foreground mt-1">{stat.label}</p>
@@ -80,12 +102,12 @@ export default function Dashboard() {
           {/* CORC credit visibility */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {[
-              { label: "Credited (Carbon Sink)", value: agg.credited, color: "text-primary" },
-              { label: "In Submission (Application)", value: agg.inSubmission, color: "text-cyan-400" },
-              { label: "Pending Pipeline", value: agg.pending, color: "text-amber-400" },
+              { label: "Credited (Carbon Sink)", value: agg.credited, color: "text-primary", tip: "CORCs from batches that reached the Carbon Sink stage. These are durably removed and countable as issued." },
+              { label: "In Submission (Application)", value: agg.inSubmission, color: "text-cyan-400", tip: "CORCs from batches at the Application stage, applied to soil and awaiting registry sign-off." },
+              { label: "Pending Pipeline", value: agg.pending, color: "text-amber-400", tip: "Everything still upstream of Application: collection, pre-processing, conversion, sampling and storage." },
             ].map((c, i) => (
               <BentoCard key={c.label} delay={0.2 + i * 0.06}>
-                <p className="text-xs text-muted-foreground">{c.label}</p>
+                <p className="text-xs text-muted-foreground flex items-center gap-1.5">{c.label} <InfoTip text={c.tip} /></p>
                 <p className={`text-2xl font-bold mt-2 ${c.color}`}>{fmt(Math.max(0, c.value), 2)}</p>
                 <p className="text-[10px] text-muted-foreground mt-1">tCO₂e CORC</p>
               </BentoCard>
@@ -94,7 +116,10 @@ export default function Dashboard() {
 
           <div className="grid lg:grid-cols-5 gap-4">
             <BentoCard className="lg:col-span-3" delay={0.3}>
-              <h3 className="text-sm font-semibold text-foreground mb-4">CORCs by Custody Stage</h3>
+              <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-1.5">
+                CORCs by Custody Stage
+                <InfoTip text="Net CORC held at each step of the custody chain, from Collection through to Carbon Sink. Hover a point for the exact tonnage." />
+              </h3>
               <div className="h-56">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={agg.stageCounts}>
@@ -122,7 +147,10 @@ export default function Dashboard() {
             </BentoCard>
 
             <BentoCard className="lg:col-span-2" delay={0.4}>
-              <h3 className="text-sm font-semibold text-foreground mb-4">Recent Activity</h3>
+              <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-1.5">
+                Recent Activity
+                <InfoTip text="The last six entries from batch audit logs: what changed, on which batch, by whom and when." />
+              </h3>
               <div className="space-y-3">
                 {recentActivity.length === 0 && (
                   <p className="text-xs text-muted-foreground">No activity recorded yet.</p>

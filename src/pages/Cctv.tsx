@@ -2,6 +2,7 @@ import { BentoCard } from "@/components/BentoCard";
 import { HlsPlayer } from "@/components/HlsPlayer";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { InfoTip } from "@/components/InfoTip";
 import { Video, MapPin, Radio } from "lucide-react";
 import { useState } from "react";
 import { sanitizeStreamUrl } from "@/lib/validation";
@@ -13,14 +14,15 @@ interface PresetStream {
   url: string;
 }
 
-// Public HLS reference streams maintained by Mux and Apple — the same demo
-// infrastructure the hls.js project uses for its own tests. Always-on, CORS-
-// enabled and trusted, so the player has a reliable feed to demo against
-// (unlike third-party webcam feeds, which frequently go offline).
+// Real surveillance feeds only — the Mux/Apple entries that used to sit here
+// were test FILMS, not cameras, which made the page misleading as a CCTV view.
+//
+// These are third-party public webcams and they do go offline: of the three
+// originally listed, Kolobrzeg now 403s and Eger 404s, so only Warsaw remains.
+// It also runs hotlink protection, which is why HlsPlayer sends no referrer.
+// Point the "Connect a custom stream" box at your own camera for site footage.
 const LANDMARK_STREAMS: PresetStream[] = [
-  { name: "Big Buck Bunny", location: "Mux HLS reference", url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8" },
-  { name: "Apple BipBop", location: "Apple HLS reference", url: "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_ts/master.m3u8" },
-  { name: "Tears of Steel", location: "Mux HLS reference", url: "https://test-streams.mux.dev/tos_ismc/main.m3u8" },
+  { name: "Warsaw Old Town", location: "Warsaw, Poland", url: "https://hoktastream2.webcamera.pl/warszawa_cam_5f3b1a/warszawa_cam_5f3b1a.stream/playlist.m3u8" },
 ];
 
 export default function Cctv() {
@@ -43,7 +45,7 @@ export default function Cctv() {
         <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
           <Video className="h-6 w-6 text-primary" /> CCTV Monitoring
         </h1>
-        <p className="text-sm text-muted-foreground mt-1">Live HLS site surveillance &amp; reference camera feeds</p>
+        <p className="text-sm text-muted-foreground mt-1">Live HLS site surveillance &amp; public camera feeds</p>
       </div>
 
       <div className="grid lg:grid-cols-5 gap-4">
@@ -54,6 +56,7 @@ export default function Cctv() {
               <div>
                 <h3 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
                   <Radio className="h-3.5 w-3.5 text-primary animate-pulse" /> {active.name}
+                  <InfoTip text="The feed currently playing. Video streams straight from the camera, so nothing is recorded or stored by this app." />
                 </h3>
                 <p className="text-[11px] text-muted-foreground flex items-center gap-1 mt-0.5">
                   <MapPin className="h-3 w-3" /> {active.location}
@@ -67,7 +70,10 @@ export default function Cctv() {
           </BentoCard>
 
           <BentoCard>
-            <Label className="text-xs">Connect a custom stream (HLS .m3u8)</Label>
+            <Label className="text-xs flex items-center gap-1.5">
+              Connect a custom stream (HLS .m3u8)
+              <InfoTip text="Point this at your own site camera's HLS playlist URL to watch it here. The URL is checked and only http(s) is accepted; it is not saved between visits." />
+            </Label>
             <div className="flex gap-2 mt-1">
               <Input
                 value={customUrl}
@@ -87,7 +93,10 @@ export default function Cctv() {
 
         {/* Stream list */}
         <div className="lg:col-span-2 space-y-3">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Reference Camera Feeds</h2>
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+            Camera Feeds
+            <InfoTip text="Saved feeds you can switch between. These are public third-party webcams and they do go offline without warning." />
+          </h2>
           {LANDMARK_STREAMS.map((s, i) => (
             <BentoCard key={s.url} delay={i * 0.05} className="cursor-pointer" >
               <button onClick={() => setActive(s)} className="w-full text-left flex items-center gap-3">

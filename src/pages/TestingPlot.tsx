@@ -18,6 +18,7 @@ import { EditSoilSampleDialog } from "@/components/capture/EditSoilSampleDialog"
 import { EditObservationDialog } from "@/components/capture/EditObservationDialog";
 import { EditApplicationDialog } from "@/components/capture/EditApplicationDialog";
 import { TestingPlotSummary } from "@/components/TestingPlotSummary";
+import { InfoTip } from "@/components/InfoTip";
 import { PairTable } from "@/components/testing-plot/PairTable";
 import { PlotMap } from "@/components/testing-plot/PlotMap";
 import { MapView, type MapPoint, type MapPointKind } from "@/components/map/MapView";
@@ -79,6 +80,7 @@ export default function TestingPlot() {
                 `testing-plot-${new Date().toISOString().slice(0, 10)}.xlsx`
               )
             }
+            title="Muat turun setiap seksyen (A–H) sebagai satu fail Excel berbilang helaian"
             className="inline-flex items-center gap-2 rounded-lg border border-primary/40 text-primary px-3 py-2 text-sm font-semibold hover:bg-primary/10 transition-colors"
           >
             <FileDown className="h-4 w-4" /> Eksport Excel
@@ -160,7 +162,10 @@ function SectionHeader({ def, action }: { def: PlotSectionDef; action?: React.Re
           <def.icon className="h-4 w-4 text-primary" />
         </div>
         <div>
-          <h2 className="text-sm font-semibold text-foreground">Seksyen {def.letter} — {def.titleBm}</h2>
+          <h2 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+            Seksyen {def.letter} — {def.titleBm}
+            <InfoTip text={`${def.title}. Seksyen ini mengikut struktur buku kerja ESTERRA Plot 5; nilai direkod per pokok dan boleh dieksport ke Excel.`} />
+          </h2>
           <p className="text-[11px] text-muted-foreground">{def.title}</p>
         </div>
       </div>
@@ -329,8 +334,9 @@ function PlotOverview({
   return (
     <BentoCard>
       <div className="mb-3 flex items-center justify-between gap-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
           Pelan plot (pandangan atas)
+          <InfoTip text="Setiap rekod yang mempunyai koordinat, dilukis di atas plot. Peta menggunakan GPS sebenar setiap rekod; Pelan meletakkan imbasan pada pokoknya untuk skema yang kemas. Klik satu titik untuk butiran dan bukti." />
         </h3>
         <div className="inline-flex rounded-lg bg-muted p-0.5 border border-border">
           {(["map", "plan"] as const).map((v) => (
@@ -338,6 +344,9 @@ function PlotOverview({
               key={v}
               onClick={() => setView(v)}
               aria-pressed={view === v}
+              title={v === "map"
+                ? "Peta sebenar — setiap rekod pada koordinat GPSnya"
+                : "Pelan skema — imbasan dilekatkan pada pokoknya"}
               className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
                 view === v ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
               }`}
@@ -357,6 +366,7 @@ function PlotOverview({
                 key={k}
                 onClick={() => toggleKind(k)}
                 aria-pressed={!off}
+                title={`${off ? "Tunjukkan" : "Sembunyikan"} ${KIND_LABELS[k].toLowerCase()} pada plot`}
                 className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
                   off ? "border-border text-muted-foreground opacity-60" : "border-primary/30 bg-primary/5 text-foreground"
                 }`}
@@ -449,8 +459,9 @@ function EvidencePhotos() {
   if (photos.length === 0) return null;
   return (
     <div className="space-y-3 pt-2">
-      <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+      <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
         Bukti foto · {photos.length}
+        <InfoTip text="Foto bergeotag yang dirakam di tapak. Ia menjadi bukti visual untuk tuntutan carbon sink. Klik imej untuk melihat versi penuh." />
       </h3>
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {photos.map((p, i) => (
@@ -524,8 +535,9 @@ function SectionA({
       )}
       {groups.map(([group, groupTrees]) => (
         <div key={group} className="space-y-3">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
             {group} · {groupTrees.length} pokok
+            <InfoTip text={`Pokok dalam kumpulan rawatan "${group}". Klik satu kad untuk membuka pokok itu dan menambah bacaan, imbasan atau catatan baharu.`} />
           </h3>
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {groupTrees.map((t, i) => (
@@ -855,8 +867,9 @@ function SectionG({
       </div>
 
       <div>
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
           Progresi bulanan — Improvement (%)
+          <InfoTip text="Peratus perubahan setiap bulan berbanding bacaan asas, membandingkan pokok dirawat dengan pokok kawalan. Sel kosong bermakna tiada bacaan berpasangan untuk bulan itu." />
         </h3>
         <div className="overflow-x-auto rounded-xl border border-border/50">
           <table className="w-full text-xs">
@@ -968,7 +981,7 @@ function SectionH({ applications, canEdit }: { applications: PlotApplication[]; 
                   <td className="px-3 py-2 whitespace-nowrap">{a.Supervisor ?? "—"}</td>
                   <td className="px-3 py-2">
                     {canEdit && (
-                      <button onClick={() => setEditing(a)} className="rounded-md p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors" aria-label="Kemas kini aplikasi">
+                      <button onClick={() => setEditing(a)} className="rounded-md p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors" aria-label="Kemas kini aplikasi" title="Kemas kini rekod aplikasi ini — kadar, bilangan pokok, kos dan pegawai">
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
                     )}

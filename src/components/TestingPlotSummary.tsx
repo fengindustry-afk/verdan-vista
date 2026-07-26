@@ -9,6 +9,7 @@ import {
   type SoilResult,
 } from "@/lib/testingPlotSummary";
 import { fmt, fmtPrice } from "@/lib/format";
+import { InfoTip } from "@/components/InfoTip";
 
 /**
  * ESTERRA "Testing Site Summary" — averages each growth/health parameter's
@@ -71,8 +72,9 @@ export function TestingPlotSummary({
 
   return (
     <div className="space-y-4">
-      <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+      <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
         Ringkasan Tapak Ujian
+        <InfoTip text="Gambaran keseluruhan ujian: jenis tanaman, bilangan pokok dirawat berbanding kawalan, tempoh, produk dan jumlah biochar serta kosnya. Nilai dikira terus daripada rekod yang dimasukkan." />
       </h2>
       <BentoCard>
         <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2 text-xs">
@@ -94,7 +96,10 @@ export function TestingPlotSummary({
           .map((c, ci) => (
             <BentoCard key={c.group} delay={ci * 0.05}>
               <div className="flex items-baseline justify-between mb-4">
-                <h3 className="text-sm font-semibold text-foreground">{c.group}</h3>
+                <h3 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+                  {c.group}
+                  <InfoTip text={`Purata peratus perubahan bagi kumpulan rawatan "${c.group}" — pertumbuhan dan parameter tanah, dikira daripada bacaan asas berbanding bacaan terkini setiap pokok.`} />
+                </h3>
                 <span className="text-[11px] text-muted-foreground">{c.treeCount} pokok</span>
               </div>
               <dl className="space-y-2.5">

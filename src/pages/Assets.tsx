@@ -1,18 +1,20 @@
 import { BentoCard } from "@/components/BentoCard";
 import { useLocations, usePhotos } from "@/hooks/useCollection";
-import { MapPin, Camera, Satellite, Loader2, ExternalLink, Upload } from "lucide-react";
+import { MapPin, Camera, Satellite, Loader2, ExternalLink, Upload, Trash2 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AddLocationDialog } from "@/components/capture/AddLocationDialog";
 import { CapturePhotoDialog } from "@/components/capture/CapturePhotoDialog";
 import { StoredImage } from "@/components/StoredImage";
+import { InfoTip } from "@/components/InfoTip";
 import { Buckets } from "@/lib/storage";
 import { useAuth } from "@/lib/auth";
 import { hasPermission, Permission } from "@/lib/rbac";
 import type { LocationData, GeotaggedPhoto } from "@/lib/types";
 import { useRef, useState } from "react";
-import { useUpsert } from "@/hooks/useCollection";
+import { useUpsert, useDelete } from "@/hooks/useCollection";
+import { confirmDelete } from "@/components/ConfirmDialog";
 import { Collections } from "@/lib/collections";
 import { reuploadStoredImage } from "@/lib/capture";
 import { toast } from "sonner";
@@ -22,6 +24,47 @@ export default function Assets() {
   const { data: photos = [], isLoading: photoLoading } = usePhotos();
   const { role } = useAuth();
   const canAdd = hasPermission(role, Permission.AddLocations);
+  // Manager + Admin, matching the asset_locations delete policy in security/rls.sql.
+  const canDelete = hasPermission(role, Permission.DeleteLocations);
+
+  const delLoc = useDelete(Collections.locations);
+  /**
+   * Work-process entries copy a site's name and coordinates in at capture time
+   * rather than referencing it, so removing a location never rewrites history —
+   * past entries keep the site they were recorded against.
+   */
+  const removeLoc = async (l: LocationData) => {
+    const ok = await confirmDelete({
+      title: `Delete "${l.Name || l.id}"?`,
+      description:
+        "It disappears from the site pickers. Work-process entries already recorded against it keep their coordinates, and the asset can be restored from the Audit Trail.",
+    });
+    if (!ok) return;
+    await delLoc.mutateAsync(l.id);
+    toast.success(`Deleted "${l.Name || l.id}"`);
+    setLoc(null);
+  };
+
+  const delPhoto = useDelete(Collections.photos);
+  /**
+   * Removes the photo record but deliberately leaves the uploaded object in the
+   * bucket: restoring from the Audit Trail brings back a row still pointing at
+   * PhotoUrl, and a deleted blob would restore as a broken image. The stored
+   * Sha256 also stops a restored record quietly referring to different bytes.
+   */
+  const removePhoto = async (p: GeotaggedPhoto) => {
+    const label = p.Description || p.FileName || "this photo";
+    const ok = await confirmDelete({
+      title: `Delete ${label}?`,
+      description:
+        "Geotagged photos are carbon-credit evidence. The image file itself is kept, and the record can be restored from the Audit Trail.",
+    });
+    if (!ok) return;
+    await delPhoto.mutateAsync(p.id);
+    toast.success("Photo deleted");
+    setPhoto(null);
+    setPhotoPreview(null);
+  };
 
   const [loc, setLoc] = useState<LocationData | null>(null);
   const [photo, setPhoto] = useState<GeotaggedPhoto | null>(null);
@@ -74,8 +117,14 @@ export default function Assets() {
 
       <Tabs defaultValue="locations">
         <TabsList>
-          <TabsTrigger value="locations">Locations ({locations.length})</TabsTrigger>
-          <TabsTrigger value="photos">Geotagged Photos ({photos.length})</TabsTrigger>
+          <TabsTrigger value="locations" className="gap-1.5">
+            Locations ({locations.length})
+            <InfoTip text="GPS-captured sites: plots, kilns, stores and application areas. Each card shows the coordinates, capture accuracy and any satellite biomass estimate fused in." />
+          </TabsTrigger>
+          <TabsTrigger value="photos" className="gap-1.5">
+            Geotagged Photos ({photos.length})
+            <InfoTip text="Field photos stamped with coordinates and time. They are the visual evidence trail behind each carbon-credit claim." />
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="locations" className="mt-4">
@@ -100,6 +149,7 @@ export default function Assets() {
                     {l.BiomassDataSource && l.BiomassDataSource !== "NONE" && (
                       <div className="mt-3 pt-3 border-t border-border/50 flex items-center gap-1.5 text-[11px] text-cyan-400">
                         <Satellite className="h-3 w-3" /> Biomass: {l.FusedBiomass || l.SatelliteBiomass} ({l.BiomassQuality})
+                        <InfoTip text="Above-ground biomass at this site from ESA satellite data, fused with any ground measurements. The bracketed value is the confidence grade." />
                       </div>
                     )}
                   </BentoCard>
@@ -159,6 +209,18 @@ export default function Assets() {
                   Open in Google Maps <ExternalLink className="h-3 w-3" />
                 </a>
               )}
+              {canDelete && (
+                <div className="pt-3 mt-1 border-t border-border/50">
+                  <button
+                    onClick={() => removeLoc(loc)}
+                    disabled={delLoc.isPending}
+                    className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-destructive transition-colors disabled:opacity-60"
+                  >
+                    {delLoc.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                    Delete asset
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </DialogContent>
@@ -183,6 +245,7 @@ export default function Assets() {
                   <button
                     onClick={() => photoFileRef.current?.click()}
                     disabled={replacing}
+                    title="Upload a new image for this record. The coordinates, time and capture history stay as they are."
                     className="absolute bottom-2 right-2 inline-flex items-center gap-1 rounded-lg bg-background/80 backdrop-blur px-2.5 py-1 text-xs border border-border disabled:opacity-60"
                   >
                     {replacing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />} Replace
@@ -200,6 +263,18 @@ export default function Assets() {
                      className="inline-flex items-center gap-1.5 text-primary text-xs hover:underline">
                     Open in Google Maps <ExternalLink className="h-3 w-3" />
                   </a>
+                )}
+                {canDelete && (
+                  <div className="pt-3 mt-1 border-t border-border/50">
+                    <button
+                      onClick={() => removePhoto(photo)}
+                      disabled={delPhoto.isPending}
+                      className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-destructive transition-colors disabled:opacity-60"
+                    >
+                      {delPhoto.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                      Delete photo
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
