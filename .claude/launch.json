@@ -14,6 +14,15 @@
       "port": 8090
     },
     {
+      "name": "verdant-vista-other-dir",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run", "dev", "--prefix", "D:/Projects/verdant-vista-03-main",
+        "--", "--port", "8096", "--strictPort"
+      ],
+      "port": 8096
+    },
+    {
       "name": "verdant-vista-alt",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--", "--port", "8090", "--strictPort"],
