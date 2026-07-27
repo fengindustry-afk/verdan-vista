@@ -339,7 +339,7 @@ export function WorkProcessStageDialog({
                   onClick={() => setView("details")}
                   aria-label="Details view"
                   aria-pressed={view === "details"}
-                  className={`rounded p-1.5 transition-colors ${view === "details" ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted/60"}`}
+                  className={`-my-2 rounded px-2.5 py-3.5 transition-colors ${view === "details" ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted/60"}`}
                 >
                   <Rows3 className="h-3.5 w-3.5" />
                 </button>
@@ -347,7 +347,7 @@ export function WorkProcessStageDialog({
                   onClick={() => setView("tiles")}
                   aria-label="Tiles view"
                   aria-pressed={view === "tiles"}
-                  className={`rounded p-1.5 transition-colors ${view === "tiles" ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted/60"}`}
+                  className={`-my-2 rounded px-2.5 py-3.5 transition-colors ${view === "tiles" ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted/60"}`}
                 >
                   <LayoutGrid className="h-3.5 w-3.5" />
                 </button>
