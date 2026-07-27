@@ -41,9 +41,6 @@ type SortKey = "name" | "date" | "by";
 
 /** Remembers the Name column width across sessions. */
 const NAME_WIDTH_KEY = "workProcess.nameWidth";
-/** Remembers the preview-pane width across sessions; font scales with it. */
-const PREVIEW_WIDTH_KEY = "workProcess.previewWidth";
-const PREVIEW_BASE = 288; // px — the old w-72, and the 1× font baseline.
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -52,7 +49,7 @@ function todayIso() {
 /**
  * Work Process browser, shaped like a Windows Explorer window: address bar and
  * navigation buttons on top, a folder tree on the left (Phase → Group → Stage),
- * a sortable details list in the middle, and a preview pane on the right.
+ * and a sortable details list. Opening an entry pops its detail up in a dialog.
  */
 export function WorkProcessStageDialog({
   stage: initialStage,
@@ -92,10 +89,6 @@ export function WorkProcessStageDialog({
   // Draggable width of the Name column, so long batch IDs can be read in full.
   const [nameWidth, setNameWidth] = useState(
     () => Number(localStorage.getItem(NAME_WIDTH_KEY)) || 320
-  );
-  // Draggable width of the preview pane; the font size scales off it.
-  const [previewWidth, setPreviewWidth] = useState(
-    () => Number(localStorage.getItem(PREVIEW_WIDTH_KEY)) || PREVIEW_BASE
   );
 
   useEffect(() => {
@@ -149,7 +142,7 @@ export function WorkProcessStageDialog({
 
   const selected = rows.find((e) => e.id === selectedId) ?? null;
 
-  /** Double-click an entry to open its linked feedstock detail, if any. */
+  /** Jump from the detail popup to the entry's linked feedstock, if any. */
   const openFeedstock = (entry: WorkProcessEntry) => {
     const f = feedstockForEntry(entry.Values, feedstock);
     if (!f) {
@@ -176,31 +169,6 @@ export function WorkProcessStageDialog({
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
-  };
-
-  // Drag the pane's left edge: leftward widens it (and enlarges the font).
-  // Pointer capture keeps the drag glued to the handle even as the cursor
-  // races over the content list, so it never "sticks" mid-glide.
-  const startPreviewResize = (ev: React.PointerEvent) => {
-    ev.preventDefault();
-    ev.stopPropagation();
-    const el = ev.currentTarget as HTMLElement;
-    el.setPointerCapture(ev.pointerId);
-    const startX = ev.clientX;
-    const startW = previewWidth;
-    const move = (m: PointerEvent) =>
-      setPreviewWidth(Math.min(640, Math.max(240, startW + startX - m.clientX)));
-    const up = () => {
-      el.releasePointerCapture(ev.pointerId);
-      el.removeEventListener("pointermove", move);
-      el.removeEventListener("pointerup", up);
-      setPreviewWidth((w) => {
-        localStorage.setItem(PREVIEW_WIDTH_KEY, String(w));
-        return w;
-      });
-    };
-    el.addEventListener("pointermove", move);
-    el.addEventListener("pointerup", up);
   };
 
   const toggleSort = (key: SortKey) =>
@@ -465,7 +433,6 @@ export function WorkProcessStageDialog({
                         >
                           <tr
                             onClick={() => setSelectedId(e.id)}
-                            onDoubleClick={() => openFeedstock(e)}
                             tabIndex={0}
                             onKeyDown={(ev) => ev.key === "Enter" && setSelectedId(e.id)}
                             className={`cursor-default border-b border-border/40 focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring ${
@@ -505,7 +472,6 @@ export function WorkProcessStageDialog({
                       >
                       <button
                         onClick={() => setSelectedId(e.id)}
-                        onDoubleClick={() => openFeedstock(e)}
                         className={`flex w-full items-start gap-2 rounded p-2 text-left transition-colors ${
                           selectedId === e.id ? "bg-primary/10" : "hover:bg-muted/60"
                         }`}
@@ -531,78 +497,6 @@ export function WorkProcessStageDialog({
                 )}
               </div>
 
-              {/* Preview pane — draggable left edge; font scales with width */}
-              {selected && stage && (
-                <aside
-                  style={{ width: previewWidth, fontSize: `${(previewWidth / PREVIEW_BASE) * 0.8125}rem` }}
-                  className="absolute inset-y-0 right-0 z-10 shrink-0 overflow-auto border-l border-border bg-background p-3 lg:relative lg:inset-auto lg:bg-muted/20"
-                >
-                  {/* Resize handle */}
-                  <span
-                    role="separator"
-                    aria-orientation="vertical"
-                    aria-label="Resize preview pane"
-                    onPointerDown={startPreviewResize}
-                    onDoubleClick={() => {
-                      localStorage.removeItem(PREVIEW_WIDTH_KEY);
-                      setPreviewWidth(PREVIEW_BASE);
-                    }}
-                    title="Drag to resize · double-click to reset"
-                    className="absolute -left-1 top-0 z-20 h-full w-3 cursor-col-resize touch-none bg-transparent hover:bg-primary/40"
-                  />
-                  <button
-                    onClick={() => setSelectedId(null)}
-                    aria-label="Close preview"
-                    className="absolute right-2 top-2 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground lg:hidden"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                  <div className="mb-3 flex items-start gap-2">
-                    <FileText className="mt-0.5 h-8 w-8 shrink-0 text-primary" strokeWidth={1.5} />
-                    <div className="min-w-0">
-                      <p className="truncate text-[1.08em] font-semibold text-foreground">{entryTitle(selected)}</p>
-                      <p className="text-[0.85em] text-muted-foreground">{stage.Title}</p>
-                    </div>
-                  </div>
-                  <dl className="space-y-1.5">
-                    {stageFields(stage)
-                      .filter((f) => selected.Values[f.Key]?.trim())
-                      .map((f) => (
-                        <div key={f.Key} className="border-b border-border/30 pb-1.5">
-                          <dt className="text-[0.77em] uppercase tracking-wide text-muted-foreground">
-                            {f.Label}{f.Unit ? ` (${f.Unit})` : ""}
-                          </dt>
-                          <dd className="break-words text-[0.92em] text-foreground">{selected.Values[f.Key]}</dd>
-                          {f.Type === "location" && selected.Values[f.Key + COORDS_SUFFIX] && (
-                            <dd className="font-mono text-[0.77em] text-muted-foreground">
-                              {selected.Values[f.Key + COORDS_SUFFIX]}
-                            </dd>
-                          )}
-                        </div>
-                      ))}
-                  </dl>
-                  <p className="mt-3 text-[0.85em] text-muted-foreground">
-                    Recorded by {selected.CapturedBy}
-                    {selected.CapturedByEmail && selected.CapturedByEmail !== selected.CapturedBy
-                      ? ` (${selected.CapturedByEmail})` : ""}
-                    {" · "}{formatEntryTimestamp(selected.Timestamp)}
-                  </p>
-                  {feedstockForEntry(selected.Values, feedstock) && (
-                    <button
-                      onClick={() => openFeedstock(selected)}
-                      className="mt-3 flex w-full items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-[0.92em] font-medium text-primary hover:bg-primary/10 transition-colors"
-                    >
-                      <ExternalLink className="h-3.5 w-3.5" /> View linked custody detail
-                    </button>
-                  )}
-                  <div className="mt-2">
-                    <HistoryButton
-                      title="Entry history"
-                      filter={{ collection: Collections.workProcess, documentId: selected.id }}
-                    />
-                  </div>
-                </aside>
-              )}
             </div>
 
             {/* Status bar */}
@@ -610,7 +504,6 @@ export function WorkProcessStageDialog({
               <span>
                 {stage ? `${rows.length} item${rows.length === 1 ? "" : "s"}` : `${WORK_PROCESS_FOLDERS} folders`}
               </span>
-              {selected && <span>1 item selected</span>}
             </div>
           </div>
         </div>
@@ -745,6 +638,78 @@ export function WorkProcessStageDialog({
         )}
       </DialogContent>
 
+      {/* Entry detail, opened by clicking an entry. */}
+      <Dialog open={!!selected} onOpenChange={(o) => !o && setSelectedId(null)}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-auto">
+          {selected && stage && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-start gap-2 pr-6 text-left">
+                  <FileText className="mt-0.5 h-6 w-6 shrink-0 text-primary" strokeWidth={1.5} />
+                  <span className="min-w-0">
+                    <span className="block truncate text-base font-semibold">{entryTitle(selected)}</span>
+                    <span className="block text-xs font-normal text-muted-foreground">{stage.Title}</span>
+                  </span>
+                </DialogTitle>
+              </DialogHeader>
+              <dl className="space-y-1.5 text-sm">
+                {stageFields(stage)
+                  .filter((f) => selected.Values[f.Key]?.trim())
+                  .map((f) => (
+                    <div key={f.Key} className="border-b border-border/30 pb-1.5">
+                      <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                        {f.Label}{f.Unit ? ` (${f.Unit})` : ""}
+                      </dt>
+                      <dd className="break-words text-foreground">{selected.Values[f.Key]}</dd>
+                      {f.Type === "location" && selected.Values[f.Key + COORDS_SUFFIX] && (
+                        <dd className="font-mono text-[10px] text-muted-foreground">
+                          {selected.Values[f.Key + COORDS_SUFFIX]}
+                        </dd>
+                      )}
+                    </div>
+                  ))}
+              </dl>
+              <p className="text-xs text-muted-foreground">
+                Recorded by {selected.CapturedBy}
+                {selected.CapturedByEmail && selected.CapturedByEmail !== selected.CapturedBy
+                  ? ` (${selected.CapturedByEmail})` : ""}
+                {" · "}{formatEntryTimestamp(selected.Timestamp)}
+              </p>
+              <div className="flex gap-2">
+                {canEdit && (
+                  <button
+                    onClick={() => {
+                      const entry = selected;
+                      setSelectedId(null);
+                      startEdit(entry);
+                    }}
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-muted transition-colors"
+                  >
+                    <Pencil className="h-3.5 w-3.5" /> Edit entry
+                  </button>
+                )}
+                <button
+                  onClick={() => openFeedstock(selected)}
+                  disabled={!feedstockForEntry(selected.Values, feedstock)}
+                  title={
+                    feedstockForEntry(selected.Values, feedstock)
+                      ? undefined
+                      : "No feedstock batch is linked to this entry"
+                  }
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm font-medium text-primary hover:bg-primary/10 disabled:opacity-40 disabled:hover:bg-primary/5 transition-colors"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" /> View custody detail
+                </button>
+              </div>
+              <HistoryButton
+                title="Entry history"
+                filter={{ collection: Collections.workProcess, documentId: selected.id }}
+              />
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Entry history, opened from the right-click menu. */}
       <Dialog open={!!historyFor} onOpenChange={(o) => !o && setHistoryFor(null)}>
         <DialogContent className="max-w-lg">
@@ -823,7 +788,7 @@ function EntryMenu({
 }) {
   return (
     <ContextMenu>
-      <ContextMenuTrigger asChild onContextMenu={onOpen}>
+      <ContextMenuTrigger asChild>
         {children}
       </ContextMenuTrigger>
       <ContextMenuContent className="w-44">
