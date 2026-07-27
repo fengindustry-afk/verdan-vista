@@ -1,8 +1,8 @@
 import { BentoCard } from "@/components/BentoCard";
 import { useFeedstock, useWorkProcessEntries } from "@/hooks/useCollection";
-import { corcMetrics, withMeasuredCorcInputs, CUSTODY_STAGES, OPERATIONS_STAGE_COUNT } from "@/lib/feedstock";
+import { corcMetrics, withMeasuredCorcInputs, CUSTODY_STAGES, OPERATIONS_STAGE_COUNT, type CustodyStage } from "@/lib/feedstock";
 import { fmt } from "@/lib/format";
-import { Truck, Settings2, Flame, FlaskConical, Warehouse, Sprout, Trees, Loader2, ChevronRight, ChevronDown, Search, X, Scale, AlertTriangle } from "lucide-react";
+import { Truck, Settings2, Flame, FlaskConical, Warehouse, Sprout, Trees, BadgeCheck, Loader2, ChevronRight, ChevronDown, Search, X, Scale, AlertTriangle } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
@@ -22,7 +22,13 @@ import { ReadinessBoard } from "@/components/ReadinessBoard";
 import { MonthPicker } from "@/components/MonthPicker";
 import { InfoTip } from "@/components/InfoTip";
 
-const STAGE_META: Record<string, { icon: typeof Truck; desc: string }> = {
+/**
+ * Icon and blurb per custody stage. Keyed on CustodyStage rather than string so
+ * adding a stage to CUSTODY_STAGES without a card here is a compile error — the
+ * Certification stage was added without one and crashed this whole tab on an
+ * undefined `.icon` lookup.
+ */
+const STAGE_META: Record<CustodyStage, { icon: typeof Truck; desc: string }> = {
   "Feedstock Collection": { icon: Truck, desc: "Biomass gathered from source" },
   "Feedstock Pre-Processing": { icon: Settings2, desc: "Drying, sizing and prep" },
   "Material Conversion": { icon: Flame, desc: "Pyrolysis into biochar" },
@@ -30,6 +36,7 @@ const STAGE_META: Record<string, { icon: typeof Truck; desc: string }> = {
   "Storage": { icon: Warehouse, desc: "Cured biochar in storage" },
   "Application": { icon: Sprout, desc: "Field / soil application" },
   "Carbon Sink": { icon: Trees, desc: "Durable removal, credited" },
+  "Carbon Certification": { icon: BadgeCheck, desc: "Registry-verified CORCs" },
 };
 
 export default function Workflow() {
