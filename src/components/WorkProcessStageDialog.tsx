@@ -675,7 +675,9 @@ export function WorkProcessStageDialog({
                   ? ` (${selected.CapturedByEmail})` : ""}
                 {" · "}{formatEntryTimestamp(selected.Timestamp)}
               </p>
-              <div className="flex gap-2">
+              {/* Side by side once there's room; stacked on a phone, where
+                  "View custody detail" wraps to two lines at half width. */}
+              <div className="flex flex-col gap-2 sm:flex-row">
                 {canEdit && (
                   <button
                     onClick={() => {
