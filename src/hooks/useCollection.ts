@@ -110,6 +110,30 @@ export function useWorkProcessEntries() {
   });
 }
 
+/**
+ * Distinct supply batch ids, newest first — the options an operator picks from
+ * when linking a draw-down's Source Batch ID back to what it consumed.
+ *
+ * Covers own production *and* externally purchased biochar (warehouse receipts
+ * with product "External Biochar"): a shipment drawn from bought-in stock is
+ * legitimate provenance, and must be linkable rather than forced onto a ZA
+ * production batch that did not supply it.
+ */
+export function useKnownBatchIds(): string[] {
+  const { data: entries = [] } = useWorkProcessEntries();
+  const ids = new Set<string>();
+  for (const e of entries) {
+    const isProduction = e.StageKey === "production_05" || e.StageKey === "production_10";
+    const isExternal =
+      e.StageKey === "warehouse" && e.Values?.product === "External Biochar";
+    if (isProduction || isExternal) {
+      const b = (e.Values?.batch_id ?? "").trim();
+      if (b && b !== "-") ids.add(b);
+    }
+  }
+  return [...ids].sort().reverse();
+}
+
 /** Category names for the tracker: custom ones if any have been added, else the built-in defaults. */
 export function useCategoryNames(): string[] {
   const { data: categories = [] } = useCostCategories();

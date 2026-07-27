@@ -12,7 +12,7 @@ import {
   phases, stageByKey, entryTitle, entrySubtitle, formatEntryTimestamp, WORKFLOW_CATALOG,
   type WorkflowStageDef, type WorkProcessEntry,
 } from "@/lib/workProcess";
-import { massBalance, balanceSummary, isError, NO_BATCH, type BatchBalance } from "@/lib/massBalance";
+import { massBalance, balanceSummary, isError, NO_BATCH, POOL, UNDATED, type BatchBalance } from "@/lib/massBalance";
 import { NewBatchDialog } from "@/components/NewBatchDialog";
 import { useAuth } from "@/lib/auth";
 import { hasPermission, Permission, UserRole } from "@/lib/rbac";
@@ -33,8 +33,8 @@ const STAGE_META: Record<string, { icon: typeof Truck; desc: string }> = {
 };
 
 export default function Workflow() {
-  const [searchParams] = useSearchParams();
-  const initialTab = searchParams.get("tab") || "work-process";
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = searchParams.get("tab") || "work-process";
   return (
     <div className="relative p-6 lg:p-8 space-y-6">
       <div className="glow-orb w-72 h-72 -top-36 -right-20 animate-pulse-glow" />
@@ -43,7 +43,7 @@ export default function Workflow() {
         <p className="text-sm text-muted-foreground mt-1">Custody lifecycle, work-process data collection & production readiness</p>
       </div>
 
-      <Tabs defaultValue={initialTab}>
+      <Tabs value={tab} onValueChange={(v) => setSearchParams({ tab: v })}>
         <TabsList>
           <TabsTrigger value="work-process" className="gap-1.5">
             Work Process
@@ -82,9 +82,12 @@ function balanceMessage(r: BatchBalance): string {
   const n = (c: number, one: string) => `${c} ${c === 1 ? one : one + "s"}`;
   switch (r.Status) {
     case "unsourced": return `${fmt(r.Consumed)} kg with no production record`;
+    case "premature": return `${fmt(-r.Remaining)} kg shipped before it was produced`;
     case "over": return `${fmt(-r.Remaining)} kg over (made ${fmt(r.Produced)}, shipped ${fmt(r.Consumed)})`;
     case "incomplete":
       if (r.BatchId === NO_BATCH) return `${n(r.MissingBatchId, "record")} with no batch id`;
+      if (r.BatchId === POOL) return `${n(r.UnlinkedCount, "shipment")} not linked to a production batch`;
+      if (r.BatchId === UNDATED) return `${n(r.UndatedCount, "movement")} with a weight but no date`;
       if (r.MissingAmount > 0) return `${n(r.MissingAmount, "record")} missing a weight`;
       return `${n(r.ZeroUnverified, "record")} recorded 0 kg — confirm it's correct`;
     default: return "";
@@ -93,8 +96,8 @@ function balanceMessage(r: BatchBalance): string {
 
 function BalanceRow({ r, onOpenBatch }: { r: BatchBalance; onOpenBatch: (q: string) => void }) {
   const err = isError(r.Status);
-  // Untraceable rows have no batch id to search on, so they aren't a link.
-  const orphan = r.BatchId === NO_BATCH;
+  // Untraceable / pooled rows have no single batch id to search on, so they aren't a link.
+  const orphan = r.BatchId === NO_BATCH || r.BatchId === POOL || r.BatchId === UNDATED;
   const tone = err
     ? "border-destructive/20 bg-destructive/5 hover:bg-destructive/10"
     : "border-amber-500/20 bg-amber-500/5 hover:bg-amber-500/10";
@@ -126,10 +129,12 @@ function MassBalanceCard({ rows, onOpenBatch }: { rows: ReturnType<typeof massBa
         <div className="min-w-0">
           <p className="text-sm font-semibold text-foreground flex items-center gap-1.5">
             Biochar Mass Balance
-            <InfoTip text="Checks that biochar shipped or applied never exceeds what was produced, per batch. Errors disqualify a batch from issuance; incomplete rows just need a missing weight or batch ID filled in. Click a flagged row to jump to its entries." />
+            <InfoTip text="Checks that biochar shipped or applied never exceeds what was supplied, per batch. Purchased (external) biochar counts as supply but is listed separately — it is not own production and cannot back a CORC claim. Errors disqualify a batch from issuance; incomplete rows just need a missing weight or batch ID filled in. Click a flagged row to jump to its entries." />
           </p>
           <p className="text-[11px] text-muted-foreground">
-            {fmt(summary.Produced)} kg produced · {fmt(summary.Consumed)} kg applied or sunk · {rows.length} batches
+            {fmt(summary.Produced)} kg produced
+            {summary.ExternalSupply > 0 && ` · ${fmt(summary.ExternalSupply)} kg purchased`}
+            {" · "}{fmt(summary.Consumed)} kg applied or sunk · {rows.length} batches
           </p>
         </div>
         <span className="ml-auto flex shrink-0 items-center gap-1.5">

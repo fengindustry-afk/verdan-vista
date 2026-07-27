@@ -1,9 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { massBalance, balanceSummary, NO_BATCH } from "./massBalance";
+import { massBalance, balanceSummary, NO_BATCH, POOL, UNDATED } from "./massBalance";
 import type { WorkProcessEntry } from "./workProcess";
 
-function entry(StageKey: string, Values: Record<string, string>): WorkProcessEntry {
-  return { id: `e${Math.random()}`, StageKey, StageTitle: StageKey, Values, CapturedBy: "test", Timestamp: "2026-01-01T00:00:00Z" };
+function entry(StageKey: string, Values: Record<string, string>, date = "2025-06-01"): WorkProcessEntry {
+  // Give every entry a date unless the test set one or opted out (date=""), so
+  // only the undated-specific test trips the "no date" warning.
+  const hasDate = Object.keys(Values).some((k) => k.endsWith("_date"));
+  const V = !hasDate && date ? { movement_date: date, ...Values } : Values;
+  return { id: `e${Math.random()}`, StageKey, StageTitle: StageKey, Values: V, CapturedBy: "test", Timestamp: "2026-01-01T00:00:00Z" };
 }
 
 describe("massBalance", () => {
@@ -27,9 +31,23 @@ describe("massBalance", () => {
     expect(rows[0]).toMatchObject({ Produced: 500, Consumed: 700, Remaining: -200, Status: "over" });
   });
 
-  it("flags draw-down with no production record as unsourced", () => {
+  it("pools an unlinked draw-down and flags it premature when nothing was produced first", () => {
     const rows = massBalance([entry("carbon_sink", { batch_id: "TIGGT-BT-2505-0001", quantity: "800" })]);
-    expect(rows[0]).toMatchObject({ Produced: 0, Consumed: 800, Status: "unsourced" });
+    // No phantom per-batch row; it draws from the pool, which is empty here.
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ BatchId: POOL, Consumed: 800, Remaining: -800, Status: "premature", UnlinkedCount: 1 });
+  });
+
+  it("pools an unlinked draw-down without error when production already covers it", () => {
+    const rows = massBalance([
+      entry("production_05", { batch_id: "ZA-01-11-24", final_biochar_amount: "1000", production_date: "2025-01-01" }),
+      entry("carbon_sink", { batch_id: "TIGGT-BT-2505-0001", quantity: "300", usage_date: "2025-02-01" }),
+    ]);
+    const prod = rows.find((r) => r.BatchId === "ZA-01-11-24");
+    const pool = rows.find((r) => r.BatchId === POOL);
+    expect(prod).toMatchObject({ Produced: 1000, Status: "ok" });
+    // Covered by prior production, so a traceability warning, not an error.
+    expect(pool).toMatchObject({ Consumed: 300, Status: "incomplete", UnlinkedCount: 1 });
   });
 
   it("charges draw-down to source_batch_id when the sink uses its own ID scheme", () => {
@@ -39,6 +57,14 @@ describe("massBalance", () => {
     ]);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ BatchId: "ZA-01-11-24", Produced: 1000, Consumed: 600, Status: "ok" });
+  });
+
+  it("flags a movement that has a weight but no date", () => {
+    const rows = massBalance([
+      entry("production_05", { batch_id: "B1", final_biochar_amount: "1000" }, ""), // no date
+    ]);
+    const undated = rows.find((r) => r.BatchId === UNDATED);
+    expect(undated).toMatchObject({ Status: "incomplete", UndatedCount: 1 });
   });
 
   it("skips stages that carry no biochar movement", () => {
@@ -67,6 +93,47 @@ describe("massBalance", () => {
     expect(rows[0]).toMatchObject({ BatchId: "B4", Status: "incomplete", MissingAmount: 1, HasProduction: true });
   });
 
+  it("reads a weight typed with a unit suffix instead of flagging it missing", () => {
+    const rows = massBalance([
+      entry("production_05", { batch_id: "U1", final_biochar_amount: "100 kg" }),
+      entry("carbon_sink", { batch_id: "U1", quantity: "15KG" }),
+    ]);
+    expect(rows[0]).toMatchObject({ BatchId: "U1", Status: "ok", MissingAmount: 0, Produced: 100, Consumed: 15 });
+  });
+
+  it("counts purchased biochar as supply without ever calling it production", () => {
+    const rows = massBalance([
+      entry("warehouse", { batch_id: "EXT-AU-SYNERGY-20240821", product: "External Biochar", quantity: "3000" }, "2024-08-21"),
+      entry("carbon_sink", { batch_id: "S1", source_batch_id: "EXT-AU-SYNERGY-20240821", quantity: "500" }, "2024-09-01"),
+    ]);
+    const ext = rows.find((r) => r.BatchId === "EXT-AU-SYNERGY-20240821")!;
+    // Supply reconciles the shipment: 3000 in, 500 out, no error.
+    expect(ext).toMatchObject({ ExternalSupply: 3000, Consumed: 500, Remaining: 2500, Status: "ok" });
+    // But it is never own production — nothing here may back a CORC claim.
+    expect(ext.Produced).toBe(0);
+    expect(ext.HasProduction).toBe(false);
+    const s = balanceSummary(rows);
+    expect(s).toMatchObject({ Produced: 0, ExternalSupply: 3000, Consumed: 500, Errors: 0 });
+  });
+
+  it("reads the Warehouse stage's bare `date` field, not just `*_date`", () => {
+    const rows = massBalance([
+      // Warehouse slugs its date field to `date`; a dated receipt must not be
+      // counted as undated, or the pool timeline misplaces it.
+      entry("warehouse", { batch_id: "EXT-1", product: "External Biochar", quantity: "3000", date: "2024-08-21" }, ""),
+    ]);
+    expect(rows.find((r) => r.BatchId === UNDATED)).toBeUndefined();
+  });
+
+  it("does not let purchased stock mask a genuinely premature shipment", () => {
+    const rows = massBalance([
+      // Shipped a year before anything was produced or purchased.
+      entry("carbon_sink", { batch_id: "EARLY", quantity: "50" }, "2023-09-17"),
+      entry("warehouse", { batch_id: "EXT-1", product: "External Biochar", quantity: "3000" }, "2024-08-21"),
+    ]);
+    expect(rows.find((r) => r.BatchId === POOL)?.Status).toBe("premature");
+  });
+
   it("holds a literal 0 kg as incomplete until it is verified", () => {
     const rows = massBalance([
       entry("production_05", { batch_id: "Z1", final_biochar_amount: "0" }),
@@ -92,13 +159,12 @@ describe("massBalance", () => {
 
   it("groups errors ahead of warnings and tolerates blank or junk numbers", () => {
     const rows = massBalance([
-      entry("production_05", { batch_id: "GAP", final_biochar_amount: "9000" }),
-      entry("carbon_sink", { batch_id: "GAP", quantity: "" }),            // incomplete: no quantity
-      entry("carbon_sink", { batch_id: "BAD", quantity: "1,200" }),       // error: unsourced
+      entry("carbon_sink", { batch_id: "EARLY", quantity: "1,200", usage_date: "2025-01-01" }), // shipped before any production
+      entry("production_05", { batch_id: "GAP", final_biochar_amount: "9000", production_date: "2025-02-01" }),
+      entry("carbon_sink", { batch_id: "GAP", quantity: "", usage_date: "2025-02-05" }),         // incomplete: no quantity
     ]);
-    expect(rows.map((r) => r.BatchId)).toEqual(["BAD", "GAP"]); // errors sort first
-    expect(rows[0]).toMatchObject({ Status: "unsourced", Consumed: 1200 }); // thousands separator parsed
-    expect(rows[1]).toMatchObject({ Status: "incomplete", MissingAmount: 1 });
-    expect(balanceSummary(rows)).toEqual({ Produced: 9000, Consumed: 1200, Errors: 1, Warnings: 1 });
+    expect(rows[0]).toMatchObject({ BatchId: POOL, Status: "premature", Remaining: -1200 }); // errors sort first, thousands separator parsed
+    expect(rows[1]).toMatchObject({ BatchId: "GAP", Status: "incomplete", MissingAmount: 1 });
+    expect(balanceSummary(rows)).toEqual({ Produced: 9000, ExternalSupply: 0, Consumed: 1200, Errors: 1, Warnings: 1 });
   });
 });

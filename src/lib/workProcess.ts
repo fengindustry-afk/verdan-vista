@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { distanceMeters } from "./capture";
 
-export type FieldType = "text" | "number" | "date" | "picker" | "multiline" | "location" | "zone";
+export type FieldType = "text" | "number" | "date" | "picker" | "multiline" | "location" | "zone" | "batch";
 
 /** A submitted workflow-stage form entry (jsonb payload of a work_process_entries row). */
 export interface WorkProcessEntry {
@@ -143,7 +143,7 @@ export function trailStraightLineKm(values: Record<string, string>): number | nu
  * the feedstock that produced it. Blank on Feedstock Collection — that stage is
  * where material enters the system.
  */
-const SOURCE = T("Source Batch ID", "Batch ID of the material consumed");
+const SOURCE: FormField = { Label: "Source Batch ID", Key: slug("Source Batch ID"), Type: "batch", Placeholder: "Link to a production batch" };
 
 const BIOMASS = ["Woodchip", "EFB", "PKS", "OPT", "Ash", "Other"];
 const FUELS = ["Diesel", "Petrol", "Electric", "Other"];

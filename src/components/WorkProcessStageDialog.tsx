@@ -10,7 +10,7 @@ import {
   LocateFixed, ShieldCheck, ShieldAlert,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { useDelete, useFeedstock, useLocations, useUpsert, useWorkProcessEntries, useZones } from "@/hooks/useCollection";
+import { useDelete, useFeedstock, useKnownBatchIds, useLocations, useUpsert, useWorkProcessEntries, useZones } from "@/hooks/useCollection";
 import { expectedGradeAYieldKg, feedstockForEntry, type ReactorModel } from "@/lib/feedstock";
 import { amountFieldForStage, ZERO_OK_SUFFIX } from "@/lib/massBalance";
 import {
@@ -592,7 +592,7 @@ export function WorkProcessStageDialog({
                       onClick={() => openFeedstock(selected)}
                       className="mt-3 flex w-full items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-[0.92em] font-medium text-primary hover:bg-primary/10 transition-colors"
                     >
-                      <ExternalLink className="h-3.5 w-3.5" /> View linked feedstock detail
+                      <ExternalLink className="h-3.5 w-3.5" /> View linked custody detail
                     </button>
                   )}
                   <div className="mt-2">
@@ -1003,6 +1003,7 @@ function FieldInput({
   onChange: (v: string, coords?: string) => void;
 }) {
   const { data: zones = [] } = useZones();
+  const knownBatches = useKnownBatchIds();
   const label = (
     <Label className="text-xs">
       {field.Label}
@@ -1012,6 +1013,27 @@ function FieldInput({
 
   if (field.Type === "location") {
     return <LocationField field={field} label={label} value={value} coords={coords} onChange={onChange} />;
+  }
+
+  if (field.Type === "batch") {
+    // Autocomplete of produced batch ids so a draw-down links back to real
+    // production, while still allowing a legacy/external id to be typed.
+    const listId = `batches-${field.Key}`;
+    return (
+      <div>
+        {label}
+        <Input
+          list={listId}
+          value={value}
+          placeholder={field.Placeholder}
+          onChange={(e) => onChange(e.target.value)}
+          className="mt-1"
+        />
+        <datalist id={listId}>
+          {knownBatches.map((b) => <option key={b} value={b} />)}
+        </datalist>
+      </div>
+    );
   }
 
   if (field.Type === "zone") {
