@@ -22,6 +22,16 @@ describe("massBalance", () => {
     expect(rows[0].Stages).toEqual(["production_05", "application", "carbon_sink"]);
   });
 
+  it("does not call a same-day shipment premature", () => {
+    const rows = massBalance([
+      // Shipment recorded before the production entry, same day: day-granular
+      // dates carry no order, so this must not read as shipped-before-produced.
+      entry("carbon_sink", { batch_id: "GHOST", quantity: "1000", carbon_sink_date: "2025-03-04" }),
+      entry("production_05", { batch_id: "B1", final_biochar_amount: "1000", production_date: "2025-03-04" }),
+    ]);
+    expect(rows.find((r) => r.BatchId === POOL)).toMatchObject({ Status: "incomplete", Remaining: 0 });
+  });
+
   it("flags a batch that ships more than it made", () => {
     const rows = massBalance([
       entry("production_10", { batch_id: "B2", final_biochar_amount: "500" }),

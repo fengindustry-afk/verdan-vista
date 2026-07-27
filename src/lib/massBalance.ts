@@ -297,12 +297,17 @@ export function massBalance(entries: WorkProcessEntry[]): BatchBalance[] {
   // The pool: run the physical inventory forward by date. The deepest it goes
   // negative is biochar that shipped before any production could cover it.
   if (pool.count > 0) {
-    timeline.sort((a, b) => a.date.localeCompare(b.date));
+    // Net each day before scanning. Dates are day-granular, so entries sharing a
+    // date carry no order between them — reading them in array order would call
+    // a same-day "made 1t, shipped 1t" a shipment before production. Only a
+    // deficit that survives to the end of a day is evidence of anything.
+    const byDay = new Map<string, number>();
+    for (const t of timeline) byDay.set(t.date.slice(0, 10), (byDay.get(t.date.slice(0, 10)) ?? 0) + t.delta);
     let bal = 0, min = 0;
-    for (const t of timeline) { bal += t.delta; if (bal < min) min = bal; }
-    const deficit = min < 0 ? -min : 0;
+    for (const d of [...byDay.keys()].sort()) { bal += byDay.get(d)!; if (bal < min) min = bal; }
+    const deficit = min < -KG_EPSILON ? -min : 0;
     rows.push({
-      BatchId: POOL, Produced: 0, ExternalSupply: 0, Consumed: pool.kg, Remaining: -deficit,
+      BatchId: POOL, Produced: 0, ExternalSupply: 0, Consumed: pool.kg, Remaining: deficit ? -deficit : 0,
       Status: deficit > 0 ? "premature" : "incomplete",
       MissingAmount: 0, ZeroUnverified: 0, MissingBatchId: 0, HasProduction: false,
       UnlinkedCount: pool.count, UndatedCount: 0, Stages: [],
