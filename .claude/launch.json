@@ -36,6 +36,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "preview", "--", "--port", "4188"],
       "port": 4188
+    },
+    {
+      "name": "verdant-vista-9101",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "9101", "--strictPort"],
+      "port": 9101
     }
   ]
 }
