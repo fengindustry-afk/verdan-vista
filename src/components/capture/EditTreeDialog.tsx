@@ -67,7 +67,7 @@ export function EditTreeDialog({ tree }: { tree?: Tree }) {
       {editing ? (
         <button
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); setForm(tree ?? {}); setOpen(true); }}
-          className="inline-flex items-center justify-center rounded-md p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+          className="-m-3.5 inline-flex items-center justify-center rounded-md p-3.5 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
           aria-label="Edit tree"
         >
           <Pencil className="h-3.5 w-3.5" />

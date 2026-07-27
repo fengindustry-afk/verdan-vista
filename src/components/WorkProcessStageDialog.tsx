@@ -235,7 +235,7 @@ export function WorkProcessStageDialog({
             onClick={back}
             disabled={history.length === 0}
             aria-label="Back"
-            className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+            className="-my-2 rounded px-2.5 py-3.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
           >
             <ArrowLeft className="h-4 w-4" />
           </button>
@@ -243,7 +243,7 @@ export function WorkProcessStageDialog({
             onClick={() => navigate(null)}
             disabled={!stage}
             aria-label="Up one level"
-            className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+            className="-my-2 rounded px-2.5 py-3.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
           >
             <ArrowUp className="h-4 w-4" />
           </button>
@@ -519,7 +519,7 @@ export function WorkProcessStageDialog({
                 <button
                   onClick={() => setForm(null)}
                   aria-label="Close form"
-                  className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                  className="-m-2 rounded p-3.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
                 >
                   <X className="h-4 w-4" />
                 </button>

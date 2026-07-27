@@ -983,8 +983,10 @@ function SectionH({ applications, canEdit }: { applications: PlotApplication[]; 
                   <td className="px-3 py-2 whitespace-nowrap">{a.Officer ?? "—"}</td>
                   <td className="px-3 py-2 whitespace-nowrap">{a.Supervisor ?? "—"}</td>
                   <td className="px-3 py-2">
+                    {/* -m-3.5 cancels the padding, so the tap area grows to
+                        44px without stretching every row of the table. */}
                     {canEdit && (
-                      <button onClick={() => setEditing(a)} className="rounded-md p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors" aria-label="Kemas kini aplikasi" title="Kemas kini rekod aplikasi ini — kadar, bilangan pokok, kos dan pegawai">
+                      <button onClick={() => setEditing(a)} className="-m-3.5 rounded-md p-3.5 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors" aria-label="Kemas kini aplikasi" title="Kemas kini rekod aplikasi ini — kadar, bilangan pokok, kos dan pegawai">
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
                     )}

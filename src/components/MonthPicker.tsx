@@ -56,7 +56,7 @@ export function MonthPicker({
         <div className="flex items-center justify-between">
           <button
             onClick={() => setYear((y) => y - 1)}
-            className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="rounded-md p-3.5 text-muted-foreground hover:bg-muted hover:text-foreground"
             aria-label="Previous year"
           >
             <ChevronLeft className="h-4 w-4" />
@@ -64,7 +64,7 @@ export function MonthPicker({
           <span className="text-sm font-semibold text-foreground">{year}</span>
           <button
             onClick={() => setYear((y) => y + 1)}
-            className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="rounded-md p-3.5 text-muted-foreground hover:bg-muted hover:text-foreground"
             aria-label="Next year"
           >
             <ChevronRight className="h-4 w-4" />

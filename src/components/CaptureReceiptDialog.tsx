@@ -415,7 +415,11 @@ export function CaptureReceiptDialog({
                     <p className="text-[11px] text-muted-foreground">{formatBytes(pdfFile.bytes)}</p>
                   </div>
                 </div>
-                <button onClick={() => setPdfFile(null)} className="p-1 hover:bg-background/50 rounded transition-colors">
+                <button
+                  onClick={() => setPdfFile(null)}
+                  aria-label="Remove attached PDF"
+                  className="-my-2 p-3.5 hover:bg-background/50 rounded transition-colors"
+                >
                   <X className="h-4 w-4 text-muted-foreground" />
                 </button>
               </div>

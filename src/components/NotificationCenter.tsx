@@ -66,10 +66,11 @@ export function NotificationCenter() {
   return (
     <Popover onOpenChange={(o) => o && markSeen()}>
       <PopoverTrigger asChild>
-        <button className="relative p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" aria-label="Notifications">
+        <button className="relative p-3.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" aria-label="Notifications">
           <Bell className="h-4 w-4" />
           {unread > 0 && (
-            <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-destructive" />
+            // Offset tracks the padding, so the dot stays on the bell's corner.
+            <span className="absolute top-2.5 right-2.5 h-2 w-2 rounded-full bg-destructive" />
           )}
         </button>
       </PopoverTrigger>

@@ -145,18 +145,22 @@ export function GroupsCard() {
           <div key={g.id} className="rounded-xl border border-border p-3">
             <div className="flex items-center justify-between">
               <span className="text-sm font-semibold text-foreground">{g.Name}</span>
+              {/* Edit and Delete sit side by side, so the tap area only grows
+                  vertically for free (-my cancels it). Horizontally it stops at
+                  the gap: overlapping Delete's target with Edit's is worse than
+                  a 34px-wide button. */}
               {isAdmin && (
                 <span className="flex items-center gap-1">
                   <button
                     onClick={() => setEditing({ id: g.id, name: g.Name, modules: g.Modules ?? [] })}
-                    className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+                    className="-my-3.5 rounded-lg px-2.5 py-3.5 text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
                     aria-label={`Edit ${g.Name}`}
                   >
                     <Pencil className="h-3.5 w-3.5" />
                   </button>
                   <button
                     onClick={() => void removeGroup(g)}
-                    className="rounded-lg p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+                    className="-my-3.5 rounded-lg px-2.5 py-3.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
                     aria-label={`Delete ${g.Name}`}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
