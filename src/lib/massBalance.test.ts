@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { massBalance, balanceSummary, NO_BATCH, POOL, UNDATED } from "./massBalance";
+import { massBalance, balanceSummary, undatedReason, NO_BATCH, POOL, UNDATED } from "./massBalance";
 import type { WorkProcessEntry } from "./workProcess";
 
 function entry(StageKey: string, Values: Record<string, string>, date = "2025-06-01"): WorkProcessEntry {
@@ -20,6 +20,15 @@ describe("massBalance", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ Produced: 1000, Consumed: 650, Remaining: 350, Status: "ok" });
     expect(rows[0].Stages).toEqual(["production_05", "application", "carbon_sink"]);
+  });
+
+  it("names an unreadable date so it can be told apart from a blank one", () => {
+    const bad = entry("carbon_sink", { batch_id: "B1", quantity: "10", usage_date: "15/05/2025" }, "");
+    const blank = entry("carbon_sink", { batch_id: "B1", quantity: "10" }, "");
+    expect(undatedReason(bad)).toBe("15/05/2025");
+    expect(undatedReason(blank)).toBe("no date");
+    expect(massBalance([bad, blank]).find((r) => r.BatchId === UNDATED)!.Entries.map((x) => x.label))
+      .toEqual(["15/05/2025", "no date"]);
   });
 
   it("reads the same date whichever order the jsonb keys arrive in", () => {

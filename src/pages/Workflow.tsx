@@ -125,15 +125,15 @@ function BalanceRow({ r, onOpenBatch, onOpenEntry }: {
       <div className={plain}>{body}</div>
       {/* Undated movements have no batch id to search on, so link each offending
           entry directly — otherwise there is no way to find them in the list. */}
-      {r.EntryIds.length > 0 && (
+      {r.Entries.length > 0 && (
         <div className="flex flex-wrap gap-1.5 pl-3">
-          {r.EntryIds.map((id, i) => (
+          {r.Entries.map((entry) => (
             <button
-              key={id}
-              onClick={() => onOpenEntry(id)}
+              key={entry.id}
+              onClick={() => onOpenEntry(entry.id)}
               className="rounded-full border border-amber-500/30 px-2.5 py-0.5 text-[11px] text-amber-600 dark:text-amber-500 hover:bg-amber-500/10 transition-colors"
             >
-              Fix movement {i + 1}
+              Fix: {entry.label}
             </button>
           ))}
         </div>
