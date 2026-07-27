@@ -12,10 +12,13 @@
  *                movement entry with no batch id to trace it by. An auditor
  *                holds these until the record is completed.
  *
- * Everything is keyed on `batch_id`, the only link between stages today.
+ * Draw-downs are keyed on the batch they came from, resolved by
+ * `resolveSourceBatch`: an explicit `source_batch_id`, else the delivery
+ * document shared with the Warehouse line that loaded the lorry, else the
+ * entry's own id.
  */
 
-import type { WorkProcessEntry } from "./workProcess";
+import { allocateDrawdown, dispatchIndex, type WorkProcessEntry } from "./workProcess";
 
 /** Stage → the field holding kg of biochar produced. */
 const PRODUCED_FIELD: Record<string, string> = {
@@ -44,6 +47,14 @@ function externalSupplyField(e: WorkProcessEntry): string | undefined {
     ? "quantity"
     : undefined;
 }
+
+/**
+ * Slack on the over-shipment test, in kg. A pro-rata split divides a shipment
+ * into fractional shares, so a batch reconciling exactly can land a hair below
+ * zero in floating point. A microgram is far below any scale on site, so this
+ * cannot mask a real over-shipment.
+ */
+const KG_EPSILON = 1e-6;
 
 /** Bucket for movement entries that carry no batch id to trace them by. */
 export const NO_BATCH = "(no batch id)";
@@ -164,6 +175,9 @@ export function massBalance(entries: WorkProcessEntry[]): BatchBalance[] {
   const pool = { count: 0, kg: 0 };
   // Movements with a weight but no date, which the timeline can't place reliably.
   let undated = 0;
+  // DO → batch, so a draw-down that only knows its delivery document still
+  // reconciles against the batch the warehouse loaded it from.
+  const dispatch = dispatchIndex(entries);
 
   // Pass 1: which batch ids can a draw-down legitimately be charged against?
   // Own production *and* external purchases — both are real stock on hand. The
@@ -230,41 +244,51 @@ export function massBalance(entries: WorkProcessEntry[]): BatchBalance[] {
       continue;
     }
 
-    // Consumption. Prefer the explicit source link; fall back to own batch_id.
-    const own = (e.Values?.batch_id ?? "").trim();
-    const traced = (e.Values?.source_batch_id ?? "").trim() || own;
-    if (!traced || traced === "-") {
+    // Consumption. Explicit source link, else the DO dispatch hop (pro-rata
+    // across a mixed load), else own id. A load split over several batches
+    // charges each its own share, so one shipment can be part reconciled and
+    // part pooled — that is the honest reading, not a rounding convenience.
+    const allocs = allocateDrawdown(e.Values, dispatch, amt ?? 0);
+    if (allocs.length === 0) {
       // No batch id at all — a data gap, surfaced under NO_BATCH.
       const row = ensure(NO_BATCH);
       row.MissingBatchId += 1;
       if (amt === null) row.MissingAmount += 1;
       else if (zeroUnverified) row.ZeroUnverified += 1;
       if (!row.Stages.includes(e.StageKey)) row.Stages.push(e.StageKey);
-    } else if (supplyBatches.has(traced)) {
-      // Linked to a real production batch — reconcile per batch.
-      const row = ensure(traced);
-      if (amt === null) row.MissingAmount += 1;
-      else { if (zeroUnverified) row.ZeroUnverified += 1; row.Consumed += amt; }
-      if (!row.Stages.includes(e.StageKey)) row.Stages.push(e.StageKey);
     } else {
-      // Names a batch we never produced — draw from the shared pool instead.
-      pool.count += 1;
-      if (amt !== null) pool.kg += amt;
+      // A blank/unconfirmed-zero amount is one flaw in one entry, so it is
+      // recorded once (against the largest share) rather than per slice.
+      const flagged = allocs.reduce((a, b) => (b.kg > a.kg ? b : a));
+      // Likewise the pool counts unlinked *shipments*, not unlinked shares: a
+      // load split over two unknown batches is still one untraceable movement.
+      let pooled = false;
+      for (const a of allocs) {
+        if (supplyBatches.has(a.batch)) {
+          const row = ensure(a.batch);
+          if (amt === null) { if (a === flagged) row.MissingAmount += 1; }
+          else { if (zeroUnverified && a === flagged) row.ZeroUnverified += 1; row.Consumed += a.kg; }
+          if (!row.Stages.includes(e.StageKey)) row.Stages.push(e.StageKey);
+        } else {
+          // Names a batch we never produced — draw from the shared pool instead.
+          pooled = true;
+          if (amt !== null) pool.kg += a.kg;
+        }
+      }
+      if (pooled) pool.count += 1;
     }
   }
 
   const rows = [...byBatch.values()];
   for (const r of rows) {
     r.Remaining = r.Produced + r.ExternalSupply - r.Consumed;
-    // ponytail: exact kg comparison, no tolerance. Add an epsilon if scale
-    // rounding starts producing false positives on otherwise-clean batches.
     r.Status =
       // Untraceable entries: nothing to reconcile, just flag the missing id.
       r.BatchId === NO_BATCH ? "incomplete"
       // Only trust a negative balance when every amount was actually recorded
       // and confirmed; a blank or unconfirmed-0 weight would otherwise
       // masquerade as over-shipment.
-      : r.MissingAmount === 0 && r.ZeroUnverified === 0 && r.Remaining < 0 ? "over"
+      : r.MissingAmount === 0 && r.ZeroUnverified === 0 && r.Remaining < -KG_EPSILON ? "over"
       // Quantities reconciled, but some amount is unrecorded or an unconfirmed 0.
       : r.MissingAmount > 0 || r.ZeroUnverified > 0 ? "incomplete"
       : "ok";

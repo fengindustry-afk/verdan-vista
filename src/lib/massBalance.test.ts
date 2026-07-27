@@ -168,3 +168,45 @@ describe("massBalance", () => {
     expect(balanceSummary(rows)).toEqual({ Produced: 9000, ExternalSupply: 0, Consumed: 1200, Errors: 1, Warnings: 1 });
   });
 });
+
+describe("dispatch hop", () => {
+  it("reconciles a sink that names only its DO, via the warehouse line", () => {
+    const rows = massBalance([
+      entry("production_05", { batch_id: "ZA-01-11-24", final_biochar_amount: "1000" }, "2024-11-04"),
+      entry("warehouse", { source_batch_id: "ZA-01-11-24", do_number: "DO-7", quantity: "600" }, "2024-11-10"),
+      // No source_batch_id: the sink team only ever had the delivery order.
+      entry("carbon_sink", { batch_id: "TIGGT-BT-2505-0001", do_number: "DO-7", quantity: "600" }, "2024-11-12"),
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ BatchId: "ZA-01-11-24", Produced: 1000, Consumed: 600, Status: "ok" });
+    // Nothing stranded in the unlinked pool.
+    expect(rows.find((r) => r.BatchId === POOL)).toBeUndefined();
+  });
+
+  it("splits a mixed load pro-rata across the batches that filled it", () => {
+    const rows = massBalance([
+      entry("production_05", { batch_id: "ZA-01", final_biochar_amount: "500" }, "2024-11-04"),
+      entry("production_05", { batch_id: "ZA-02", final_biochar_amount: "500" }, "2024-11-05"),
+      entry("warehouse", { source_batch_id: "ZA-01", do_number: "DO-9", quantity: "300" }, "2024-11-10"),
+      entry("warehouse", { source_batch_id: "ZA-02", do_number: "DO-9", quantity: "100" }, "2024-11-10"),
+      entry("carbon_sink", { batch_id: "SINK-1", do_number: "DO-9", quantity: "200" }, "2024-11-12"),
+    ]);
+    // Dispatched 3:1, so the 200 kg shipment lands 150 on ZA-01 and 50 on ZA-02.
+    expect(rows.find((r) => r.BatchId === "ZA-01")).toMatchObject({ Consumed: 150, Remaining: 350, Status: "ok" });
+    expect(rows.find((r) => r.BatchId === "ZA-02")).toMatchObject({ Consumed: 50, Remaining: 450, Status: "ok" });
+    // Fully attributed, so nothing is left stranded in the unlinked pool.
+    expect(rows.find((r) => r.BatchId === POOL)).toBeUndefined();
+  });
+
+  it("pools only the share drawn from a batch it never produced", () => {
+    const rows = massBalance([
+      entry("production_05", { batch_id: "ZA-01", final_biochar_amount: "500" }, "2024-11-04"),
+      entry("warehouse", { source_batch_id: "ZA-01", do_number: "DO-9", quantity: "300" }, "2024-11-10"),
+      entry("warehouse", { source_batch_id: "GHOST", do_number: "DO-9", quantity: "100" }, "2024-11-10"),
+      entry("carbon_sink", { batch_id: "SINK-1", do_number: "DO-9", quantity: "200" }, "2024-11-12"),
+    ]);
+    expect(rows.find((r) => r.BatchId === "ZA-01")).toMatchObject({ Consumed: 150 });
+    // Only GHOST's 50 kg share is unattributable, not the whole 200 kg shipment.
+    expect(rows.find((r) => r.BatchId === POOL)).toMatchObject({ Consumed: 50, UnlinkedCount: 1 });
+  });
+});

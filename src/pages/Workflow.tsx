@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Link, useSearchParams } from "react-router-dom";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   phases, stageByKey, entryTitle, entrySubtitle, formatEntryTimestamp, WORKFLOW_CATALOG,
   type WorkflowStageDef, type WorkProcessEntry,
@@ -201,6 +201,7 @@ function entryMonth(e: WorkProcessEntry): string {
 function WorkProcessHub() {
   const { data: entries = [], isLoading } = useWorkProcessEntries();
   const { role } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [openStage, setOpenStage] = useState<WorkflowStageDef | null>(null);
   const [openEntry, setOpenEntry] = useState<WorkProcessEntry | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -238,6 +239,20 @@ function WorkProcessHub() {
     setOpenEntry(entry);
     setOpenStage(stage);
   };
+
+  // `?entry=<id>` opens that record straight away, so a custody-chain file link
+  // from a batch page lands on the entry itself. The param is dropped once
+  // consumed, otherwise closing the dialog would immediately reopen it.
+  const deepLinkId = searchParams.get("entry");
+  useEffect(() => {
+    if (!deepLinkId || !entries.length) return;
+    const entry = entries.find((e) => e.id === deepLinkId);
+    if (entry) openResult(entry);
+    const next = new URLSearchParams(searchParams);
+    next.delete("entry");
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deepLinkId, entries]);
 
   if (isLoading) {
     return (

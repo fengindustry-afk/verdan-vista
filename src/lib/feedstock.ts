@@ -1,5 +1,5 @@
 import type { Feedstock } from "./types";
-import { TRAIL, type WorkProcessEntry } from "./workProcess";
+import { TRAIL, dispatchIndex, drawdownBatches, type BatchAllocation, type WorkProcessEntry } from "./workProcess";
 import { legEmissionsTco2e } from "./transport";
 
 /**
@@ -27,6 +27,37 @@ export const FINAL_STAGE = "Carbon Sink";
 export const APPLICATION_STAGE = "Application";
 /** The true end of custody (registry-certified). Drives advanceStage's terminal cap and auto-verify. */
 export const LAST_CUSTODY_STAGE = CUSTODY_STAGES[CUSTODY_STAGES.length - 1];
+
+/**
+ * Which work-process stages record data at each custody stage — the link
+ * between the custody chain (8 stages) and the data-collection catalog (10
+ * forms). Keyed on CustodyStage so adding a custody stage without deciding what
+ * it collects is a compile error, same reasoning as STAGE_META in Workflow.tsx.
+ */
+export const CUSTODY_STAGE_KEYS: Record<CustodyStage, string[]> = {
+  "Feedstock Collection": ["receiving"],
+  "Feedstock Pre-Processing": ["isolation", "drying"],
+  "Material Conversion": ["production_05", "production_10"],
+  "Sampling": ["sampling"],
+  "Storage": ["warehouse"],
+  "Application": ["application"],
+  "Carbon Sink": ["carbon_sink"],
+  "Carbon Certification": ["certification"],
+};
+
+/**
+ * A batch's work-process entries recorded at one custody stage, newest first.
+ * Pass entries already narrowed to the batch (`wpEntriesForBatch`).
+ */
+export function wpEntriesForStage(
+  stage: CustodyStage,
+  entries: WorkProcessEntry[]
+): WorkProcessEntry[] {
+  const keys = CUSTODY_STAGE_KEYS[stage];
+  return entries
+    .filter((e) => keys.includes(e.StageKey))
+    .sort((a, b) => (b.Timestamp ?? "").localeCompare(a.Timestamp ?? ""));
+}
 
 export function phaseOf(stage: string): "Operations" | "Storage" {
   const i = CUSTODY_STAGES.indexOf(stage as CustodyStage);
@@ -116,14 +147,29 @@ function normBatch(s?: string): string {
 
 /**
  * Work-process entries belonging to a feedstock batch. The join key is the
- * feedstock Title matching the entry's hand-typed `batch_id` (or
- * `source_batch_id`) — there is no foreign key, only the naming convention.
+ * feedstock Title matching the entry's hand-typed `batch_id` or
+ * `source_batch_id` — there is no foreign key, only the naming convention.
+ *
+ * A downstream entry that names neither (the Carbon Sink team records a DO, not
+ * a production code) still matches via the dispatch hop, which resolves its
+ * delivery document through the Warehouse line that loaded it. Pass a prebuilt
+ * `dispatch` when calling this in a loop; it is derived from `entries` and only
+ * needs building once.
  */
-export function wpEntriesForBatch(title: string, entries: WorkProcessEntry[]): WorkProcessEntry[] {
+export function wpEntriesForBatch(
+  title: string,
+  entries: WorkProcessEntry[],
+  dispatch: Map<string, BatchAllocation[]> = dispatchIndex(entries)
+): WorkProcessEntry[] {
   const t = normBatch(title);
   if (!t) return [];
   return entries.filter(
-    (e) => normBatch(e.Values?.batch_id) === t || normBatch(e.Values?.source_batch_id) === t
+    (e) =>
+      normBatch(e.Values?.batch_id) === t ||
+      normBatch(e.Values?.source_batch_id) === t ||
+      // A mixed load counts for every batch that fed it, so a batch's detail
+      // view shows the shipments it part-supplied.
+      drawdownBatches(e.Values, dispatch).some((b) => normBatch(b) === t)
   );
 }
 
@@ -271,9 +317,10 @@ export function massBalance(entries: WorkProcessEntry[]): MassBalance {
  */
 export function withMeasuredCorcInputs(feedstock: Feedstock[], wpAll: WorkProcessEntry[]): Feedstock[] {
   if (!wpAll.length) return feedstock;
+  const dispatch = dispatchIndex(wpAll);
   return feedstock.map((f) => {
     const rec = f as unknown as Record<string, unknown>;
-    const entries = wpEntriesForBatch(f.Title ?? "", wpAll);
+    const entries = wpEntriesForBatch(f.Title ?? "", wpAll, dispatch);
     const m = wpMeasured(entries);
     const out = { ...rec };
     if (!(Number(rec.BiocharYieldKg ?? 0) > 0) && m.yieldKg > 0) out.BiocharYieldKg = m.yieldKg;

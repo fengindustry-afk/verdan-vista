@@ -1004,11 +1004,18 @@ function FieldInput({
 }) {
   const { data: zones = [] } = useZones();
   const knownBatches = useKnownBatchIds();
+  // Rendered by every branch below (including LocationField), so a field's Hint
+  // shows once wherever that field appears, with no per-type wiring.
   const label = (
-    <Label className="text-xs">
-      {field.Label}
-      {field.Unit ? <span className="text-muted-foreground"> ({field.Unit})</span> : null}
-    </Label>
+    <>
+      <Label className="text-xs">
+        {field.Label}
+        {field.Unit ? <span className="text-muted-foreground"> ({field.Unit})</span> : null}
+      </Label>
+      {field.Hint && (
+        <p className="text-[10px] leading-snug text-muted-foreground mt-0.5">{field.Hint}</p>
+      )}
+    </>
   );
 
   if (field.Type === "location") {

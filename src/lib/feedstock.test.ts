@@ -272,3 +272,27 @@ describe("parseAuditLog", () => {
     expect(parseAuditLog(batch({ AuditLog: "not json" }))).toEqual([]);
   });
 });
+
+describe("wpEntriesForStage", () => {
+  it("covers every work-process stage in the catalog exactly once", async () => {
+    const { CUSTODY_STAGE_KEYS } = await import("./feedstock");
+    const { WORKFLOW_CATALOG } = await import("./workProcess");
+    const mapped = Object.values(CUSTODY_STAGE_KEYS).flat();
+    // A catalog stage missing here would drop its entries out of the custody
+    // chain silently; a duplicate would list the same file under two stages.
+    expect([...mapped].sort()).toEqual(WORKFLOW_CATALOG.map((s) => s.Key).sort());
+    expect(new Set(mapped).size).toBe(mapped.length);
+  });
+
+  it("groups a batch's entries under the right custody stage, newest first", async () => {
+    const { wpEntriesForStage } = await import("./feedstock");
+    const entries = [
+      wpEntry({ id: "a", StageKey: "isolation", Timestamp: "2024-11-01T00:00:00Z" }),
+      wpEntry({ id: "b", StageKey: "drying", Timestamp: "2024-11-09T00:00:00Z" }),
+      wpEntry({ id: "c", StageKey: "receiving", Timestamp: "2024-10-01T00:00:00Z" }),
+    ];
+    expect(wpEntriesForStage("Feedstock Pre-Processing", entries).map((e) => e.id)).toEqual(["b", "a"]);
+    expect(wpEntriesForStage("Feedstock Collection", entries).map((e) => e.id)).toEqual(["c"]);
+    expect(wpEntriesForStage("Carbon Sink", entries)).toEqual([]);
+  });
+});

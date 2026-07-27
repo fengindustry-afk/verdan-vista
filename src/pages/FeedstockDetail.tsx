@@ -1,6 +1,6 @@
 import { BentoCard } from "@/components/BentoCard";
 import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, MapPin, CheckCircle2, Circle, Loader2 } from "lucide-react";
+import { ArrowLeft, MapPin, CheckCircle2, Circle, Loader2, FileText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useFeedstock, useWorkProcessEntries } from "@/hooks/useCollection";
 import {
@@ -12,10 +12,62 @@ import {
   parseCustodyLog,
   phaseOf,
   wpEntriesForBatch,
+  wpEntriesForStage,
 } from "@/lib/feedstock";
-import { entrySubtitle, formatEntryTimestamp } from "@/lib/workProcess";
+import { entrySubtitle, formatEntryTimestamp, type WorkProcessEntry } from "@/lib/workProcess";
 import { badgeForStatus, fmt } from "@/lib/format";
 import { BatchActions } from "@/components/BatchActions";
+
+/** How many files a custody stage shows before collapsing the rest. */
+const FILE_PREVIEW_COUNT = 5;
+
+/** One clickable work-process record in a custody stage's file list. */
+function StageFile({ entry }: { entry: WorkProcessEntry }) {
+  return (
+    <li>
+      <Link
+        to={`/workflow?tab=work-process&entry=${encodeURIComponent(entry.id)}`}
+        className="group flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary"
+      >
+        <FileText className="h-3 w-3 shrink-0" />
+        <span className="truncate group-hover:underline">{entry.StageTitle}</span>
+        <span className="shrink-0 text-[10px] text-muted-foreground/70">
+          {formatEntryTimestamp(entry.Timestamp)}
+        </span>
+      </Link>
+    </li>
+  );
+}
+
+/**
+ * A custody stage's records, capped at FILE_PREVIEW_COUNT with the remainder
+ * behind a native <details> disclosure — Pre-Processing alone can run to 17
+ * entries and swamp the chain. Native rather than React state so each stage
+ * keeps its own open/closed status for free.
+ */
+function StageFiles({ files }: { files: WorkProcessEntry[] }) {
+  if (files.length === 0) return null;
+  const head = files.slice(0, FILE_PREVIEW_COUNT);
+  const rest = files.slice(FILE_PREVIEW_COUNT);
+  return (
+    <div className="mt-1.5">
+      <ul className="space-y-1">
+        {head.map((e) => <StageFile key={e.id} entry={e} />)}
+      </ul>
+      {rest.length > 0 && (
+        <details className="group">
+          <summary className="mt-1 cursor-pointer list-none text-[10px] text-muted-foreground hover:text-primary [&::-webkit-details-marker]:hidden">
+            <span className="group-open:hidden">Show all {files.length}</span>
+            <span className="hidden group-open:inline">Show fewer</span>
+          </summary>
+          <ul className="mt-1 space-y-1">
+            {rest.map((e) => <StageFile key={e.id} entry={e} />)}
+          </ul>
+        </details>
+      )}
+    </div>
+  );
+}
 
 export default function FeedstockDetail() {
   const { id } = useParams();
@@ -107,6 +159,7 @@ export default function FeedstockDetail() {
             {CUSTODY_STAGES.map((stage, i) => {
               const done = i <= stageIdx;
               const leg = custody[stage];
+              const stageFiles = wpEntriesForStage(stage, wpEntries);
               return (
                 <li key={stage} className="flex gap-3">
                   <div className="flex flex-col items-center">
@@ -119,16 +172,23 @@ export default function FeedstockDetail() {
                       <div className={`w-px flex-1 my-1 ${i < stageIdx ? "bg-primary" : "bg-border"}`} style={{ minHeight: 24 }} />
                     )}
                   </div>
-                  <div className="pb-3">
+                  <div className="pb-3 min-w-0 flex-1">
                     <p className={`text-sm ${done ? "text-foreground font-medium" : "text-muted-foreground"}`}>
                       {stage}
                       <span className="ml-2 text-[10px] uppercase tracking-wide text-muted-foreground">{phaseOf(stage)}</span>
+                      {stageFiles.length > 0 && (
+                        <span className="ml-2 text-[10px] text-muted-foreground">
+                          {stageFiles.length} file{stageFiles.length === 1 ? "" : "s"}
+                        </span>
+                      )}
                     </p>
                     {leg && (
                       <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
                         <MapPin className="h-3 w-3" /> {leg.Location} · {leg.Date} · {leg.Coords}
                       </p>
                     )}
+                    {/* The records logged at this stage — the chain's actual evidence. */}
+                    <StageFiles files={stageFiles} />
                   </div>
                 </li>
               );
@@ -186,7 +246,7 @@ export default function FeedstockDetail() {
             {wpEntries.map((e) => (
               <Link
                 key={e.id}
-                to="/workflow?tab=work-process"
+                to={`/workflow?tab=work-process&entry=${encodeURIComponent(e.id)}`}
                 className="flex items-start gap-3 group"
               >
                 <div className="mt-1 h-2 w-2 rounded-full shrink-0 bg-primary" />
