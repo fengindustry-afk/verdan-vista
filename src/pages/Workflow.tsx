@@ -12,7 +12,7 @@ import {
   phases, stageByKey, entryTitle, entrySubtitle, formatEntryTimestamp, WORKFLOW_CATALOG,
   type WorkflowStageDef, type WorkProcessEntry,
 } from "@/lib/workProcess";
-import { massBalance, balanceSummary, isError, NO_BATCH, POOL, UNDATED, type BatchBalance } from "@/lib/massBalance";
+import { massBalance, balanceSummary, isError, ownDate, NO_BATCH, POOL, UNDATED, type BatchBalance } from "@/lib/massBalance";
 import { NewBatchDialog } from "@/components/NewBatchDialog";
 import { useAuth } from "@/lib/auth";
 import { hasPermission, Permission, UserRole } from "@/lib/rbac";
@@ -101,7 +101,9 @@ function balanceMessage(r: BatchBalance): string {
   }
 }
 
-function BalanceRow({ r, onOpenBatch }: { r: BatchBalance; onOpenBatch: (q: string) => void }) {
+function BalanceRow({ r, onOpenBatch, onOpenEntry }: {
+  r: BatchBalance; onOpenBatch: (q: string) => void; onOpenEntry: (id: string) => void;
+}) {
   const err = isError(r.Status);
   // Untraceable / pooled rows have no single batch id to search on, so they aren't a link.
   const orphan = r.BatchId === NO_BATCH || r.BatchId === POOL || r.BatchId === UNDATED;
@@ -116,12 +118,33 @@ function BalanceRow({ r, onOpenBatch }: { r: BatchBalance; onOpenBatch: (q: stri
     </>
   );
   const cls = `flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors ${tone}`;
-  return orphan
-    ? <div className={cls.replace("hover:bg-amber-500/10", "").replace("hover:bg-destructive/10", "")}>{body}</div>
-    : <button onClick={() => onOpenBatch(r.BatchId)} className={cls}>{body}</button>;
+  if (!orphan) return <button onClick={() => onOpenBatch(r.BatchId)} className={cls}>{body}</button>;
+  const plain = cls.replace("hover:bg-amber-500/10", "").replace("hover:bg-destructive/10", "");
+  return (
+    <div className="space-y-1.5">
+      <div className={plain}>{body}</div>
+      {/* Undated movements have no batch id to search on, so link each offending
+          entry directly — otherwise there is no way to find them in the list. */}
+      {r.EntryIds.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 pl-3">
+          {r.EntryIds.map((id, i) => (
+            <button
+              key={id}
+              onClick={() => onOpenEntry(id)}
+              className="rounded-full border border-amber-500/30 px-2.5 py-0.5 text-[11px] text-amber-600 dark:text-amber-500 hover:bg-amber-500/10 transition-colors"
+            >
+              Fix movement {i + 1}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
-function MassBalanceCard({ rows, onOpenBatch }: { rows: ReturnType<typeof massBalance>; onOpenBatch: (q: string) => void }) {
+function MassBalanceCard({ rows, onOpenBatch, onOpenEntry }: {
+  rows: ReturnType<typeof massBalance>; onOpenBatch: (q: string) => void; onOpenEntry: (id: string) => void;
+}) {
   const summary = balanceSummary(rows);
   if (rows.length === 0) return null;
   const errors = rows.filter((r) => isError(r.Status));
@@ -164,7 +187,7 @@ function MassBalanceCard({ rows, onOpenBatch }: { rows: ReturnType<typeof massBa
       {errors.length > 0 && (
         <div className="space-y-1.5">
           <p className="text-[11px] font-medium uppercase tracking-wide text-destructive">Errors — disqualifying</p>
-          {errors.slice(0, 8).map((r) => <BalanceRow key={r.BatchId} r={r} onOpenBatch={onOpenBatch} />)}
+          {errors.slice(0, 8).map((r) => <BalanceRow key={r.BatchId} r={r} onOpenBatch={onOpenBatch} onOpenEntry={onOpenEntry} />)}
           {errors.length > 8 && (
             <p className="text-[11px] text-muted-foreground">+{errors.length - 8} more with errors</p>
           )}
@@ -176,7 +199,7 @@ function MassBalanceCard({ rows, onOpenBatch }: { rows: ReturnType<typeof massBa
           <p className="text-[11px] font-medium uppercase tracking-wide text-amber-600 dark:text-amber-500">
             Incomplete — fix before audit
           </p>
-          {warnings.slice(0, 8).map((r) => <BalanceRow key={r.BatchId} r={r} onOpenBatch={onOpenBatch} />)}
+          {warnings.slice(0, 8).map((r) => <BalanceRow key={r.BatchId} r={r} onOpenBatch={onOpenBatch} onOpenEntry={onOpenEntry} />)}
           {warnings.length > 8 && (
             <p className="text-[11px] text-muted-foreground">+{warnings.length - 8} more incomplete</p>
           )}
@@ -192,10 +215,10 @@ function MassBalanceCard({ rows, onOpenBatch }: { rows: ReturnType<typeof massBa
  * still filters into November.
  */
 function entryMonth(e: WorkProcessEntry): string {
-  for (const [k, v] of Object.entries(e.Values ?? {})) {
-    if (k.endsWith("_date") && /^\d{4}-\d{2}/.test(v ?? "")) return v!;
-  }
-  return e.Timestamp ?? "";
+  // Shares massBalance's rule so a Warehouse row (whose field is plain "date")
+  // filters by its own date too, and so a stage carrying two dates picks the
+  // same one here as it does in the balance.
+  return ownDate(e) ?? e.Timestamp ?? "";
 }
 
 function WorkProcessHub() {
@@ -292,7 +315,14 @@ function WorkProcessHub() {
           <ManageZonesDialog />
         </div>
       )}
-      <MassBalanceCard rows={balance} onOpenBatch={setQuery} />
+      <MassBalanceCard
+        rows={balance}
+        onOpenBatch={setQuery}
+        onOpenEntry={(id) => {
+          const entry = entries.find((e) => e.id === id);
+          if (entry) openResult(entry);
+        }}
+      />
 
       {/* Filter every logged work-process entry by text, month and stage. */}
       <div className="flex flex-wrap items-center gap-2">

@@ -117,6 +117,8 @@ export interface BatchBalance {
   UnlinkedCount: number;
   /** Movement entries with a weight but no date (only on the UNDATED row). */
   UndatedCount: number;
+  /** Ids of the offending entries, so the UI can link straight to them. */
+  EntryIds: string[];
   /** Stage keys that contributed, for drilling back into the entries. */
   Stages: string[];
 }
@@ -136,11 +138,17 @@ function movementDate(e: WorkProcessEntry): string {
  * just "Date" → `date`, so match that exactly too — otherwise a dated warehouse
  * receipt is wrongly reported as undated.
  */
-function ownDate(e: WorkProcessEntry): string | null {
+export function ownDate(e: WorkProcessEntry): string | null {
+  // Earliest of the stage's dates, not the first key encountered. Carbon Sink
+  // carries two ("Procurement / Delivery Date" and "Usage Date") and Postgres
+  // reorders jsonb keys, so first-match picked a different date in production
+  // than in dev — same record, different verdict. Earliest is both deterministic
+  // and the right one: the biochar left stock when it was delivered.
+  let best: string | null = null;
   for (const [k, v] of Object.entries(e.Values ?? {}))
     if ((k === "date" || k.endsWith("_date")) && /^\d{4}-\d{2}/.test(String(v ?? "")))
-      return v as string;
-  return null;
+      if (best === null || (v as string) < best) best = v as string;
+  return best;
 }
 
 /**
@@ -174,7 +182,7 @@ export function massBalance(entries: WorkProcessEntry[]): BatchBalance[] {
   // a phantom per-batch row.
   const pool = { count: 0, kg: 0 };
   // Movements with a weight but no date, which the timeline can't place reliably.
-  let undated = 0;
+  const undated: string[] = [];
   // DO → batch, so a draw-down that only knows its delivery document still
   // reconciles against the batch the warehouse loaded it from.
   const dispatch = dispatchIndex(entries);
@@ -196,7 +204,7 @@ export function massBalance(entries: WorkProcessEntry[]): BatchBalance[] {
       row = {
         BatchId: batchId, Produced: 0, ExternalSupply: 0, Consumed: 0, Remaining: 0,
         Status: "ok", MissingAmount: 0, ZeroUnverified: 0, MissingBatchId: 0,
-        HasProduction: false, UnlinkedCount: 0, UndatedCount: 0, Stages: [],
+        HasProduction: false, UnlinkedCount: 0, UndatedCount: 0, EntryIds: [], Stages: [],
       };
       byBatch.set(batchId, row);
     }
@@ -216,7 +224,7 @@ export function massBalance(entries: WorkProcessEntry[]): BatchBalance[] {
     if (amt !== null) {
       const incoming = Boolean(producedKey || externalKey);
       timeline.push({ date: movementDate(e), delta: incoming ? amt : -amt });
-      if (ownDate(e) === null) undated += 1; // no date to place it on the timeline
+      if (ownDate(e) === null) undated.push(e.id); // no date to place it on the timeline
     }
 
     // Purchased stock. Counted as supply, but never as own production —
@@ -310,16 +318,16 @@ export function massBalance(entries: WorkProcessEntry[]): BatchBalance[] {
       BatchId: POOL, Produced: 0, ExternalSupply: 0, Consumed: pool.kg, Remaining: deficit ? -deficit : 0,
       Status: deficit > 0 ? "premature" : "incomplete",
       MissingAmount: 0, ZeroUnverified: 0, MissingBatchId: 0, HasProduction: false,
-      UnlinkedCount: pool.count, UndatedCount: 0, Stages: [],
+      UnlinkedCount: pool.count, UndatedCount: 0, EntryIds: [], Stages: [],
     });
   }
 
   // Undated movements make the timeline (and any premature verdict) unreliable.
-  if (undated > 0) {
+  if (undated.length > 0) {
     rows.push({
       BatchId: UNDATED, Produced: 0, ExternalSupply: 0, Consumed: 0, Remaining: 0, Status: "incomplete",
       MissingAmount: 0, ZeroUnverified: 0, MissingBatchId: 0, HasProduction: false,
-      UnlinkedCount: 0, UndatedCount: undated, Stages: [],
+      UnlinkedCount: 0, UndatedCount: undated.length, EntryIds: undated, Stages: [],
     });
   }
 

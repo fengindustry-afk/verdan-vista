@@ -22,6 +22,18 @@ describe("massBalance", () => {
     expect(rows[0].Stages).toEqual(["production_05", "application", "carbon_sink"]);
   });
 
+  it("reads the same date whichever order the jsonb keys arrive in", () => {
+    // Carbon Sink carries two dates and Postgres reorders jsonb keys, so a
+    // first-key-wins read gave one verdict in dev and another in production.
+    const build = (sink: Record<string, string>) => massBalance([
+      entry("production_05", { batch_id: "B1", final_biochar_amount: "100", production_date: "2025-05-16" }),
+      entry("carbon_sink", sink),
+    ]);
+    const dev = build({ batch_id: "GHOST", procurement_delivery_date: "2025-05-15", usage_date: "2025-05-17", quantity: "100" });
+    const jsonb = build({ quantity: "100", batch_id: "GHOST", usage_date: "2025-05-17", procurement_delivery_date: "2025-05-15" });
+    expect(dev.find((r) => r.BatchId === POOL)!.Status).toBe(jsonb.find((r) => r.BatchId === POOL)!.Status);
+  });
+
   it("does not call a same-day shipment premature", () => {
     const rows = massBalance([
       // Shipment recorded before the production entry, same day: day-granular
