@@ -1,6 +1,6 @@
 import { BentoCard } from "@/components/BentoCard";
 import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, MapPin, CheckCircle2, Circle, Loader2 } from "lucide-react";
+import { ArrowLeft, MapPin, CheckCircle2, Circle, Loader2, FileText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useFeedstock, useWorkProcessEntries } from "@/hooks/useCollection";
 import {
@@ -12,10 +12,43 @@ import {
   parseCustodyLog,
   phaseOf,
   wpEntriesForBatch,
+  wpEntriesForLot,
+  wpEntriesForStage,
+  lotBatchIds,
+  oneFilePerProcess,
 } from "@/lib/feedstock";
-import { entrySubtitle, formatEntryTimestamp } from "@/lib/workProcess";
+import { entrySubtitle, formatEntryTimestamp, type WorkProcessEntry } from "@/lib/workProcess";
 import { badgeForStatus, fmt } from "@/lib/format";
 import { BatchActions } from "@/components/BatchActions";
+
+/**
+ * One file per work process at this custody stage — the latest entry of each
+ * StageKey, with how many daily records it stands for. A lot's Pre-Processing
+ * can run to 30-odd rows; listing them all buries the chain, and the chain is
+ * meant to answer "did this stage happen", not "on which days".
+ */
+function StageFiles({ files }: { files: WorkProcessEntry[] }) {
+  if (files.length === 0) return null;
+  return (
+    <ul className="mt-1.5 space-y-1">
+      {oneFilePerProcess(files).map(({ entry, count }) => (
+        <li key={entry.id}>
+          <Link
+            to={`/workflow?tab=work-process&entry=${encodeURIComponent(entry.id)}`}
+            className="group flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary"
+          >
+            <FileText className="h-3 w-3 shrink-0" />
+            <span className="truncate group-hover:underline">{entry.StageTitle}</span>
+            <span className="shrink-0 text-[10px] text-muted-foreground/70">
+              {count > 1 ? `${count} records · latest ` : ""}
+              {formatEntryTimestamp(entry.Timestamp)}
+            </span>
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 export default function FeedstockDetail() {
   const { id } = useParams();
@@ -40,6 +73,11 @@ export default function FeedstockDetail() {
   }
 
   const wpEntries = wpEntriesForBatch(f.Title ?? "", wpAll);
+  // The chain shows the whole lot, so it reads end to end even when stages were
+  // logged under different iterations of the batch code. The CORC and
+  // mass-balance figures below stay on the strict per-id match — see wpEntriesForLot.
+  const lotEntries = wpEntriesForLot(f.Title ?? "", wpAll);
+  const lotIds = lotBatchIds(f.Title ?? "", wpAll);
   const m = corcMetrics(f, wpEntries);
   const mb = massBalance(wpEntries);
   const stageIdx = currentStageIndex(f);
@@ -102,11 +140,27 @@ export default function FeedstockDetail() {
       <div className="grid lg:grid-cols-5 gap-4">
         {/* Custody chain */}
         <BentoCard className="lg:col-span-3">
-          <h3 className="text-sm font-semibold text-foreground mb-4">Chain of Custody</h3>
+          <h3 className="text-sm font-semibold text-foreground mb-1">Chain of Custody</h3>
+          <p className="text-[10px] text-muted-foreground mb-4">
+            {lotIds.length > 1
+              ? `Lot iterations: ${lotIds.join(", ")}`
+              : "No other iterations of this batch code recorded"}
+          </p>
           <ol className="space-y-1">
             {CUSTODY_STAGES.map((stage, i) => {
-              const done = i <= stageIdx;
               const leg = custody[stage];
+              const stageFiles = wpEntriesForStage(stage, lotEntries);
+              // A stage is reached when a record proves it, not when the batch's
+              // stored CurrentStage claims it. The seeded CurrentStage is the
+              // furthest sheet the id appeared on, so it ticked Storage and
+              // beyond for batches whose chain actually stops at production —
+              // green ticks with nothing behind them are exactly what an audit
+              // catches. A claimed-but-unevidenced stage is labelled, not ticked.
+              const done = stageFiles.length > 0;
+              const claimed = !done && i <= stageIdx;
+              const linkedAhead = CUSTODY_STAGES.slice(i + 1).some(
+                (s) => wpEntriesForStage(s, lotEntries).length > 0
+              );
               return (
                 <li key={stage} className="flex gap-3">
                   <div className="flex flex-col items-center">
@@ -116,19 +170,33 @@ export default function FeedstockDetail() {
                       <Circle className="h-5 w-5 text-muted-foreground/40 shrink-0" />
                     )}
                     {i < CUSTODY_STAGES.length - 1 && (
-                      <div className={`w-px flex-1 my-1 ${i < stageIdx ? "bg-primary" : "bg-border"}`} style={{ minHeight: 24 }} />
+                      // Solid only where the chain actually continues: evidence
+                      // here AND somewhere further down.
+                      <div className={`w-px flex-1 my-1 ${done && linkedAhead ? "bg-primary" : "bg-border"}`} style={{ minHeight: 24 }} />
                     )}
                   </div>
-                  <div className="pb-3">
+                  <div className="pb-3 min-w-0 flex-1">
                     <p className={`text-sm ${done ? "text-foreground font-medium" : "text-muted-foreground"}`}>
                       {stage}
                       <span className="ml-2 text-[10px] uppercase tracking-wide text-muted-foreground">{phaseOf(stage)}</span>
+                      {done && (
+                        <span className="ml-2 text-[10px] text-muted-foreground">
+                          {stageFiles.length} record{stageFiles.length === 1 ? "" : "s"}
+                        </span>
+                      )}
+                      {claimed && (
+                        <span className="ml-2 text-[10px] text-amber-500">
+                          claimed · no linked record
+                        </span>
+                      )}
                     </p>
                     {leg && (
                       <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
                         <MapPin className="h-3 w-3" /> {leg.Location} · {leg.Date} · {leg.Coords}
                       </p>
                     )}
+                    {/* The records logged at this stage — the chain's actual evidence. */}
+                    <StageFiles files={stageFiles} />
                   </div>
                 </li>
               );
@@ -177,16 +245,16 @@ export default function FeedstockDetail() {
       {/* Work-process entries sharing this batch ID */}
       <BentoCard>
         <h3 className="text-sm font-semibold text-foreground mb-4">Work Process Entries</h3>
-        {wpEntries.length === 0 ? (
+        {lotEntries.length === 0 ? (
           <p className="text-xs text-muted-foreground">
             No work-process entries reference this batch ID.
           </p>
         ) : (
           <div className="space-y-3">
-            {wpEntries.map((e) => (
+            {oneFilePerProcess(lotEntries).map(({ entry: e, count }) => (
               <Link
                 key={e.id}
-                to="/workflow?tab=work-process"
+                to={`/workflow?tab=work-process&entry=${encodeURIComponent(e.id)}`}
                 className="flex items-start gap-3 group"
               >
                 <div className="mt-1 h-2 w-2 rounded-full shrink-0 bg-primary" />
@@ -194,6 +262,7 @@ export default function FeedstockDetail() {
                   <p className="text-xs font-medium text-foreground group-hover:text-primary">
                     {e.StageTitle}
                     <span className="ml-2 font-normal text-muted-foreground">
+                      {count > 1 ? `${count} records · latest ` : ""}
                       {formatEntryTimestamp(e.Timestamp)}
                     </span>
                   </p>

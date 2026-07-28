@@ -1,18 +1,18 @@
 import { BentoCard } from "@/components/BentoCard";
 import { useFeedstock, useWorkProcessEntries } from "@/hooks/useCollection";
-import { corcMetrics, withMeasuredCorcInputs, CUSTODY_STAGES, OPERATIONS_STAGE_COUNT, type CustodyStage } from "@/lib/feedstock";
+import { corcMetrics, withMeasuredCorcInputs, evidencedStageIndex, CUSTODY_STAGES, OPERATIONS_STAGE_COUNT, type CustodyStage } from "@/lib/feedstock";
 import { fmt } from "@/lib/format";
 import { Truck, Settings2, Flame, FlaskConical, Warehouse, Sprout, Trees, BadgeCheck, Loader2, ChevronRight, ChevronDown, Search, X, Scale, AlertTriangle } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Link, useSearchParams } from "react-router-dom";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   phases, stageByKey, entryTitle, entrySubtitle, formatEntryTimestamp, WORKFLOW_CATALOG,
   type WorkflowStageDef, type WorkProcessEntry,
 } from "@/lib/workProcess";
-import { massBalance, balanceSummary, isError, NO_BATCH, POOL, UNDATED, type BatchBalance } from "@/lib/massBalance";
+import { massBalance, balanceSummary, isError, ownDate, NO_BATCH, POOL, UNDATED, type BatchBalance } from "@/lib/massBalance";
 import { NewBatchDialog } from "@/components/NewBatchDialog";
 import { useAuth } from "@/lib/auth";
 import { hasPermission, Permission, UserRole } from "@/lib/rbac";
@@ -101,7 +101,9 @@ function balanceMessage(r: BatchBalance): string {
   }
 }
 
-function BalanceRow({ r, onOpenBatch }: { r: BatchBalance; onOpenBatch: (q: string) => void }) {
+function BalanceRow({ r, onOpenBatch, onOpenEntry }: {
+  r: BatchBalance; onOpenBatch: (q: string) => void; onOpenEntry: (id: string) => void;
+}) {
   const err = isError(r.Status);
   // Untraceable / pooled rows have no single batch id to search on, so they aren't a link.
   const orphan = r.BatchId === NO_BATCH || r.BatchId === POOL || r.BatchId === UNDATED;
@@ -116,12 +118,33 @@ function BalanceRow({ r, onOpenBatch }: { r: BatchBalance; onOpenBatch: (q: stri
     </>
   );
   const cls = `flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors ${tone}`;
-  return orphan
-    ? <div className={cls.replace("hover:bg-amber-500/10", "").replace("hover:bg-destructive/10", "")}>{body}</div>
-    : <button onClick={() => onOpenBatch(r.BatchId)} className={cls}>{body}</button>;
+  if (!orphan) return <button onClick={() => onOpenBatch(r.BatchId)} className={cls}>{body}</button>;
+  const plain = cls.replace("hover:bg-amber-500/10", "").replace("hover:bg-destructive/10", "");
+  return (
+    <div className="space-y-1.5">
+      <div className={plain}>{body}</div>
+      {/* Undated movements have no batch id to search on, so link each offending
+          entry directly — otherwise there is no way to find them in the list. */}
+      {r.Entries.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 pl-3">
+          {r.Entries.map((entry) => (
+            <button
+              key={entry.id}
+              onClick={() => onOpenEntry(entry.id)}
+              className="rounded-full border border-amber-500/30 px-2.5 py-0.5 text-[11px] text-amber-600 dark:text-amber-500 hover:bg-amber-500/10 transition-colors"
+            >
+              Fix: {entry.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
-function MassBalanceCard({ rows, onOpenBatch }: { rows: ReturnType<typeof massBalance>; onOpenBatch: (q: string) => void }) {
+function MassBalanceCard({ rows, onOpenBatch, onOpenEntry }: {
+  rows: ReturnType<typeof massBalance>; onOpenBatch: (q: string) => void; onOpenEntry: (id: string) => void;
+}) {
   const summary = balanceSummary(rows);
   if (rows.length === 0) return null;
   const errors = rows.filter((r) => isError(r.Status));
@@ -164,7 +187,7 @@ function MassBalanceCard({ rows, onOpenBatch }: { rows: ReturnType<typeof massBa
       {errors.length > 0 && (
         <div className="space-y-1.5">
           <p className="text-[11px] font-medium uppercase tracking-wide text-destructive">Errors — disqualifying</p>
-          {errors.slice(0, 8).map((r) => <BalanceRow key={r.BatchId} r={r} onOpenBatch={onOpenBatch} />)}
+          {errors.slice(0, 8).map((r) => <BalanceRow key={r.BatchId} r={r} onOpenBatch={onOpenBatch} onOpenEntry={onOpenEntry} />)}
           {errors.length > 8 && (
             <p className="text-[11px] text-muted-foreground">+{errors.length - 8} more with errors</p>
           )}
@@ -176,7 +199,7 @@ function MassBalanceCard({ rows, onOpenBatch }: { rows: ReturnType<typeof massBa
           <p className="text-[11px] font-medium uppercase tracking-wide text-amber-600 dark:text-amber-500">
             Incomplete — fix before audit
           </p>
-          {warnings.slice(0, 8).map((r) => <BalanceRow key={r.BatchId} r={r} onOpenBatch={onOpenBatch} />)}
+          {warnings.slice(0, 8).map((r) => <BalanceRow key={r.BatchId} r={r} onOpenBatch={onOpenBatch} onOpenEntry={onOpenEntry} />)}
           {warnings.length > 8 && (
             <p className="text-[11px] text-muted-foreground">+{warnings.length - 8} more incomplete</p>
           )}
@@ -192,15 +215,16 @@ function MassBalanceCard({ rows, onOpenBatch }: { rows: ReturnType<typeof massBa
  * still filters into November.
  */
 function entryMonth(e: WorkProcessEntry): string {
-  for (const [k, v] of Object.entries(e.Values ?? {})) {
-    if (k.endsWith("_date") && /^\d{4}-\d{2}/.test(v ?? "")) return v!;
-  }
-  return e.Timestamp ?? "";
+  // Shares massBalance's rule so a Warehouse row (whose field is plain "date")
+  // filters by its own date too, and so a stage carrying two dates picks the
+  // same one here as it does in the balance.
+  return ownDate(e) ?? e.Timestamp ?? "";
 }
 
 function WorkProcessHub() {
   const { data: entries = [], isLoading } = useWorkProcessEntries();
   const { role } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [openStage, setOpenStage] = useState<WorkflowStageDef | null>(null);
   const [openEntry, setOpenEntry] = useState<WorkProcessEntry | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -238,6 +262,20 @@ function WorkProcessHub() {
     setOpenEntry(entry);
     setOpenStage(stage);
   };
+
+  // `?entry=<id>` opens that record straight away, so a custody-chain file link
+  // from a batch page lands on the entry itself. The param is dropped once
+  // consumed, otherwise closing the dialog would immediately reopen it.
+  const deepLinkId = searchParams.get("entry");
+  useEffect(() => {
+    if (!deepLinkId || !entries.length) return;
+    const entry = entries.find((e) => e.id === deepLinkId);
+    if (entry) openResult(entry);
+    const next = new URLSearchParams(searchParams);
+    next.delete("entry");
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deepLinkId, entries]);
 
   if (isLoading) {
     return (
@@ -277,7 +315,14 @@ function WorkProcessHub() {
           <ManageZonesDialog />
         </div>
       )}
-      <MassBalanceCard rows={balance} onOpenBatch={setQuery} />
+      <MassBalanceCard
+        rows={balance}
+        onOpenBatch={setQuery}
+        onOpenEntry={(id) => {
+          const entry = entries.find((e) => e.id === id);
+          if (entry) openResult(entry);
+        }}
+      />
 
       {/* Filter every logged work-process entry by text, month and stage. */}
       <div className="flex flex-wrap items-center gap-2">
@@ -413,19 +458,57 @@ function CustodyOverview() {
   const canAdd = hasPermission(role, Permission.AddFeedstock);
   const [openStage, setOpenStage] = useState<string | null>(null);
 
+  /**
+   * Where each batch really sits: the furthest stage a linked record proves,
+   * with its stored `CurrentStage` kept alongside as a claim. A batch marked
+   * "Storage" whose chain stops at production is counted (and its CORC totalled)
+   * at production, and shows up as an unverified claim on the Storage card —
+   * same rule the Chain of Custody on the batch page follows.
+   *
+   * ponytail: recomputed over every batch × every entry on each render of this
+   * memo. Fine at workbook scale (~100 batches, ~300 entries); index the entries
+   * by lot if either grows an order of magnitude.
+   */
+  const placed = useMemo(
+    () =>
+      feedstock.map((f) => {
+        const i = evidencedStageIndex(f.Title ?? "", wpAll);
+        return {
+          batch: f,
+          evidenced: i >= 0 ? CUSTODY_STAGES[i] : null,
+          claimed: (f.CurrentStage ?? null) as CustodyStage | null,
+        };
+      }),
+    [feedstock, wpAll]
+  );
+
+  /** Batches at a stage: evidenced first, then those only claiming it. */
+  const batchesAt = (stage: string) => [
+    ...placed.filter((p) => p.evidenced === stage),
+    ...placed.filter((p) => p.evidenced !== stage && p.claimed === stage),
+  ];
+
   const stageBatches = useMemo(
-    () => (openStage ? feedstock.filter((f) => f.CurrentStage === openStage) : []),
-    [openStage, feedstock]
+    () => (openStage ? batchesAt(openStage) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [openStage, placed]
   );
 
   const stages = useMemo(
     () =>
       CUSTODY_STAGES.map((stage) => {
-        const batches = feedstock.filter((f) => f.CurrentStage === stage);
-        const corc = batches.reduce((s, f) => s + corcMetrics(f).netCorc, 0);
-        return { stage, count: batches.length, corc, phase: CUSTODY_STAGES.indexOf(stage) < OPERATIONS_STAGE_COUNT ? "Operations" : "Storage" };
+        const evidenced = placed.filter((p) => p.evidenced === stage);
+        const claimedOnly = placed.filter((p) => p.evidenced !== stage && p.claimed === stage);
+        const corc = evidenced.reduce((s, p) => s + corcMetrics(p.batch).netCorc, 0);
+        return {
+          stage,
+          count: evidenced.length,
+          claimedOnly: claimedOnly.length,
+          corc,
+          phase: CUSTODY_STAGES.indexOf(stage) < OPERATIONS_STAGE_COUNT ? "Operations" : "Storage",
+        };
       }),
-    [feedstock]
+    [placed]
   );
 
   if (isLoading) {
@@ -458,15 +541,21 @@ function CustodyOverview() {
               .filter((s) => s.phase === phase)
               .map((s, i) => {
                 const Icon = STAGE_META[s.stage].icon;
+                const open = s.count + s.claimedOnly;
                 return (
-                  <button key={s.stage} onClick={() => s.count > 0 && setOpenStage(s.stage)} className="text-left" disabled={s.count === 0}>
-                    <BentoCard delay={i * 0.05} className={`h-full group ${s.count > 0 ? "cursor-pointer" : "opacity-70"}`}>
+                  <button key={s.stage} onClick={() => open > 0 && setOpenStage(s.stage)} className="text-left" disabled={open === 0}>
+                    <BentoCard delay={i * 0.05} className={`h-full group ${open > 0 ? "cursor-pointer" : "opacity-70"}`}>
                       <div className="flex items-start justify-between">
                         <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
                           <Icon className="h-4 w-4 text-primary" />
                         </div>
                         <span className="text-2xl font-bold text-foreground">{s.count}</span>
                       </div>
+                      {s.claimedOnly > 0 && (
+                        <p className="text-[11px] text-amber-500 mt-2">
+                          +{s.claimedOnly} claimed, no linked record
+                        </p>
+                      )}
                       <p className="text-sm font-semibold text-foreground mt-3 flex items-center gap-1 group-hover:text-primary transition-colors">
                         {s.stage} {s.count > 0 && <ChevronRight className="h-3.5 w-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />}
                       </p>
@@ -487,7 +576,7 @@ function CustodyOverview() {
             <DialogTitle>{openStage} · {stageBatches.length} batch{stageBatches.length === 1 ? "" : "es"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-2 max-h-96 overflow-auto">
-            {stageBatches.map((f) => {
+            {stageBatches.map(({ batch: f, evidenced }) => {
               const m = corcMetrics(f);
               return (
                 <Link
@@ -499,6 +588,11 @@ function CustodyOverview() {
                   <div className="min-w-0">
                     <p className="text-sm text-foreground truncate">{f.Title}</p>
                     <p className="text-[11px] text-muted-foreground truncate">{f.Type} · {f.Supplier} · {f.Amount}</p>
+                    {evidenced !== openStage && (
+                      <p className="text-[10px] text-amber-500">
+                        claimed here · records stop at {evidenced ?? "no stage"}
+                      </p>
+                    )}
                   </div>
                   <div className="text-right shrink-0">
                     <p className="text-sm font-semibold text-primary">{fmt(m.netCorc, 2)}</p>

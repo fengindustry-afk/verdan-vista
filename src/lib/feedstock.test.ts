@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { corcMetrics, currentStageIndex, massBalance, parseAuditLog, planProduction, wpEntriesForBatch, wpProcessEmissionTco2e, CUSTODY_STAGES } from "./feedstock";
+import { corcMetrics, currentStageIndex, massBalance, parseAuditLog, planProduction, wpEntriesForBatch, wpEntriesForLot, lotBatchIds, evidencedStageIndex, wpProcessEmissionTco2e, CUSTODY_STAGES } from "./feedstock";
 import type { Feedstock } from "./types";
 import type { WorkProcessEntry } from "./workProcess";
 
@@ -249,6 +249,32 @@ describe("wpEntriesForBatch", () => {
   });
 });
 
+describe("wpEntriesForLot", () => {
+  const entries = [
+    wpEntry({ id: "r", StageKey: "receiving", Values: { batch_id: "ZA-01-11-24" } }),
+    wpEntry({ id: "i", StageKey: "isolation", Values: { batch_id: "ZA-01-11-18" } }),
+    wpEntry({ id: "d", StageKey: "drying", Values: { batch_id: "za-01-11-25" } }),
+    wpEntry({ id: "x", StageKey: "receiving", Values: { batch_id: "ZA-02-11-24" } }),
+    wpEntry({ id: "p", StageKey: "production_10", Values: { batch_id: "08012025 CYB" } }),
+  ];
+
+  it("joins every iteration of the lot code, and nothing else", () => {
+    expect(wpEntriesForLot("ZA-01-11-24", entries).map((e) => e.id).sort()).toEqual(["d", "i", "r"]);
+    expect(lotBatchIds("ZA-01-11-24", entries)).toEqual(["ZA-01-11-18", "ZA-01-11-24", "ZA-01-11-25"]);
+  });
+
+  it("reports the furthest stage with a record, ignoring the stored claim", () => {
+    expect(evidencedStageIndex("ZA-01-11-24", entries)).toBe(CUSTODY_STAGES.indexOf("Feedstock Pre-Processing"));
+    expect(evidencedStageIndex("08012025 CYB", entries)).toBe(CUSTODY_STAGES.indexOf("Material Conversion"));
+    expect(evidencedStageIndex("ZA-09-09-99", entries)).toBe(-1);
+  });
+
+  it("leaves non-lot ids alone", () => {
+    expect(wpEntriesForLot("08012025 CYB", entries).map((e) => e.id)).toEqual(["p"]);
+    expect(wpEntriesForLot("", entries)).toEqual([]);
+  });
+});
+
 describe("currentStageIndex", () => {
   it("returns 0 for an unset stage", () => {
     expect(currentStageIndex(batch())).toBe(0);
@@ -270,5 +296,29 @@ describe("parseAuditLog", () => {
   it("returns [] for missing or malformed logs", () => {
     expect(parseAuditLog(batch())).toEqual([]);
     expect(parseAuditLog(batch({ AuditLog: "not json" }))).toEqual([]);
+  });
+});
+
+describe("wpEntriesForStage", () => {
+  it("covers every work-process stage in the catalog exactly once", async () => {
+    const { CUSTODY_STAGE_KEYS } = await import("./feedstock");
+    const { WORKFLOW_CATALOG } = await import("./workProcess");
+    const mapped = Object.values(CUSTODY_STAGE_KEYS).flat();
+    // A catalog stage missing here would drop its entries out of the custody
+    // chain silently; a duplicate would list the same file under two stages.
+    expect([...mapped].sort()).toEqual(WORKFLOW_CATALOG.map((s) => s.Key).sort());
+    expect(new Set(mapped).size).toBe(mapped.length);
+  });
+
+  it("groups a batch's entries under the right custody stage, newest first", async () => {
+    const { wpEntriesForStage } = await import("./feedstock");
+    const entries = [
+      wpEntry({ id: "a", StageKey: "isolation", Timestamp: "2024-11-01T00:00:00Z" }),
+      wpEntry({ id: "b", StageKey: "drying", Timestamp: "2024-11-09T00:00:00Z" }),
+      wpEntry({ id: "c", StageKey: "receiving", Timestamp: "2024-10-01T00:00:00Z" }),
+    ];
+    expect(wpEntriesForStage("Feedstock Pre-Processing", entries).map((e) => e.id)).toEqual(["b", "a"]);
+    expect(wpEntriesForStage("Feedstock Collection", entries).map((e) => e.id)).toEqual(["c"]);
+    expect(wpEntriesForStage("Carbon Sink", entries)).toEqual([]);
   });
 });
