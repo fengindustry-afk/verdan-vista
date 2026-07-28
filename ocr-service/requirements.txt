@@ -6,15 +6,12 @@ pillow>=10.0
 numpy>=1.26
 
 # Default backend (PaddleOCR). CPU wheels; first run downloads the models.
-# Held at 2.x on purpose: backends/paddle_backend.py uses the 2.x API, which
-# 3.x removed. PaddleOCR(use_angle_cls=..., show_log=...) is gone (3.x renamed
-# it use_textline_orientation and dropped show_log), .ocr(arr, cls=True) is
-# replaced by predict(), and the result is no longer [box, (text, conf)] pairs
-# but an object exposing rec_texts / rec_scores / dt_polys. Lifting the ceiling
-# without porting that file breaks the service at construction and again at the
-# result unpack. See docs/version3.x/pipeline_usage/OCR.html.
-paddleocr>=2.7,<3
-paddlepaddle>=2.6,<3
+# Floored at 3.x: backends/paddle_backend.py uses the 3.x API
+# (use_textline_orientation, predict(), rec_texts/rec_polys results), none of
+# which exists in 2.x. Downgrading breaks the service at construction — port
+# that file back before you loosen this.
+paddleocr>=3,<4
+paddlepaddle>=3,<4
 
 # Optional lighter backend — uncomment to use OCR_BACKEND=tesseract instead:
 # pytesseract>=0.3.10   # also: sudo apt-get install tesseract-ocr
