@@ -7,13 +7,11 @@ import type { Feedstock } from "@/lib/types";
 import { fmt } from "@/lib/format";
 import { Calculator, CheckCircle2, Factory, XCircle } from "lucide-react";
 
-const ELIGIBLE_TYPES = [
-  "Empty Fruit Bunches", "POME", "Palm Kernel Shells", "Palm Fronds",
-  "Palm Fiber", "Mesocarp Fiber", "Bio-waste",
-];
+const AVAILABLE_TYPES = ["Woodchip"];
+const UNAVAILABLE_TYPES = ["Bamboo", "Vetiver", "Coconut Waste"];
 
 export default function CorcCalculator() {
-  const [type, setType] = useState("Palm Kernel Shells");
+  const [type, setType] = useState("Woodchip");
   const [amount, setAmount] = useState("2000");
   const [yieldKg, setYieldKg] = useState("");
   const [carbonPct, setCarbonPct] = useState("");
@@ -77,8 +75,12 @@ export default function CorcCalculator() {
                 onChange={(e) => setType(e.target.value)}
                 className="mt-1 w-full rounded-lg bg-muted border border-border px-3 py-2 text-sm text-foreground"
               >
-                {ELIGIBLE_TYPES.map((t) => <option key={t}>{t}</option>)}
-                <option>Other (needs review)</option>
+                {AVAILABLE_TYPES.map((t) => <option key={t}>{t}</option>)}
+                {UNAVAILABLE_TYPES.map((t) => (
+                  <option key={t} disabled className="text-muted-foreground">
+                    {t} (not available)
+                  </option>
+                ))}
               </select>
             </div>
             {[

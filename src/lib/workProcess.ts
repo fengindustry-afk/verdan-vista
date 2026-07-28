@@ -36,6 +36,8 @@ export interface FormField {
   Unit?: string;
   Placeholder?: string;
   Options?: string[];
+  /** Short guidance shown under the label. Use where a blank costs traceability. */
+  Hint?: string;
 }
 
 export interface FormSection {
@@ -145,6 +147,35 @@ export function trailStraightLineKm(values: Record<string, string>): number | nu
  */
 const SOURCE: FormField = { Label: "Source Batch ID", Key: slug("Source Batch ID"), Type: "batch", Placeholder: "Link to a production batch" };
 
+/**
+ * The delivery document the load travelled under. This is the one identifier a
+ * downstream team reliably holds: an application site or a carbon sink receives
+ * a lorry and a DO, never a production batch code. Recording the same DO on the
+ * Warehouse line that loaded the lorry turns it into the join between them —
+ * see `dispatchIndex` / `resolveSourceBatch`.
+ */
+const DO = (Hint: string): FormField => ({
+  Label: "DO Number", Key: slug("DO Number"), Type: "text", Placeholder: "2020808/001", Hint,
+});
+
+/**
+ * What to tell a downstream team typing this in. The imported Carbon Sink rows
+ * recorded the document *type* ("Invoice", "DELIVERY ORDER") rather than its
+ * number, which joins to nothing — so the hint leads with that distinction.
+ */
+const DO_HINT_DOWNSTREAM =
+  "The number printed on the delivery order (e.g. 2020808/001), not the document type. This is what links the load back to the batch that produced it.";
+
+const DO_HINT_WAREHOUSE =
+  "The delivery order this load shipped under. Together with Source Batch ID, this line is what lets Application and Carbon Sink trace back here — record one line per batch on the lorry.";
+
+/**
+ * Keys that can hold a delivery-document number, preferred first. `biochar_do`
+ * is the older Application-only field, kept so entries written before the shared
+ * `do_number` landed still resolve.
+ */
+export const DO_KEYS = ["do_number", "biochar_do"] as const;
+
 const BIOMASS = ["Woodchip", "EFB", "PKS", "OPT", "Ash", "Other"];
 const FUELS = ["Diesel", "Petrol", "Electric", "Other"];
 
@@ -220,9 +251,13 @@ export const WORKFLOW_CATALOG: WorkflowStageDef[] = [
     Key: "warehouse", Title: "Warehouse", Phase: "Inventory Management", Group: "",
     Icon: Warehouse, Description: "Cured biochar & product in storage",
     Sections: [S("Warehouse",
-      T("Batch ID"), SOURCE, D("Date"),
+      T("Batch ID"), SOURCE, DO(DO_HINT_WAREHOUSE), D("Date"),
       P("Product", "Biochar", "Biochar Powder", "Liquid / Tar", "Fertiliser", "External Biochar"),
-      N("Quantity", "kg"), T("Storage Location"), L("Warehouse Site"), Z("Zone"),
+      {
+        ...N("Quantity", "kg"),
+        Hint: "Kg of this batch on the load. When one DO draws from several batches, the shipment is split between them in proportion to these figures.",
+      },
+      T("Storage Location"), L("Warehouse Site"), Z("Zone"),
       P("Storage Type", "Covered", "Open"),
       N("Distance", "km"), P("Transport Fuel", ...FUELS), M("Remarks"))],
   },
@@ -231,7 +266,7 @@ export const WORKFLOW_CATALOG: WorkflowStageDef[] = [
     Icon: Sprout, Description: "Use biochar in product: fertilizer, construction material, or animal feedlot",
     Sections: [
       S("Biochar Usage",
-        T("Batch ID"), SOURCE, T("Biochar DO"), D("Application Date"), N("Quantity Applied", "kg"),
+        T("Batch ID"), SOURCE, DO(DO_HINT_DOWNSTREAM), T("Biochar DO"), D("Application Date"), N("Quantity Applied", "kg"),
         L("Application Site"),
         P("Application Type", "Fertilizer", "Construction", "Animal Feedlot", "Soil", "Additives", "R&D"),
         T("Delivery Mode"), N("Distance", "km"), P("Transport Fuel", ...FUELS),
@@ -246,7 +281,7 @@ export const WORKFLOW_CATALOG: WorkflowStageDef[] = [
     Key: "carbon_sink", Title: "Carbon Sink", Phase: "Inventory Management", Group: "",
     Icon: Trees, Description: "Permanently store the carbon",
     Sections: [S("Carbon Sink Tracking",
-      T("Batch ID", "TIGGT-BT-2505-0001"), SOURCE, T("Supporting Document", "DO / Invoice / Receipt"),
+      T("Batch ID", "TIGGT-BT-2505-0001"), SOURCE, DO(DO_HINT_DOWNSTREAM), T("Supporting Document", "DO / Invoice / Receipt"),
       D("Procurement / Delivery Date"), D("Usage Date"), N("Quantity", "kg"),
       P("Carbon Sink Type", "Small Holder", "Community", "Municipality", "Estate", "Afforestation"),
       L("Sink Site"), T("Location of Final Permanent Application"), T("Project Type"),
@@ -262,6 +297,108 @@ export const WORKFLOW_CATALOG: WorkflowStageDef[] = [
       T("Certificate Reference"), T("Evidence"), M("Remarks"))],
   },
 ];
+
+/** The delivery-document number an entry travelled under, uppercased, or "". */
+export function doNumber(values: Record<string, string> | undefined): string {
+  for (const k of DO_KEYS) {
+    const v = (values?.[k] ?? "").trim();
+    if (v && v !== "-") return v.toUpperCase();
+  }
+  return "";
+}
+
+/** A quantity of biochar attributed to one production batch. */
+export interface BatchAllocation {
+  batch: string;
+  kg: number;
+}
+
+/** kg on a dispatch line, or 0 when the operator left the quantity blank. */
+function lineKg(values: Record<string, string> | undefined): number {
+  const m = String(values?.quantity ?? "").replace(/,/g, "").match(/-?\d*\.?\d+/);
+  const n = m ? Number(m[0]) : 0;
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/**
+ * Warehouse dispatch lines indexed by DO number: `DO → [{batch, kg}]`.
+ *
+ * Biochar is pooled in the store, so one lorry-load can draw from several
+ * batches. Record one Warehouse line per batch on the load, all sharing the DO,
+ * and the batches accumulate here under that DO. The per-line kg is what the
+ * pro-rata split in `allocateDrawdown` weighs the shipment by; lines repeating a
+ * batch under the same DO are summed.
+ */
+export function dispatchIndex(entries: WorkProcessEntry[]): Map<string, BatchAllocation[]> {
+  const byDo = new Map<string, BatchAllocation[]>();
+  for (const e of entries) {
+    if (e.StageKey !== "warehouse") continue;
+    const dn = doNumber(e.Values);
+    const src = (e.Values?.source_batch_id ?? "").trim() || (e.Values?.batch_id ?? "").trim();
+    if (!dn || !src || src === "-") continue;
+    const list = byDo.get(dn) ?? [];
+    const seen = list.find((l) => l.batch === src);
+    if (seen) seen.kg += lineKg(e.Values);
+    else list.push({ batch: src, kg: lineKg(e.Values) });
+    byDo.set(dn, list);
+  }
+  return byDo;
+}
+
+/**
+ * How a draw-down of `amount` kg is charged back to production batches.
+ *
+ * Three routes, in order:
+ *   1. An explicit `source_batch_id` — the whole amount, no inference.
+ *   2. The dispatch hop: the entry's DO resolved through the Warehouse lines
+ *      that loaded it. This is how a Carbon Sink row keyed `TIGGT-BT-2505-0001`
+ *      finds `ZA-01-11-24` without the sink team ever seeing a production code.
+ *      A DO spanning several batches is split PRO-RATA by the kg each Warehouse
+ *      line dispatched, which is the only defensible division once the biochar
+ *      has been physically pooled — Puro accepts mass-balance allocation when it
+ *      is documented and not double-counted.
+ *   3. The entry's own `batch_id`.
+ *
+ * Returns [] when none of those yield a batch, which the caller surfaces as a
+ * traceability gap rather than charging the mass somewhere convenient.
+ *
+ * A mixed DO whose Warehouse lines carry no quantities cannot be weighed, so it
+ * falls to route 3 rather than being split evenly — an equal split would be a
+ * guess dressed up as arithmetic.
+ */
+export function allocateDrawdown(
+  values: Record<string, string> | undefined,
+  dispatch: Map<string, BatchAllocation[]>,
+  amount: number
+): BatchAllocation[] {
+  const explicit = (values?.source_batch_id ?? "").trim();
+  if (explicit && explicit !== "-") return [{ batch: explicit, kg: amount }];
+
+  const lines = dispatch.get(doNumber(values)) ?? [];
+  if (lines.length === 1) return [{ batch: lines[0].batch, kg: amount }];
+  if (lines.length > 1) {
+    const total = lines.reduce((s, l) => s + l.kg, 0);
+    if (total > 0) {
+      const out = lines.map((l) => ({ batch: l.batch, kg: (amount * l.kg) / total }));
+      // Conservation: floating-point division must never create or destroy kg.
+      // Whatever the shares lost or gained lands on the last one, so the split
+      // always re-sums to exactly `amount`.
+      out[out.length - 1].kg += amount - out.reduce((s, o) => s + o.kg, 0);
+      return out;
+    }
+  }
+
+  const own = (values?.batch_id ?? "").trim();
+  return own && own !== "-" ? [{ batch: own, kg: amount }] : [];
+}
+
+/** Every batch a draw-down touches, ignoring how the mass divides between them. */
+export function drawdownBatches(
+  values: Record<string, string> | undefined,
+  dispatch: Map<string, BatchAllocation[]>
+): string[] {
+  return allocateDrawdown(values, dispatch, 0).map((a) => a.batch);
+}
 
 /** Icon for a workflow group button (ungrouped groups have no icon). */
 const GROUP_ICONS: Record<string, LucideIcon> = {

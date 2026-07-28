@@ -12,10 +12,13 @@
  *                movement entry with no batch id to trace it by. An auditor
  *                holds these until the record is completed.
  *
- * Everything is keyed on `batch_id`, the only link between stages today.
+ * Draw-downs are keyed on the batch they came from, resolved by
+ * `resolveSourceBatch`: an explicit `source_batch_id`, else the delivery
+ * document shared with the Warehouse line that loaded the lorry, else the
+ * entry's own id.
  */
 
-import type { WorkProcessEntry } from "./workProcess";
+import { allocateDrawdown, dispatchIndex, type WorkProcessEntry } from "./workProcess";
 
 /** Stage → the field holding kg of biochar produced. */
 const PRODUCED_FIELD: Record<string, string> = {
@@ -44,6 +47,14 @@ function externalSupplyField(e: WorkProcessEntry): string | undefined {
     ? "quantity"
     : undefined;
 }
+
+/**
+ * Slack on the over-shipment test, in kg. A pro-rata split divides a shipment
+ * into fractional shares, so a batch reconciling exactly can land a hair below
+ * zero in floating point. A microgram is far below any scale on site, so this
+ * cannot mask a real over-shipment.
+ */
+const KG_EPSILON = 1e-6;
 
 /** Bucket for movement entries that carry no batch id to trace them by. */
 export const NO_BATCH = "(no batch id)";
@@ -106,6 +117,8 @@ export interface BatchBalance {
   UnlinkedCount: number;
   /** Movement entries with a weight but no date (only on the UNDATED row). */
   UndatedCount: number;
+  /** The offending entries, so the UI can link straight to each one. */
+  Entries: { id: string; label: string }[];
   /** Stage keys that contributed, for drilling back into the entries. */
   Stages: string[];
 }
@@ -125,11 +138,31 @@ function movementDate(e: WorkProcessEntry): string {
  * just "Date" → `date`, so match that exactly too — otherwise a dated warehouse
  * receipt is wrongly reported as undated.
  */
-function ownDate(e: WorkProcessEntry): string | null {
+export function ownDate(e: WorkProcessEntry): string | null {
+  // Earliest of the stage's dates, not the first key encountered. Carbon Sink
+  // carries two ("Procurement / Delivery Date" and "Usage Date") and Postgres
+  // reorders jsonb keys, so first-match picked a different date in production
+  // than in dev — same record, different verdict. Earliest is both deterministic
+  // and the right one: the biochar left stock when it was delivered.
+  let best: string | null = null;
   for (const [k, v] of Object.entries(e.Values ?? {}))
     if ((k === "date" || k.endsWith("_date")) && /^\d{4}-\d{2}/.test(String(v ?? "")))
-      return v as string;
-  return null;
+      if (best === null || (v as string) < best) best = v as string;
+  return best;
+}
+
+/**
+ * Why an entry has no usable date, for whoever has to go fix it. A date field
+ * holding something we can't read ("15/05/2025", "May 2025") is a different
+ * repair from one that was never filled in, and the two are indistinguishable
+ * from a count alone.
+ */
+export function undatedReason(e: WorkProcessEntry): string {
+  for (const [k, v] of Object.entries(e.Values ?? {})) {
+    const s = String(v ?? "").trim();
+    if ((k === "date" || k.endsWith("_date")) && s && s !== "-") return s;
+  }
+  return "no date";
 }
 
 /**
@@ -163,7 +196,10 @@ export function massBalance(entries: WorkProcessEntry[]): BatchBalance[] {
   // a phantom per-batch row.
   const pool = { count: 0, kg: 0 };
   // Movements with a weight but no date, which the timeline can't place reliably.
-  let undated = 0;
+  const undated: { id: string; label: string }[] = [];
+  // DO → batch, so a draw-down that only knows its delivery document still
+  // reconciles against the batch the warehouse loaded it from.
+  const dispatch = dispatchIndex(entries);
 
   // Pass 1: which batch ids can a draw-down legitimately be charged against?
   // Own production *and* external purchases — both are real stock on hand. The
@@ -182,7 +218,7 @@ export function massBalance(entries: WorkProcessEntry[]): BatchBalance[] {
       row = {
         BatchId: batchId, Produced: 0, ExternalSupply: 0, Consumed: 0, Remaining: 0,
         Status: "ok", MissingAmount: 0, ZeroUnverified: 0, MissingBatchId: 0,
-        HasProduction: false, UnlinkedCount: 0, UndatedCount: 0, Stages: [],
+        HasProduction: false, UnlinkedCount: 0, UndatedCount: 0, Entries: [], Stages: [],
       };
       byBatch.set(batchId, row);
     }
@@ -202,7 +238,7 @@ export function massBalance(entries: WorkProcessEntry[]): BatchBalance[] {
     if (amt !== null) {
       const incoming = Boolean(producedKey || externalKey);
       timeline.push({ date: movementDate(e), delta: incoming ? amt : -amt });
-      if (ownDate(e) === null) undated += 1; // no date to place it on the timeline
+      if (ownDate(e) === null) undated.push({ id: e.id, label: undatedReason(e) }); // can't place it on the timeline
     }
 
     // Purchased stock. Counted as supply, but never as own production —
@@ -230,41 +266,51 @@ export function massBalance(entries: WorkProcessEntry[]): BatchBalance[] {
       continue;
     }
 
-    // Consumption. Prefer the explicit source link; fall back to own batch_id.
-    const own = (e.Values?.batch_id ?? "").trim();
-    const traced = (e.Values?.source_batch_id ?? "").trim() || own;
-    if (!traced || traced === "-") {
+    // Consumption. Explicit source link, else the DO dispatch hop (pro-rata
+    // across a mixed load), else own id. A load split over several batches
+    // charges each its own share, so one shipment can be part reconciled and
+    // part pooled — that is the honest reading, not a rounding convenience.
+    const allocs = allocateDrawdown(e.Values, dispatch, amt ?? 0);
+    if (allocs.length === 0) {
       // No batch id at all — a data gap, surfaced under NO_BATCH.
       const row = ensure(NO_BATCH);
       row.MissingBatchId += 1;
       if (amt === null) row.MissingAmount += 1;
       else if (zeroUnverified) row.ZeroUnverified += 1;
       if (!row.Stages.includes(e.StageKey)) row.Stages.push(e.StageKey);
-    } else if (supplyBatches.has(traced)) {
-      // Linked to a real production batch — reconcile per batch.
-      const row = ensure(traced);
-      if (amt === null) row.MissingAmount += 1;
-      else { if (zeroUnverified) row.ZeroUnverified += 1; row.Consumed += amt; }
-      if (!row.Stages.includes(e.StageKey)) row.Stages.push(e.StageKey);
     } else {
-      // Names a batch we never produced — draw from the shared pool instead.
-      pool.count += 1;
-      if (amt !== null) pool.kg += amt;
+      // A blank/unconfirmed-zero amount is one flaw in one entry, so it is
+      // recorded once (against the largest share) rather than per slice.
+      const flagged = allocs.reduce((a, b) => (b.kg > a.kg ? b : a));
+      // Likewise the pool counts unlinked *shipments*, not unlinked shares: a
+      // load split over two unknown batches is still one untraceable movement.
+      let pooled = false;
+      for (const a of allocs) {
+        if (supplyBatches.has(a.batch)) {
+          const row = ensure(a.batch);
+          if (amt === null) { if (a === flagged) row.MissingAmount += 1; }
+          else { if (zeroUnverified && a === flagged) row.ZeroUnverified += 1; row.Consumed += a.kg; }
+          if (!row.Stages.includes(e.StageKey)) row.Stages.push(e.StageKey);
+        } else {
+          // Names a batch we never produced — draw from the shared pool instead.
+          pooled = true;
+          if (amt !== null) pool.kg += a.kg;
+        }
+      }
+      if (pooled) pool.count += 1;
     }
   }
 
   const rows = [...byBatch.values()];
   for (const r of rows) {
     r.Remaining = r.Produced + r.ExternalSupply - r.Consumed;
-    // ponytail: exact kg comparison, no tolerance. Add an epsilon if scale
-    // rounding starts producing false positives on otherwise-clean batches.
     r.Status =
       // Untraceable entries: nothing to reconcile, just flag the missing id.
       r.BatchId === NO_BATCH ? "incomplete"
       // Only trust a negative balance when every amount was actually recorded
       // and confirmed; a blank or unconfirmed-0 weight would otherwise
       // masquerade as over-shipment.
-      : r.MissingAmount === 0 && r.ZeroUnverified === 0 && r.Remaining < 0 ? "over"
+      : r.MissingAmount === 0 && r.ZeroUnverified === 0 && r.Remaining < -KG_EPSILON ? "over"
       // Quantities reconciled, but some amount is unrecorded or an unconfirmed 0.
       : r.MissingAmount > 0 || r.ZeroUnverified > 0 ? "incomplete"
       : "ok";
@@ -273,24 +319,29 @@ export function massBalance(entries: WorkProcessEntry[]): BatchBalance[] {
   // The pool: run the physical inventory forward by date. The deepest it goes
   // negative is biochar that shipped before any production could cover it.
   if (pool.count > 0) {
-    timeline.sort((a, b) => a.date.localeCompare(b.date));
+    // Net each day before scanning. Dates are day-granular, so entries sharing a
+    // date carry no order between them — reading them in array order would call
+    // a same-day "made 1t, shipped 1t" a shipment before production. Only a
+    // deficit that survives to the end of a day is evidence of anything.
+    const byDay = new Map<string, number>();
+    for (const t of timeline) byDay.set(t.date.slice(0, 10), (byDay.get(t.date.slice(0, 10)) ?? 0) + t.delta);
     let bal = 0, min = 0;
-    for (const t of timeline) { bal += t.delta; if (bal < min) min = bal; }
-    const deficit = min < 0 ? -min : 0;
+    for (const d of [...byDay.keys()].sort()) { bal += byDay.get(d)!; if (bal < min) min = bal; }
+    const deficit = min < -KG_EPSILON ? -min : 0;
     rows.push({
-      BatchId: POOL, Produced: 0, ExternalSupply: 0, Consumed: pool.kg, Remaining: -deficit,
+      BatchId: POOL, Produced: 0, ExternalSupply: 0, Consumed: pool.kg, Remaining: deficit ? -deficit : 0,
       Status: deficit > 0 ? "premature" : "incomplete",
       MissingAmount: 0, ZeroUnverified: 0, MissingBatchId: 0, HasProduction: false,
-      UnlinkedCount: pool.count, UndatedCount: 0, Stages: [],
+      UnlinkedCount: pool.count, UndatedCount: 0, Entries: [], Stages: [],
     });
   }
 
   // Undated movements make the timeline (and any premature verdict) unreliable.
-  if (undated > 0) {
+  if (undated.length > 0) {
     rows.push({
       BatchId: UNDATED, Produced: 0, ExternalSupply: 0, Consumed: 0, Remaining: 0, Status: "incomplete",
       MissingAmount: 0, ZeroUnverified: 0, MissingBatchId: 0, HasProduction: false,
-      UnlinkedCount: 0, UndatedCount: undated, Stages: [],
+      UnlinkedCount: 0, UndatedCount: undated.length, Entries: undated, Stages: [],
     });
   }
 

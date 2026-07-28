@@ -232,7 +232,7 @@ export function NewCostEntryDialog({
                   {formatBytes(receipt.compressed.bytes)} · auto-filled from scan
                 </p>
               </div>
-              <button onClick={() => setReceipt(null)} className="p-1.5 hover:bg-background/50 rounded transition-colors" aria-label="Remove receipt">
+              <button onClick={() => setReceipt(null)} className="-my-2 p-3.5 hover:bg-background/50 rounded transition-colors" aria-label="Remove receipt">
                 <X className="h-4 w-4 text-muted-foreground" />
               </button>
             </div>

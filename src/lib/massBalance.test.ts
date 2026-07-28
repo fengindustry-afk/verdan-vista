@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { massBalance, balanceSummary, NO_BATCH, POOL, UNDATED } from "./massBalance";
+import { massBalance, balanceSummary, undatedReason, NO_BATCH, POOL, UNDATED } from "./massBalance";
 import type { WorkProcessEntry } from "./workProcess";
 
 function entry(StageKey: string, Values: Record<string, string>, date = "2025-06-01"): WorkProcessEntry {
@@ -20,6 +20,37 @@ describe("massBalance", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ Produced: 1000, Consumed: 650, Remaining: 350, Status: "ok" });
     expect(rows[0].Stages).toEqual(["production_05", "application", "carbon_sink"]);
+  });
+
+  it("names an unreadable date so it can be told apart from a blank one", () => {
+    const bad = entry("carbon_sink", { batch_id: "B1", quantity: "10", usage_date: "15/05/2025" }, "");
+    const blank = entry("carbon_sink", { batch_id: "B1", quantity: "10" }, "");
+    expect(undatedReason(bad)).toBe("15/05/2025");
+    expect(undatedReason(blank)).toBe("no date");
+    expect(massBalance([bad, blank]).find((r) => r.BatchId === UNDATED)!.Entries.map((x) => x.label))
+      .toEqual(["15/05/2025", "no date"]);
+  });
+
+  it("reads the same date whichever order the jsonb keys arrive in", () => {
+    // Carbon Sink carries two dates and Postgres reorders jsonb keys, so a
+    // first-key-wins read gave one verdict in dev and another in production.
+    const build = (sink: Record<string, string>) => massBalance([
+      entry("production_05", { batch_id: "B1", final_biochar_amount: "100", production_date: "2025-05-16" }),
+      entry("carbon_sink", sink),
+    ]);
+    const dev = build({ batch_id: "GHOST", procurement_delivery_date: "2025-05-15", usage_date: "2025-05-17", quantity: "100" });
+    const jsonb = build({ quantity: "100", batch_id: "GHOST", usage_date: "2025-05-17", procurement_delivery_date: "2025-05-15" });
+    expect(dev.find((r) => r.BatchId === POOL)!.Status).toBe(jsonb.find((r) => r.BatchId === POOL)!.Status);
+  });
+
+  it("does not call a same-day shipment premature", () => {
+    const rows = massBalance([
+      // Shipment recorded before the production entry, same day: day-granular
+      // dates carry no order, so this must not read as shipped-before-produced.
+      entry("carbon_sink", { batch_id: "GHOST", quantity: "1000", carbon_sink_date: "2025-03-04" }),
+      entry("production_05", { batch_id: "B1", final_biochar_amount: "1000", production_date: "2025-03-04" }),
+    ]);
+    expect(rows.find((r) => r.BatchId === POOL)).toMatchObject({ Status: "incomplete", Remaining: 0 });
   });
 
   it("flags a batch that ships more than it made", () => {
@@ -166,5 +197,47 @@ describe("massBalance", () => {
     expect(rows[0]).toMatchObject({ BatchId: POOL, Status: "premature", Remaining: -1200 }); // errors sort first, thousands separator parsed
     expect(rows[1]).toMatchObject({ BatchId: "GAP", Status: "incomplete", MissingAmount: 1 });
     expect(balanceSummary(rows)).toEqual({ Produced: 9000, ExternalSupply: 0, Consumed: 1200, Errors: 1, Warnings: 1 });
+  });
+});
+
+describe("dispatch hop", () => {
+  it("reconciles a sink that names only its DO, via the warehouse line", () => {
+    const rows = massBalance([
+      entry("production_05", { batch_id: "ZA-01-11-24", final_biochar_amount: "1000" }, "2024-11-04"),
+      entry("warehouse", { source_batch_id: "ZA-01-11-24", do_number: "DO-7", quantity: "600" }, "2024-11-10"),
+      // No source_batch_id: the sink team only ever had the delivery order.
+      entry("carbon_sink", { batch_id: "TIGGT-BT-2505-0001", do_number: "DO-7", quantity: "600" }, "2024-11-12"),
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ BatchId: "ZA-01-11-24", Produced: 1000, Consumed: 600, Status: "ok" });
+    // Nothing stranded in the unlinked pool.
+    expect(rows.find((r) => r.BatchId === POOL)).toBeUndefined();
+  });
+
+  it("splits a mixed load pro-rata across the batches that filled it", () => {
+    const rows = massBalance([
+      entry("production_05", { batch_id: "ZA-01", final_biochar_amount: "500" }, "2024-11-04"),
+      entry("production_05", { batch_id: "ZA-02", final_biochar_amount: "500" }, "2024-11-05"),
+      entry("warehouse", { source_batch_id: "ZA-01", do_number: "DO-9", quantity: "300" }, "2024-11-10"),
+      entry("warehouse", { source_batch_id: "ZA-02", do_number: "DO-9", quantity: "100" }, "2024-11-10"),
+      entry("carbon_sink", { batch_id: "SINK-1", do_number: "DO-9", quantity: "200" }, "2024-11-12"),
+    ]);
+    // Dispatched 3:1, so the 200 kg shipment lands 150 on ZA-01 and 50 on ZA-02.
+    expect(rows.find((r) => r.BatchId === "ZA-01")).toMatchObject({ Consumed: 150, Remaining: 350, Status: "ok" });
+    expect(rows.find((r) => r.BatchId === "ZA-02")).toMatchObject({ Consumed: 50, Remaining: 450, Status: "ok" });
+    // Fully attributed, so nothing is left stranded in the unlinked pool.
+    expect(rows.find((r) => r.BatchId === POOL)).toBeUndefined();
+  });
+
+  it("pools only the share drawn from a batch it never produced", () => {
+    const rows = massBalance([
+      entry("production_05", { batch_id: "ZA-01", final_biochar_amount: "500" }, "2024-11-04"),
+      entry("warehouse", { source_batch_id: "ZA-01", do_number: "DO-9", quantity: "300" }, "2024-11-10"),
+      entry("warehouse", { source_batch_id: "GHOST", do_number: "DO-9", quantity: "100" }, "2024-11-10"),
+      entry("carbon_sink", { batch_id: "SINK-1", do_number: "DO-9", quantity: "200" }, "2024-11-12"),
+    ]);
+    expect(rows.find((r) => r.BatchId === "ZA-01")).toMatchObject({ Consumed: 150 });
+    // Only GHOST's 50 kg share is unattributable, not the whole 200 kg shipment.
+    expect(rows.find((r) => r.BatchId === POOL)).toMatchObject({ Consumed: 50, UnlinkedCount: 1 });
   });
 });
