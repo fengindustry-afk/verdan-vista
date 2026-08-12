@@ -3,7 +3,8 @@ import { InfoTip } from "@/components/InfoTip";
 import { Leaf, Zap, BarChart3, Activity, Loader2 } from "lucide-react";
 import { AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip } from "recharts";
 import { useFeedstock, useWorkProcessEntries } from "@/hooks/useCollection";
-import { corcMetrics, withMeasuredCorcInputs, CUSTODY_STAGES, FINAL_STAGE, APPLICATION_STAGE, parseAuditLog } from "@/lib/feedstock";
+import { corcMetrics, withMeasuredCorcInputs, evidencedStageIndex, CUSTODY_STAGES, FINAL_STAGE, APPLICATION_STAGE, parseAuditLog } from "@/lib/feedstock";
+import { dispatchIndex } from "@/lib/workProcess";
 import { fmt } from "@/lib/format";
 import { useMemo } from "react";
 
@@ -12,13 +13,22 @@ export default function Dashboard() {
   const { data: wpAll = [] } = useWorkProcessEntries();
 
   const agg = useMemo(() => {
-    const metrics = withMeasuredCorcInputs(feedstock, wpAll).map((f) => ({ f, m: corcMetrics(f) }));
+    // A batch counts at the furthest stage a linked record proves, not at the
+    // stage its row claims — same rule as the Custody tab and the Chain of
+    // Custody on the batch page, so the three agree. Under the old claim-based
+    // split, batches marked forward with no form behind them inflated the
+    // Sink-Confirmed and In-Submission buckets.
+    const dispatch = dispatchIndex(wpAll);
+    const metrics = withMeasuredCorcInputs(feedstock, wpAll).map((f) => {
+      const i = evidencedStageIndex(f.Title ?? "", wpAll, dispatch);
+      return { f, m: corcMetrics(f), stage: i >= 0 ? CUSTODY_STAGES[i] : null };
+    });
     const netCorc = metrics.reduce((s, x) => s + x.m.netCorc, 0);
     const credited = metrics
-      .filter((x) => x.f.CurrentStage === FINAL_STAGE)
+      .filter((x) => x.stage === FINAL_STAGE)
       .reduce((s, x) => s + x.m.netCorc, 0);
     const inSubmission = metrics
-      .filter((x) => x.f.CurrentStage === APPLICATION_STAGE)
+      .filter((x) => x.stage === APPLICATION_STAGE)
       .reduce((s, x) => s + x.m.netCorc, 0);
     const pending = netCorc - credited - inSubmission;
     const eligible = metrics.filter((x) => x.m.isCorcEligible).length;
@@ -27,8 +37,8 @@ export default function Dashboard() {
     // Credits by stage (custody pipeline)
     const stageCounts = CUSTODY_STAGES.map((stage) => ({
       stage: stage.replace("Feedstock ", ""),
-      count: feedstock.filter((f) => f.CurrentStage === stage).length,
-      corc: metrics.filter((x) => x.f.CurrentStage === stage).reduce((s, x) => s + x.m.netCorc, 0),
+      count: metrics.filter((x) => x.stage === stage).length,
+      corc: metrics.filter((x) => x.stage === stage).reduce((s, x) => s + x.m.netCorc, 0),
     }));
 
     return { netCorc, credited, inSubmission, pending, eligible, verified, stageCounts };
@@ -102,9 +112,9 @@ export default function Dashboard() {
           {/* CORC credit visibility */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {[
-              { label: "Sink-Confirmed", value: agg.credited, color: "text-primary", tip: "Potential CORC from batches that reached the Carbon Sink stage — durably removed, but still not issued until a registry verifies and certifies it (Carbon Certification stage)." },
-              { label: "In Submission (Application)", value: agg.inSubmission, color: "text-cyan-400", tip: "Potential CORC from batches at the Application stage, applied to soil and awaiting registry sign-off." },
-              { label: "Pending Pipeline", value: agg.pending, color: "text-amber-400", tip: "Everything still upstream of Application: collection, pre-processing, conversion, sampling and storage." },
+              { label: "Sink-Confirmed", value: agg.credited, color: "text-primary", tip: "Potential CORC from batches with a Carbon Sink record behind them — durably removed, but still not issued until a registry verifies and certifies it (Carbon Certification stage)." },
+              { label: "In Submission (Application)", value: agg.inSubmission, color: "text-cyan-400", tip: "Potential CORC from batches whose furthest linked record is an Application entry, applied to soil and awaiting registry sign-off." },
+              { label: "Pending Pipeline", value: agg.pending, color: "text-amber-400", tip: "Everything whose records stop short of Application: collection, pre-processing, conversion, sampling and storage — plus batches with no linked record at all." },
             ].map((c, i) => (
               <BentoCard key={c.label} delay={0.2 + i * 0.06}>
                 <p className="text-xs text-muted-foreground flex items-center gap-1.5">{c.label} <InfoTip text={c.tip} /></p>

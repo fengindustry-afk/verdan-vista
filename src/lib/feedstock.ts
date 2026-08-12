@@ -59,6 +59,22 @@ export function wpEntriesForStage(
     .sort((a, b) => (b.Timestamp ?? "").localeCompare(a.Timestamp ?? ""));
 }
 
+/** One file per work process, newest first: the latest entry of each StageKey and how many it stands for. */
+export function oneFilePerProcess(
+  entries: WorkProcessEntry[]
+): { entry: WorkProcessEntry; count: number }[] {
+  const by = new Map<string, { entry: WorkProcessEntry; count: number }>();
+  for (const e of entries) {
+    const hit = by.get(e.StageKey);
+    if (!hit) by.set(e.StageKey, { entry: e, count: 1 });
+    else {
+      hit.count++;
+      if ((e.Timestamp ?? "") > (hit.entry.Timestamp ?? "")) hit.entry = e;
+    }
+  }
+  return [...by.values()];
+}
+
 export function phaseOf(stage: string): "Operations" | "Storage" {
   const i = CUSTODY_STAGES.indexOf(stage as CustodyStage);
   return i >= 0 && i < OPERATIONS_STAGE_COUNT ? "Operations" : "Storage";
@@ -171,6 +187,87 @@ export function wpEntriesForBatch(
       // view shows the shipments it part-supplied.
       drawdownBatches(e.Values, dispatch).some((b) => normBatch(b) === t)
   );
+}
+
+/**
+ * The lot a batch id belongs to: zone-week-month, dropping the trailing
+ * segment. The workbook rolls that segment per iteration — one November week-1
+ * Zone-A lot is received as `ZA-01-11-24`, sieved as `ZA-01-11-18`..`-22` and
+ * dried as `ZA-01-11-25` — so the prefix is the only thing that survives the
+ * whole chain. Ids that aren't in that shape (`08012025 CYB`,
+ * `TIGGT-BT-2505-0001`, customer names) are their own lot: they carry no
+ * iteration segment, and chopping one off would merge unrelated shipments.
+ */
+const LOT_RE = /^([A-Z]{1,3}-\d{1,2}-\d{1,2})-\d{1,4}$/;
+
+export function lotKey(id?: string): string {
+  const n = normBatch(id);
+  return LOT_RE.exec(n)?.[1] ?? n;
+}
+
+/** Batch ids in this lot that actually appear in the entries, plus `title` itself. */
+export function lotBatchIds(title: string, entries: WorkProcessEntry[]): string[] {
+  const lot = lotKey(title);
+  if (!lot) return [];
+  const ids = new Set<string>([normBatch(title)]);
+  for (const e of entries) {
+    for (const k of ["batch_id", "source_batch_id"] as const) {
+      const v = normBatch(e.Values?.[k]);
+      if (v && lotKey(v) === lot) ids.add(v);
+    }
+  }
+  return [...ids].sort();
+}
+
+/**
+ * Every work-process entry for a batch's whole lot — the union of
+ * `wpEntriesForBatch` over each iteration of the id. This is what makes one
+ * custody chain read start to end: the strict per-id match alone leaves a
+ * receiving batch with no production behind it and a production batch with no
+ * feedstock in front of it, because the two were logged under different
+ * iterations of the same lot code.
+ *
+ * DISPLAY ONLY. CORC and mass-balance figures stay on `wpEntriesForBatch`: the
+ * lot prefix is the operator's convention, not a recorded link, and two
+ * feedstock rows in the same lot would each claim the lot's whole yield.
+ */
+export function wpEntriesForLot(
+  title: string,
+  entries: WorkProcessEntry[],
+  dispatch: Map<string, BatchAllocation[]> = dispatchIndex(entries)
+): WorkProcessEntry[] {
+  const seen = new Set<string>();
+  const out: WorkProcessEntry[] = [];
+  for (const id of lotBatchIds(title, entries)) {
+    for (const e of wpEntriesForBatch(id, entries, dispatch)) {
+      if (seen.has(e.id)) continue;
+      seen.add(e.id);
+      out.push(e);
+    }
+  }
+  return out;
+}
+
+/**
+ * The furthest custody stage a batch has an actual record at, or -1 for a batch
+ * with no linked record anywhere. This is the evidenced counterpart to
+ * `currentStageIndex`, which only reads the stored `CurrentStage` claim — the
+ * two disagree wherever a batch was marked forward without a form behind it,
+ * and the chain on the detail page shows the evidenced one.
+ */
+export function evidencedStageIndex(
+  title: string,
+  entries: WorkProcessEntry[],
+  dispatch: Map<string, BatchAllocation[]> = dispatchIndex(entries)
+): number {
+  const lot = wpEntriesForLot(title, entries, dispatch);
+  if (!lot.length) return -1;
+  const keys = new Set(lot.map((e) => e.StageKey));
+  let last = -1;
+  CUSTODY_STAGES.forEach((stage, i) => {
+    if (CUSTODY_STAGE_KEYS[stage].some((k) => keys.has(k))) last = i;
+  });
+  return last;
 }
 
 /**
