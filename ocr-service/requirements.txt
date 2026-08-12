@@ -6,8 +6,12 @@ pillow>=10.0
 numpy>=1.26
 
 # Default backend (PaddleOCR). CPU wheels; first run downloads the models.
-paddleocr>=2.7
-paddlepaddle>=2.6
+# Floored at 3.x: backends/paddle_backend.py uses the 3.x API
+# (use_textline_orientation, predict(), rec_texts/rec_polys results), none of
+# which exists in 2.x. Downgrading breaks the service at construction — port
+# that file back before you loosen this.
+paddleocr>=3,<4
+paddlepaddle>=3,<4
 
 # Optional lighter backend — uncomment to use OCR_BACKEND=tesseract instead:
 # pytesseract>=0.3.10   # also: sudo apt-get install tesseract-ocr
