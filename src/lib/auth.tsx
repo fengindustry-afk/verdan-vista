@@ -185,9 +185,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     try {
       const profile = profileForEmail(email);
-      await upsertDocument(Collections.users, profile);
+      // Persist the session BEFORE syncing the profile row. The demo path exists
+      // so the app stays usable with no backend, but the upsert is a network
+      // round-trip with no timeout: reload (or close) during that window and the
+      // click established nothing, because ct_user hadn't been written yet. The
+      // profile row is a nice-to-have that can fail or arrive late; being signed
+      // in cannot.
       localStorage.setItem(STORAGE_KEY, JSON.stringify(profile));
       setUser(profile);
+      await upsertDocument(Collections.users, profile).catch((e) => {
+        console.warn("[auth] demo profile sync failed, session still valid:", e);
+      });
       return profile;
     } finally {
       setLoading(false);
