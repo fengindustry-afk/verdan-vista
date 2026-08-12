@@ -16,6 +16,7 @@ Self-check (no paddle install needed):  python -m backends.paddle_backend
 from __future__ import annotations
 
 import io
+import sys
 
 import numpy as np
 from PIL import Image
@@ -49,20 +50,22 @@ def _lines_from_result(res, height: int) -> str:
         entries.append((min(ys), min(xs), text))
     entries.sort(key=lambda e: (e[0], e[1]))
 
+    # Group into lines first, order each line by x second. Sorting by (y, x) up
+    # front does not give reading order: boxes sharing a line differ by a few
+    # pixels of top edge, so a right-hand column sorts ahead of the label it
+    # belongs to ("18.90 MINYAK 2L"). Rows are measured against the top of the
+    # line being built, not the previous box, so a run of slightly descending
+    # boxes cannot drift a whole line's worth without ever tripping the gap.
     tol = height * _LINE_TOL_FRAC
-    lines: list[str] = []
-    current: list[str] = []
-    last_y: float | None = None
-    for y, _x, text in entries:
-        if last_y is not None and abs(y - last_y) > tol:
-            lines.append(" ".join(current))
-            current = []
-        current.append(text)
-        last_y = y
-    if current:
-        lines.append(" ".join(current))
+    rows: list[list[tuple[float, str]]] = []
+    anchor_y: float | None = None
+    for y, x, text in entries:
+        if anchor_y is None or y - anchor_y > tol:
+            rows.append([])
+            anchor_y = y
+        rows[-1].append((x, text))
 
-    return "\n".join(lines)
+    return "\n".join(" ".join(t for _x, t in sorted(row)) for row in rows)
 
 
 class PaddleBackend(OcrBackend):
@@ -78,11 +81,17 @@ class PaddleBackend(OcrBackend):
         # time on every request. lang="en" covers Latin script + digits
         # (Malaysian receipts are mostly English/Malay in Latin script). Switch
         # to "ch" if you hit Chinese merchant names that need it.
+        # oneDNN is the fast CPU path and stays on where it works. The Windows
+        # build of paddlepaddle 3.3 aborts inside the detector with
+        # "ConvertPirAttribute2RuntimeAttribute not support ArrayAttribute", so
+        # dev boxes fall back to the plain kernels — slower, same output. The
+        # service itself deploys on Linux (run.sh), which keeps oneDNN.
         self._ocr = PaddleOCR(
             use_textline_orientation=True,
             use_doc_orientation_classify=False,
             use_doc_unwarping=False,
             lang="en",
+            **({"enable_mkldnn": False} if sys.platform == "win32" else {}),
         )
 
     def recognize(self, image_bytes: bytes) -> str:
@@ -109,6 +118,21 @@ if __name__ == "__main__":
     }
     assert _lines_from_result(res, 1000) == "RM\nTOTAL 12.50", _lines_from_result(res, 1000)
     assert _lines_from_result({"rec_texts": [], "rec_polys": []}, 1000) == ""
+    # Reading order within a line follows x, not the box's top edge: the amount
+    # sits a pixel higher than its label but still belongs after it.
+    amount_first = {
+        "rec_texts": ["18.90", "MINYAK 2L"],
+        "rec_polys": [box(400, 100), box(30, 101)],
+    }
+    assert _lines_from_result(amount_first, 1000) == "MINYAK 2L 18.90"
+    # A staircase whose steps each sit within tol (12px here) of the one above
+    # still has to break: measured box-to-box it would run on forever, measured
+    # from the top of the line "c" is 18px down and starts a new one.
+    stair = {
+        "rec_texts": ["a", "b", "c"],
+        "rec_polys": [box(0, 0), box(0, 9), box(0, 18)],
+    }
+    assert _lines_from_result(stair, 1000) == "a b\nc", _lines_from_result(stair, 1000)
     # dt_polys stands in when a build omits the filtered set.
     assert _lines_from_result({"rec_texts": ["A"], "dt_polys": [box(0, 0)]}, 100) == "A"
     print("paddle_backend self-check ok")
