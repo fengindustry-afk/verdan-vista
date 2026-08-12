@@ -32,7 +32,12 @@ setup("authenticate", async ({ page }) => {
     await page.getByRole("button", { name: /^admin$/i }).click();
   }
 
-  // Landed on the dashboard (route "/", away from /login).
-  await expect(page).toHaveURL(/\/(?!login).*/);
+  // Landed on the dashboard, away from /login. Assert on rendered content, not
+  // the URL: a `/(?!login)/` pattern is unanchored and matches the "//" in
+  // "http://", so it passes on the login page itself — and the session would
+  // then be saved mid-flight, before demoLogin has awaited its upsert and
+  // written localStorage["ct_user"], yielding a signed-out storageState.
+  await expect(page).not.toHaveURL(/\/login/);
+  await expect(page.getByRole("heading", { name: /^dashboard$/i })).toBeVisible();
   await page.context().storageState({ path: authFile });
 });
