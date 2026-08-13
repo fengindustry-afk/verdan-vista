@@ -13,20 +13,7 @@
  */
 
 import https from "https";
-
-// Verify cron request is from Vercel
-const isCronRequest = (req) => {
-  const vc_cron = req.query?.__vc_cron;
-  const authHeader = req.headers?.authorization;
-
-  // For local testing, allow without auth
-  if (process.env.NODE_ENV === "development") {
-    return true;
-  }
-
-  // In production, Vercel sets X-Vercel-Cron header
-  return req.headers?.["x-vercel-cron"] === "true" || vc_cron === "true";
-};
+import { isCronRequest } from "./_shared.js";
 
 // Upload file to Cloudflare R2
 const uploadToR2 = async (fileName, fileContent) => {
