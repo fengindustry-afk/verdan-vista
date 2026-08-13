@@ -81,32 +81,51 @@ export async function reconcile(totals, basis = WOOD_CHIP_BASIS, tolerance = DEF
   return drifts;
 }
 
-/** Fetch latest aggregate totals from Supabase and reconcile. */
+/** Sum daily totals for a metric from a day's sensor readings (kg, summed). */
+export function sumMetric(readings, metric) {
+  return readings.reduce((acc, r) => {
+    const d = r.data ?? {};
+    return d.Metric === metric && typeof d.Value === "number" ? acc + d.Value : acc;
+  }, 0);
+}
+
+/**
+ * Aggregate a day's live sensor readings into reconcile totals.
+ * @param {Array} readings — rows from sensor_readings ({data: {PascalCase}})
+ * @returns {{deliveredTonnes:number, biocharOutputTonnes:number, corcOutputMTe:number|null}}
+ */
+export function aggregateDay(readings) {
+  const intakeKg = sumMetric(readings, "feedstock_intake_mass_kg");
+  const biocharKg = sumMetric(readings, "biochar_output_mass_kg");
+  return {
+    deliveredTonnes: intakeKg / 1000,
+    biocharOutputTonnes: biocharKg / 1000,
+    // CORC MTe is derived (biochar * factors); null here lets reconcile compare
+    // the biochar leg against the model, which is the load-bearing check.
+    corcOutputMTe: null,
+  };
+}
+
+/**
+ * Fetch the latest day's readings from Supabase and reconcile. Uses
+ * sensor_readings directly (no separate aggregation table). If the read fails,
+ * it THROWS so the handler surfaces a loud failure rather than falsely reporting
+ * "clean" — a silent green on a broken pipeline is worse than no signal.
+ */
 async function runReconcile(client, tolerance) {
-  // Latest day's totals from the sensor aggregate / batch store. Best-effort:
-  // if the aggregation table doesn't exist yet, return a clean check.
-  try {
-    const { data, error } = await client
-      .from("sensor_daily_totals")
-      .select("*")
-      .order("day", { ascending: false })
-      .limit(1);
-    if (error) throw new Error(error.message);
-    if (!data || !data.length) return [];
-    const row = data[0];
-    return await reconcile(
-      {
-        deliveredTonnes: row.delivered_tonnes,
-        biocharOutputTonnes: row.biochar_output_tonnes,
-        corcOutputMTe: row.corc_output_mte,
-      },
-      WOOD_CHIP_BASIS,
-      tolerance
-    );
-  } catch {
-    // No aggregation yet: treat as clean (model check still valid on empty data).
+  const { data, error } = await client
+    .from("sensor_readings")
+    .select("*")
+    .order("data->>ReadingAt", { ascending: false })
+    .limit(500);
+  if (error) throw new Error(`reconcile read failed: ${error.message}`);
+  if (!data || !data.length) {
+    // No readings at all: reconcile nothing, report a clean check (there is no
+    // live data to diverge). Distinct from a read *error*, which we throw on.
     return [];
   }
+  const totals = aggregateDay(data);
+  return await reconcile(totals, WOOD_CHIP_BASIS, tolerance);
 }
 
 export default async function handler(req, res) {

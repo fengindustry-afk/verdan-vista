@@ -55,7 +55,9 @@ relevant. Add a `vercel.json` crons entry. Prefer pure exported helpers (testabl
 
 ### The `alerts` table
 
-The durable "needs attention" surface. Rows look like:
+The durable "needs attention" surface. Created by `security/create-alerts.sql`
+(run in the Supabase SQL editor; idempotent). Both Loop 3 crons write to it; the
+Loop 4 reaction and any dashboards read it. Rows look like:
 
 ```json
 {
