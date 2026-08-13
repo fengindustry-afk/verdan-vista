@@ -32,7 +32,12 @@ const CHECKS = [
   {
     name: 'typecheck',
     cost: 47,
-    cmd: [npx, 'tsc', '--noEmit', '-p', 'tsconfig.app.json'],
+    // Run the installed compiler directly. `npx tsc` here resolved to the
+    // squatted 2016 `tsc` package on the registry, which prints "This is not
+    // the tsc command you are looking for" and exits 1 — failing this gate on
+    // every push regardless of the code. `npx --no` isn't the fix either: npm
+    // parses the `-p` below as its own --package flag.
+    cmd: [process.execPath, 'node_modules/typescript/bin/tsc', '--noEmit', '-p', 'tsconfig.app.json'],
     desc: 'TypeScript type errors',
   },
   {
@@ -66,6 +71,12 @@ const CHECKS = [
 ];
 // ---------------------------------------------------------------------------
 
+// Exported so scripts/goal-verify.mjs (the Loop 2 harness) can reuse this single
+// gate list instead of duplicating it. Keep all gate definitions here.
+
+const isDirectRun =
+  process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "/"));
+
 const skip = new Set(
   (process.env.SKIP || '')
     .split(',')
@@ -79,6 +90,7 @@ const red = (s) => c('31', s);
 const yellow = (s) => c('33', s);
 const dim = (s) => c('90', s);
 
+if (isDirectRun) {
 console.log(c('1', '\n▶ Pre-push checks\n'));
 
 /** Run one gate to completion, capturing its output instead of streaming it. */
@@ -86,9 +98,15 @@ function runCheck(check) {
   return new Promise((resolve) => {
     const [command, ...args] = check.cmd;
     const start = Date.now();
-    const child = spawn(command, args, {
+    const shell = process.platform === 'win32';
+    // cmd.exe splits on spaces, so an unquoted path breaks any gate spawned via
+    // process.execPath for a user whose profile has a space in it ("C:\Users\Asus
+    // ROG\..." → "'C:\Users\Asus' is not recognized"). That silently failed the
+    // typecheck and security gates here.
+    const quote = (s) => (shell && /\s/.test(s) ? `"${s}"` : s);
+    const child = spawn(quote(command), args.map(quote), {
       stdio: ['ignore', 'pipe', 'pipe'],
-      shell: process.platform === 'win32',
+      shell,
     });
     let output = '';
     child.stdout.on('data', (d) => (output += d));
@@ -168,3 +186,5 @@ if (failed) {
   process.exit(1);
 }
 console.log(green('\n✔ All checks passed. Safe to push.\n'));
+}
+export { CHECKS };
