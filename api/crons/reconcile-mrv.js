@@ -22,6 +22,9 @@ import { isCronRequest, createCronClient } from "./_shared.js";
 const DEFAULT_TOLERANCE = 0.05;
 
 // Compact mirror of WOOD_CHIP_BASIS in src/lib/valueChain.ts (base model).
+// AUTHORITATIVE MODEL = base (confirmed by owner 2026-08-13). The MP Sepang
+// variant (0.25/20t) is NOT authoritative for reconciliation; do not swap this
+// constant without owner sign-off. Tolerances are env-configurable (MRV_TOLERANCE).
 const WOOD_CHIP_BASIS = {
   preProcessingEfficiency: 0.5,
   conversionEfficiency: 0.2,
