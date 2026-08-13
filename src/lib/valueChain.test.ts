@@ -55,6 +55,15 @@ describe("potentialByStage", () => {
     // invents or destroys carbon between stages.
     for (const p of points) expect(p.corc).toBeCloseTo(6, 10);
   });
+
+  it("values each stage at the flat RM30/tonne rate, tracking mass", () => {
+    // 1 MT = RM30, so value falls as the efficiency factors shrink the tonnes
+    // down the chain: Collection 30t=900, Conversion 3t=90; Certification = 6 MTe x 30.
+    expect(at("Collection").rm).toBeCloseTo(30 * 30, 10);
+    expect(at("Material Conversion").rm).toBeCloseTo(3 * 30, 10);
+    expect(at("Warehouse").rm).toBeCloseTo(3 * 30, 10);
+    expect(at("Carbon Certification").rm).toBeCloseTo(6 * 30, 10);
+  });
 });
 
 describe("unparameterised feedstock", () => {
@@ -111,8 +120,8 @@ describe("actualByStage", () => {
     expect(at("Material Conversion").batches).toBe(1);
     expect(at("Collection").batches).toBe(1);
     // No record at all -> no bar, not a zero-tonne bar with a batch behind it.
-    expect(at("Storage").batches).toBe(0);
-    expect(at("Storage").corc).toBe(0);
+    expect(at("Warehouse").batches).toBe(0);
+    expect(at("Warehouse").corc).toBe(0);
   });
 
   it("takes certified CORC at face value instead of re-deriving it", () => {

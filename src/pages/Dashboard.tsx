@@ -149,12 +149,12 @@ export default function Dashboard() {
             <BentoCard className="lg:col-span-3" delay={0.3}>
               <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
                 <h3 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
-                  {mode} CORC by Custody Stage
+                  {mode} Value (RM) by Custody Stage
                   <InfoTip
                     text={
                       mode === "Potential"
-                        ? "The planning model from Value Chain Evaluation.xlsx: the workbook's own daily throughput carried down the chain (pre-processing ×0.5, conversion ×0.2, biochar→CORC ×2). Flat by design — the same material is worth the same CORC whichever stage you look at it from. Nothing here comes from live records."
-                        : `Recorded mass at each stage — receiving weight, good feedstock, biochar produced, quantity stored, applied and sunk — carried to CORC through the same workbook factors, so it can be read against Potential. These are flows, not stock: the bars are not meant to sum. Carbon Certification shows the registry's certified figure as-is.${chart && chart.batchesWithoutRecords > 0 ? ` ${chart.batchesWithoutRecords} batch(es) of this feedstock have no linked record and appear nowhere below, though they still count in Potential CORC above.` : ""}`
+                        ? "The planning model from Value Chain Evaluation.xlsx: the workbook's own daily throughput carried down the chain (pre-processing ×0.5, conversion ×0.2, biochar→CORC ×2), valued at RM30 per tonne. Flat by design — the same material is worth the same RM whichever stage you look at it from. Nothing here comes from live records."
+                        : `Recorded mass at each stage — receiving weight, good feedstock, biochar produced, quantity stored, applied and sunk — valued at RM30 per tonne, so it can be read against Potential. These are flows, not stock: the bars are not meant to sum. Carbon Certification shows the registry's certified figure valued at RM30/MTe as-is.${chart && chart.batchesWithoutRecords > 0 ? ` ${chart.batchesWithoutRecords} batch(es) of this feedstock have no linked record and appear nowhere below, though they still count in Potential above.` : ""}`
                     }
                   />
                 </h3>
@@ -180,7 +180,7 @@ export default function Dashboard() {
               </div>
               {chart ? (
                 <ChartContainer
-                  config={{ corc: { label: "CORC", color: "hsl(160, 64%, 40%)" } }}
+                  config={{ rm: { label: "Value (RM)", color: "hsl(160, 64%, 40%)" } }}
                   className="h-56 w-full aspect-auto"
                 >
                   <BarChart data={chart.points}>
@@ -190,10 +190,10 @@ export default function Dashboard() {
                       content={
                         <ChartTooltipContent
                           formatter={(value, _name, item) => {
-                            const p = item.payload as { batches: number; tonnes: number };
+                            const p = item.payload as { batches: number; tonnes: number; rm: number };
                             return (
                               <span className="text-foreground">
-                                {fmt(Number(value), 2)} tCO₂e
+                                {fmt(Number(value), 2)} RM
                                 {p.tonnes > 0 && ` · ${fmt(p.tonnes, 2)} t`}
                                 {p.batches > 0 && ` · ${p.batches} batch${p.batches === 1 ? "" : "es"}`}
                               </span>
@@ -202,7 +202,7 @@ export default function Dashboard() {
                         />
                       }
                     />
-                    <Bar dataKey="corc" name="CORC" fill="var(--color-corc)" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="rm" name="Value (RM)" fill="var(--color-rm)" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ChartContainer>
               ) : (

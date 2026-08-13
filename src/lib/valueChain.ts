@@ -115,6 +115,20 @@ export function stageCorcMultiplier(stage: CustodyStage, b: ValueChainBasis): nu
   }
 }
 
+/**
+ * Flat RM value per tonne at every custody stage (1 MT = RM 30). Chosen so the
+ * RM bar tracks mass: as the efficiency factors shrink the quantity down the
+ * chain, the value falls with it (Collection 30t -> RM900, Pre-Processing 15t
+ * -> RM450, Conversion 3t -> RM90). Carbon Certification records certified CORC
+ * (tCO2e) rather than tonnes, so its value is certified MTe x RM30.
+ */
+export const RM_PER_TONNE = 30;
+
+/** RM value at a stage: tonnes x RM30, or certified CORC MTe x RM30 for Certification. */
+function rmForStage(stage: CustodyStage, tonnes: number, corcTco2e: number): number {
+  return (stage === "Carbon Certification" ? corcTco2e : tonnes) * RM_PER_TONNE;
+}
+
 /** One bar on the chart. */
 export interface StagePoint {
   stage: CustodyStage;
@@ -124,12 +138,17 @@ export interface StagePoint {
   tonnes: number;
   /** Those tonnes carried through the remaining chain, in tCO2e. */
   corc: number;
+  /** Value in RM: tonnes × the workbook stage rate (or certified CORC × rate). */
+  rm: number;
   /** Batches contributing. Always 0 for the modelled series — it has no batches. */
   batches: number;
 }
 
 function shortLabel(stage: CustodyStage): string {
-  return stage.replace("Feedstock ", "");
+  const base = stage.replace("Feedstock ", "");
+  // The widget shows the data-collection form name (warehouse) rather than the
+  // custody-stage name (Storage); the two are the same stage.
+  return base === "Storage" ? "Warehouse" : base;
 }
 
 /**
@@ -151,11 +170,13 @@ export function potentialByStage(feedstock: WorkbookFeedstock): StagePoint[] | n
       stage === "Feedstock Collection" ? delivered
       : stage === "Feedstock Pre-Processing" ? preProcessed
       : biochar;
+    const corc = tonnes * stageCorcMultiplier(stage, b);
     return {
       stage,
       label: shortLabel(stage),
       tonnes,
-      corc: tonnes * stageCorcMultiplier(stage, b),
+      corc,
+      rm: rmForStage(stage, tonnes, corc),
       batches: 0,
     };
   });
@@ -254,11 +275,13 @@ export function actualByStage(
     const spec = STAGE_QUANTITY[stage];
     const amount = totals.get(stage) ?? 0;
     const tonnes = spec?.unit === "kg" ? amount / 1000 : 0;
+    const corc = spec?.unit === "tco2e" ? amount : tonnes * stageCorcMultiplier(stage, b);
     return {
       stage,
       label: shortLabel(stage),
       tonnes,
-      corc: spec?.unit === "tco2e" ? amount : tonnes * stageCorcMultiplier(stage, b),
+      corc,
+      rm: rmForStage(stage, tonnes, corc),
       batches: batchIds.get(stage)?.size ?? 0,
     };
   });
