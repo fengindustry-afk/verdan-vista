@@ -1,38 +1,69 @@
 import { BentoCard } from "@/components/BentoCard";
 import { InfoTip } from "@/components/InfoTip";
 import { Leaf, Zap, BarChart3, Activity, Loader2 } from "lucide-react";
-import { AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip } from "recharts";
+import { BarChart, Bar, XAxis, YAxis } from "recharts";
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useFeedstock, useWorkProcessEntries } from "@/hooks/useCollection";
-import { corcMetrics, withMeasuredCorcInputs, CUSTODY_STAGES, FINAL_STAGE, APPLICATION_STAGE, parseAuditLog } from "@/lib/feedstock";
+import { corcMetrics, withMeasuredCorcInputs, evidencedStageIndex, CUSTODY_STAGES, FINAL_STAGE, APPLICATION_STAGE, parseAuditLog } from "@/lib/feedstock";
+import { dispatchIndex } from "@/lib/workProcess";
+import {
+  WORKBOOK_FEEDSTOCKS,
+  actualByStage,
+  batchesOfFeedstock,
+  potentialByStage,
+  workbookFeedstock,
+} from "@/lib/valueChain";
 import { fmt } from "@/lib/format";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+
+const CHART_MODES = ["Actual", "Potential"] as const;
+type ChartMode = (typeof CHART_MODES)[number];
 
 export default function Dashboard() {
   const { data: feedstock = [], isLoading } = useFeedstock();
   const { data: wpAll = [] } = useWorkProcessEntries();
 
   const agg = useMemo(() => {
-    const metrics = withMeasuredCorcInputs(feedstock, wpAll).map((f) => ({ f, m: corcMetrics(f) }));
+    // A batch counts at the furthest stage a linked record proves, not at the
+    // stage its row claims — same rule as the Custody tab and the Chain of
+    // Custody on the batch page, so the three agree. Under the old claim-based
+    // split, batches marked forward with no form behind them inflated the
+    // Sink-Confirmed and In-Submission buckets.
+    const dispatch = dispatchIndex(wpAll);
+    const metrics = withMeasuredCorcInputs(feedstock, wpAll).map((f) => {
+      const i = evidencedStageIndex(f.Title ?? "", wpAll, dispatch);
+      return { f, m: corcMetrics(f), stage: i >= 0 ? CUSTODY_STAGES[i] : null };
+    });
     const netCorc = metrics.reduce((s, x) => s + x.m.netCorc, 0);
     const credited = metrics
-      .filter((x) => x.f.CurrentStage === FINAL_STAGE)
+      .filter((x) => x.stage === FINAL_STAGE)
       .reduce((s, x) => s + x.m.netCorc, 0);
     const inSubmission = metrics
-      .filter((x) => x.f.CurrentStage === APPLICATION_STAGE)
+      .filter((x) => x.stage === APPLICATION_STAGE)
       .reduce((s, x) => s + x.m.netCorc, 0);
     const pending = netCorc - credited - inSubmission;
     const eligible = metrics.filter((x) => x.m.isCorcEligible).length;
     const verified = feedstock.filter((f) => (f.Status ?? "").toLowerCase() === "verified").length;
 
-    // Credits by stage (custody pipeline)
-    const stageCounts = CUSTODY_STAGES.map((stage) => ({
-      stage: stage.replace("Feedstock ", ""),
-      count: feedstock.filter((f) => f.CurrentStage === stage).length,
-      corc: metrics.filter((x) => x.f.CurrentStage === stage).reduce((s, x) => s + x.m.netCorc, 0),
-    }));
-
-    return { netCorc, credited, inSubmission, pending, eligible, verified, stageCounts };
+    return { netCorc, credited, inSubmission, pending, eligible, verified };
   }, [feedstock, wpAll]);
+
+  const [mode, setMode] = useState<ChartMode>("Actual");
+  const [feedstockName, setFeedstockName] = useState(WORKBOOK_FEEDSTOCKS[0].name);
+
+  /**
+   * The value-chain view: recorded mass at each custody stage (Actual) or the
+   * workbook's modelled throughput (Potential), both carried to CORC through
+   * the same factors. Deliberately not the same number as the cards above —
+   * those are the Puro lab measurement, this is the planning model.
+   */
+  const chart = useMemo(() => {
+    const wf = workbookFeedstock(feedstockName);
+    if (!wf?.basis) return null;
+    if (mode === "Potential") return { points: potentialByStage(wf) ?? [], batchesWithoutRecords: 0 };
+    return actualByStage(wf, batchesOfFeedstock(wf, feedstock), wpAll);
+  }, [mode, feedstockName, feedstock, wpAll]);
 
   const recentActivity = useMemo(() => {
     const entries = feedstock.flatMap((f) =>
@@ -102,9 +133,9 @@ export default function Dashboard() {
           {/* CORC credit visibility */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {[
-              { label: "Sink-Confirmed", value: agg.credited, color: "text-primary", tip: "Potential CORC from batches that reached the Carbon Sink stage — durably removed, but still not issued until a registry verifies and certifies it (Carbon Certification stage)." },
-              { label: "In Submission (Application)", value: agg.inSubmission, color: "text-cyan-400", tip: "Potential CORC from batches at the Application stage, applied to soil and awaiting registry sign-off." },
-              { label: "Pending Pipeline", value: agg.pending, color: "text-amber-400", tip: "Everything still upstream of Application: collection, pre-processing, conversion, sampling and storage." },
+              { label: "Sink-Confirmed", value: agg.credited, color: "text-primary", tip: "Potential CORC from batches with a Carbon Sink record behind them — durably removed, but still not issued until a registry verifies and certifies it (Carbon Certification stage)." },
+              { label: "In Submission (Application)", value: agg.inSubmission, color: "text-cyan-400", tip: "Potential CORC from batches whose furthest linked record is an Application entry, applied to soil and awaiting registry sign-off." },
+              { label: "Pending Pipeline", value: agg.pending, color: "text-amber-400", tip: "Everything whose records stop short of Application: collection, pre-processing, conversion, sampling and storage — plus batches with no linked record at all." },
             ].map((c, i) => (
               <BentoCard key={c.label} delay={0.2 + i * 0.06}>
                 <p className="text-xs text-muted-foreground flex items-center gap-1.5">{c.label} <InfoTip text={c.tip} /></p>
@@ -116,34 +147,73 @@ export default function Dashboard() {
 
           <div className="grid lg:grid-cols-5 gap-4">
             <BentoCard className="lg:col-span-3" delay={0.3}>
-              <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-1.5">
-                Potential CORC by Custody Stage
-                <InfoTip text="Not issued credits — potential CORC currently sitting at each step of the custody chain, from Collection through to Carbon Certification. A batch moves right as it advances; only Carbon Certification is a registry-confirmed number. Hover a point for the exact tonnage." />
-              </h3>
-              <div className="h-56">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={agg.stageCounts}>
-                    <defs>
-                      <linearGradient id="emeraldGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="hsl(160, 64%, 40%)" stopOpacity={0.3} />
-                        <stop offset="100%" stopColor="hsl(160, 64%, 40%)" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <XAxis dataKey="stage" tick={{ fill: "hsl(215, 10%, 55%)", fontSize: 10 }} axisLine={false} tickLine={false} interval={0} angle={-20} textAnchor="end" height={50} />
-                    <YAxis tick={{ fill: "hsl(215, 10%, 55%)", fontSize: 12 }} axisLine={false} tickLine={false} />
-                    <Tooltip
-                      contentStyle={{
-                        background: "hsl(225, 15%, 8%)",
-                        border: "1px solid hsl(225, 10%, 16%)",
-                        borderRadius: "12px",
-                        color: "hsl(210, 20%, 92%)",
-                        fontSize: 12,
-                      }}
-                    />
-                    <Area type="monotone" dataKey="corc" name="Potential CORC" stroke="hsl(160, 64%, 40%)" fill="url(#emeraldGrad)" strokeWidth={2} />
-                  </AreaChart>
-                </ResponsiveContainer>
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                <h3 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+                  {mode} CORC by Custody Stage
+                  <InfoTip
+                    text={
+                      mode === "Potential"
+                        ? "The planning model from Value Chain Evaluation.xlsx: the workbook's own daily throughput carried down the chain (pre-processing ×0.5, conversion ×0.2, biochar→CORC ×2). Flat by design — the same material is worth the same CORC whichever stage you look at it from. Nothing here comes from live records."
+                        : `Recorded mass at each stage — receiving weight, good feedstock, biochar produced, quantity stored, applied and sunk — carried to CORC through the same workbook factors, so it can be read against Potential. These are flows, not stock: the bars are not meant to sum. Carbon Certification shows the registry's certified figure as-is.${chart && chart.batchesWithoutRecords > 0 ? ` ${chart.batchesWithoutRecords} batch(es) of this feedstock have no linked record and appear nowhere below, though they still count in Potential CORC above.` : ""}`
+                    }
+                  />
+                </h3>
+                <div className="flex items-center gap-2">
+                  <Select value={mode} onValueChange={(v) => setMode(v as ChartMode)}>
+                    <SelectTrigger className="h-8 w-[130px] text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {CHART_MODES.map((m) => <SelectItem key={m} value={m} className="text-xs">{m}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <Select value={feedstockName} onValueChange={setFeedstockName}>
+                    {/* Wide enough for the longest option, "Bamboo (no basis)". */}
+                    <SelectTrigger className="h-8 w-[165px] text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {WORKBOOK_FEEDSTOCKS.map((f) => (
+                        <SelectItem key={f.name} value={f.name} className="text-xs">
+                          {f.name}{f.basis ? "" : " (no basis)"}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
+              {chart ? (
+                <ChartContainer
+                  config={{ corc: { label: "CORC", color: "hsl(160, 64%, 40%)" } }}
+                  className="h-56 w-full aspect-auto"
+                >
+                  <BarChart data={chart.points}>
+                    <XAxis dataKey="label" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} interval={0} angle={-20} textAnchor="end" height={50} />
+                    <YAxis tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+                    <ChartTooltip
+                      content={
+                        <ChartTooltipContent
+                          formatter={(value, _name, item) => {
+                            const p = item.payload as { batches: number; tonnes: number };
+                            return (
+                              <span className="text-foreground">
+                                {fmt(Number(value), 2)} tCO₂e
+                                {p.tonnes > 0 && ` · ${fmt(p.tonnes, 2)} t`}
+                                {p.batches > 0 && ` · ${p.batches} batch${p.batches === 1 ? "" : "es"}`}
+                              </span>
+                            );
+                          }}
+                        />
+                      }
+                    />
+                    <Bar dataKey="corc" name="CORC" fill="var(--color-corc)" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ChartContainer>
+              ) : (
+                <div className="h-56 flex flex-col items-center justify-center text-center gap-1">
+                  <p className="text-sm text-muted-foreground">{feedstockName} is not parameterised yet.</p>
+                  <p className="text-xs text-muted-foreground/70 max-w-xs">
+                    Value Chain Evaluation.xlsx lists it but its basis column is still a placeholder,
+                    so there is no chain to project it down.
+                  </p>
+                </div>
+              )}
             </BentoCard>
 
             <BentoCard className="lg:col-span-2" delay={0.4}>

@@ -1,6 +1,6 @@
 import { BentoCard } from "@/components/BentoCard";
 import { useFeedstock, useWorkProcessEntries } from "@/hooks/useCollection";
-import { corcMetrics, withMeasuredCorcInputs, CUSTODY_STAGES, OPERATIONS_STAGE_COUNT, type CustodyStage } from "@/lib/feedstock";
+import { corcMetrics, withMeasuredCorcInputs, evidencedStageIndex, CUSTODY_STAGES, OPERATIONS_STAGE_COUNT, type CustodyStage } from "@/lib/feedstock";
 import { fmt } from "@/lib/format";
 import { Truck, Settings2, Flame, FlaskConical, Warehouse, Sprout, Trees, BadgeCheck, Loader2, ChevronRight, ChevronDown, Search, X, Scale, AlertTriangle } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -458,19 +458,57 @@ function CustodyOverview() {
   const canAdd = hasPermission(role, Permission.AddFeedstock);
   const [openStage, setOpenStage] = useState<string | null>(null);
 
+  /**
+   * Where each batch really sits: the furthest stage a linked record proves,
+   * with its stored `CurrentStage` kept alongside as a claim. A batch marked
+   * "Storage" whose chain stops at production is counted (and its CORC totalled)
+   * at production, and shows up as an unverified claim on the Storage card —
+   * same rule the Chain of Custody on the batch page follows.
+   *
+   * ponytail: recomputed over every batch × every entry on each render of this
+   * memo. Fine at workbook scale (~100 batches, ~300 entries); index the entries
+   * by lot if either grows an order of magnitude.
+   */
+  const placed = useMemo(
+    () =>
+      feedstock.map((f) => {
+        const i = evidencedStageIndex(f.Title ?? "", wpAll);
+        return {
+          batch: f,
+          evidenced: i >= 0 ? CUSTODY_STAGES[i] : null,
+          claimed: (f.CurrentStage ?? null) as CustodyStage | null,
+        };
+      }),
+    [feedstock, wpAll]
+  );
+
+  /** Batches at a stage: evidenced first, then those only claiming it. */
+  const batchesAt = (stage: string) => [
+    ...placed.filter((p) => p.evidenced === stage),
+    ...placed.filter((p) => p.evidenced !== stage && p.claimed === stage),
+  ];
+
   const stageBatches = useMemo(
-    () => (openStage ? feedstock.filter((f) => f.CurrentStage === openStage) : []),
-    [openStage, feedstock]
+    () => (openStage ? batchesAt(openStage) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [openStage, placed]
   );
 
   const stages = useMemo(
     () =>
       CUSTODY_STAGES.map((stage) => {
-        const batches = feedstock.filter((f) => f.CurrentStage === stage);
-        const corc = batches.reduce((s, f) => s + corcMetrics(f).netCorc, 0);
-        return { stage, count: batches.length, corc, phase: CUSTODY_STAGES.indexOf(stage) < OPERATIONS_STAGE_COUNT ? "Operations" : "Storage" };
+        const evidenced = placed.filter((p) => p.evidenced === stage);
+        const claimedOnly = placed.filter((p) => p.evidenced !== stage && p.claimed === stage);
+        const corc = evidenced.reduce((s, p) => s + corcMetrics(p.batch).netCorc, 0);
+        return {
+          stage,
+          count: evidenced.length,
+          claimedOnly: claimedOnly.length,
+          corc,
+          phase: CUSTODY_STAGES.indexOf(stage) < OPERATIONS_STAGE_COUNT ? "Operations" : "Storage",
+        };
       }),
-    [feedstock]
+    [placed]
   );
 
   if (isLoading) {
@@ -503,15 +541,21 @@ function CustodyOverview() {
               .filter((s) => s.phase === phase)
               .map((s, i) => {
                 const Icon = STAGE_META[s.stage].icon;
+                const open = s.count + s.claimedOnly;
                 return (
-                  <button key={s.stage} onClick={() => s.count > 0 && setOpenStage(s.stage)} className="text-left" disabled={s.count === 0}>
-                    <BentoCard delay={i * 0.05} className={`h-full group ${s.count > 0 ? "cursor-pointer" : "opacity-70"}`}>
+                  <button key={s.stage} onClick={() => open > 0 && setOpenStage(s.stage)} className="text-left" disabled={open === 0}>
+                    <BentoCard delay={i * 0.05} className={`h-full group ${open > 0 ? "cursor-pointer" : "opacity-70"}`}>
                       <div className="flex items-start justify-between">
                         <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
                           <Icon className="h-4 w-4 text-primary" />
                         </div>
                         <span className="text-2xl font-bold text-foreground">{s.count}</span>
                       </div>
+                      {s.claimedOnly > 0 && (
+                        <p className="text-[11px] text-amber-500 mt-2">
+                          +{s.claimedOnly} claimed, no linked record
+                        </p>
+                      )}
                       <p className="text-sm font-semibold text-foreground mt-3 flex items-center gap-1 group-hover:text-primary transition-colors">
                         {s.stage} {s.count > 0 && <ChevronRight className="h-3.5 w-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />}
                       </p>
@@ -532,7 +576,7 @@ function CustodyOverview() {
             <DialogTitle>{openStage} · {stageBatches.length} batch{stageBatches.length === 1 ? "" : "es"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-2 max-h-96 overflow-auto">
-            {stageBatches.map((f) => {
+            {stageBatches.map(({ batch: f, evidenced }) => {
               const m = corcMetrics(f);
               return (
                 <Link
@@ -544,6 +588,11 @@ function CustodyOverview() {
                   <div className="min-w-0">
                     <p className="text-sm text-foreground truncate">{f.Title}</p>
                     <p className="text-[11px] text-muted-foreground truncate">{f.Type} · {f.Supplier} · {f.Amount}</p>
+                    {evidenced !== openStage && (
+                      <p className="text-[10px] text-amber-500">
+                        claimed here · records stop at {evidenced ?? "no stage"}
+                      </p>
+                    )}
                   </div>
                   <div className="text-right shrink-0">
                     <p className="text-sm font-semibold text-primary">{fmt(m.netCorc, 2)}</p>
