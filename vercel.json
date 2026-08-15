@@ -8,6 +8,10 @@
     {
       "path": "/api/crons/backup",
       "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/crons/reconcile-mrv",
+      "schedule": "0 3 * * *"
     }
   ],
   "headers": [

@@ -50,6 +50,19 @@ The app is a client-side-routed SPA and ships with configs for both hosts:
 `.github/workflows/ci.yml` runs on every push and pull request to `main`:
 typecheck → lint → test (Vitest) → build.
 
+### Automation & agent loops
+
+CarbonTracker's scheduled and event-driven automation is organized around four
+autonomy loops (turn / goal / time / proactive). See
+[`docs/automation-loops.md`](docs/automation-loops.md) for the full model, the
+decision guide, and where each loop lives:
+
+- **Loop 2 (goal)** — `npm run verify:goal` runs the gates until green.
+- **Loop 3 (time)** — `api/crons/*` (sensor SUSPECT re-scan, MRV reconciliation,
+  backup) scheduled in `vercel.json`.
+- **Loop 4 (proactive)** — `api/ingest/sensor.js` fires a best-effort alert via
+  `api/reactions/notify.js` on SUSPECT readings.
+
 Two deploy options run on green pushes to `main` — configure secrets for whichever
 host you use; each skips cleanly when its token is unset:
 

@@ -71,6 +71,12 @@ const CHECKS = [
 ];
 // ---------------------------------------------------------------------------
 
+// Exported so scripts/goal-verify.mjs (the Loop 2 harness) can reuse this single
+// gate list instead of duplicating it. Keep all gate definitions here.
+
+const isDirectRun =
+  process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "/"));
+
 const skip = new Set(
   (process.env.SKIP || '')
     .split(',')
@@ -84,6 +90,7 @@ const red = (s) => c('31', s);
 const yellow = (s) => c('33', s);
 const dim = (s) => c('90', s);
 
+if (isDirectRun) {
 console.log(c('1', '\n▶ Pre-push checks\n'));
 
 /** Run one gate to completion, capturing its output instead of streaming it. */
@@ -179,3 +186,5 @@ if (failed) {
   process.exit(1);
 }
 console.log(green('\n✔ All checks passed. Safe to push.\n'));
+}
+export { CHECKS };

@@ -33,6 +33,7 @@
 
 import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
+import { notify } from "../reactions/notify.js";
 
 // Compact mirror of PARAMETERS in src/lib/sensors.ts: key -> {unit, min, max, stage}.
 const PARAMS = {
@@ -163,6 +164,16 @@ export default async function handler(req, res) {
   if (insErr) {
     console.error("[ingest] reading upsert failed:", insErr.message);
     return res.status(502).json({ error: "failed to store reading" });
+  }
+
+  // Loop 4 (proactive): fire-and-forget alert when a reading is SUSPECT.
+  // Best-effort and env-gated; must never block or break the successful ingest.
+  if (quality === "SUSPECT") {
+    const status = await notify(
+      { device_id: deviceId, metric, value, seq, received_at: ts },
+      process.env.SENSOR_ALERT_WEBHOOK_URL
+    );
+    if (status) console.log(`[ingest] SUSPECT alert sent (status ${status}) for ${deviceId}/${metric}`);
   }
 
   // Best-effort: advance the device's LastSeq + LastSeenAt for the next replay check.
