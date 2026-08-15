@@ -20,9 +20,59 @@ import { useMemo, useState } from "react";
 const CHART_MODES = ["Actual", "Potential"] as const;
 type ChartMode = (typeof CHART_MODES)[number];
 
+/**
+ * "Timeline" is the title of this dropdown — the default per-stage view —
+ * not one of its options. The options window the data feeding the stage bars:
+ * Accumulative = everything since the first record, Yearly/Monthly = records
+ * within the latest year / month on record. The X axis is always custody stage.
+ */
+const VIEW_OPTIONS = ["Accumulative", "Yearly", "Monthly"] as const;
+type ViewOption = (typeof VIEW_OPTIONS)[number];
+type View = ViewOption | "Timeline";
+
+/**
+ * The timestamp range a view option scopes the stage bars to. Accumulative =
+ * all records since the first (no window); Yearly/Monthly = the latest year or
+ * month that has any record at all, so the bars are never empty for a quiet
+ * period. Returns a set of timestamps to keep, or null for "everything".
+ */
+function timeWindow(
+  wpAll: { Timestamp?: string }[],
+  view: ViewOption
+): Set<string> | null {
+  if (view === "Accumulative") return null;
+  const stamps = wpAll
+    .map((e) => e.Timestamp ?? "")
+    .filter((t) => t && !Number.isNaN(new Date(t).getTime()))
+    .sort();
+  if (!stamps.length) return null;
+  const latest = stamps[stamps.length - 1];
+  const d = new Date(latest);
+  const keep = new Set<string>();
+  for (const t of stamps) {
+    const dd = new Date(t);
+    if (view === "Yearly" && dd.getFullYear() === d.getFullYear()) keep.add(t);
+    if (view === "Monthly" && dd.getFullYear() === d.getFullYear() && dd.getMonth() === d.getMonth()) keep.add(t);
+  }
+  return keep;
+}
+
 export default function Dashboard() {
   const { data: feedstock = [], isLoading } = useFeedstock();
   const { data: wpAll = [] } = useWorkProcessEntries();
+
+  const [mode, setMode] = useState<ChartMode>("Actual");
+  const [view, setView] = useState<View>("Timeline");
+  const [feedstockName, setFeedstockName] = useState(WORKBOOK_FEEDSTOCKS[0].name);
+
+  const wf = workbookFeedstock(feedstockName);
+  // The graph's feedstock dropdown drives the cards too: every stat and credit
+  // card below is scoped to the selected feedstock's batches, so switching the
+  // graph changes the whole dashboard with it.
+  const scopedBatches = useMemo(
+    () => (wf ? batchesOfFeedstock(wf, feedstock) : feedstock),
+    [wf, feedstock]
+  );
 
   const agg = useMemo(() => {
     // A batch counts at the furthest stage a linked record proves, not at the
@@ -31,7 +81,7 @@ export default function Dashboard() {
     // split, batches marked forward with no form behind them inflated the
     // Sink-Confirmed and In-Submission buckets.
     const dispatch = dispatchIndex(wpAll);
-    const metrics = withMeasuredCorcInputs(feedstock, wpAll).map((f) => {
+    const metrics = withMeasuredCorcInputs(scopedBatches, wpAll).map((f) => {
       const i = evidencedStageIndex(f.Title ?? "", wpAll, dispatch);
       return { f, m: corcMetrics(f), stage: i >= 0 ? CUSTODY_STAGES[i] : null };
     });
@@ -44,26 +94,41 @@ export default function Dashboard() {
       .reduce((s, x) => s + x.m.netCorc, 0);
     const pending = netCorc - credited - inSubmission;
     const eligible = metrics.filter((x) => x.m.isCorcEligible).length;
-    const verified = feedstock.filter((f) => (f.Status ?? "").toLowerCase() === "verified").length;
+    const verified = scopedBatches.filter((f) => (f.Status ?? "").toLowerCase() === "verified").length;
 
     return { netCorc, credited, inSubmission, pending, eligible, verified };
-  }, [feedstock, wpAll]);
-
-  const [mode, setMode] = useState<ChartMode>("Actual");
-  const [feedstockName, setFeedstockName] = useState(WORKBOOK_FEEDSTOCKS[0].name);
+  }, [scopedBatches, wpAll]);
 
   /**
-   * The value-chain view: recorded mass at each custody stage (Actual) or the
-   * workbook's modelled throughput (Potential), both carried to CORC through
-   * the same factors. Deliberately not the same number as the cards above —
-   * those are the Puro lab measurement, this is the planning model.
+   * The CORC graph, always in tonnes of feedstock, always with custody stages
+   * on the X axis. "Timeline" (the dropdown's title) is the default view:
+   * recorded mass at each stage, or the workbook's modelled throughput. The
+   * options window the records that feed the stage bars — Accumulative =
+   * everything since the first record, Yearly/Monthly = the latest year /
+   * month on record. The model itself has no timestamps, so Potential is the
+   * same full series in every view.
    */
   const chart = useMemo(() => {
-    const wf = workbookFeedstock(feedstockName);
     if (!wf?.basis) return null;
-    if (mode === "Potential") return { points: potentialByStage(wf) ?? [], batchesWithoutRecords: 0 };
-    return actualByStage(wf, batchesOfFeedstock(wf, feedstock), wpAll);
-  }, [mode, feedstockName, feedstock, wpAll]);
+    const batches = batchesOfFeedstock(wf, feedstock);
+    if (view === "Timeline") {
+      return mode === "Potential"
+        ? { points: potentialByStage(wf) ?? [], batchesWithoutRecords: 0 }
+        : actualByStage(wf, batches, wpAll) ?? { points: [], batchesWithoutRecords: 0 };
+    }
+    // Windowed views: keep the custody-stage X axis, feed it only the records
+    // inside the window. Potential is the full workbook model — a single daily
+    // row with no timestamps to window by — while Actual windows the measured
+    // records. batchesWithoutRecords is suppressed here — a batch with no
+    // record inside the window is not "unrecorded", it is out of scope.
+    if (mode === "Potential") {
+      return { points: potentialByStage(wf) ?? [], batchesWithoutRecords: 0 };
+    }
+    const window = timeWindow(wpAll, view);
+    const scoped = window ? wpAll.filter((e) => window.has(e.Timestamp ?? "")) : wpAll;
+    const series = actualByStage(wf, batches, scoped) ?? { points: [], batchesWithoutRecords: 0 };
+    return { points: series.points, batchesWithoutRecords: 0 };
+  }, [mode, view, wf, feedstock, wpAll]);
 
   const recentActivity = useMemo(() => {
     const entries = feedstock.flatMap((f) =>
@@ -77,27 +142,39 @@ export default function Dashboard() {
       label: "Potential CORC",
       value: fmt(agg.netCorc, 2),
       icon: Leaf,
-      tip: "Total tCO₂e across every batch, whatever custody stage it's at: gross carbon stored minus the emissions from haulage and pyrolysis. Not yet issued — see Sink-Confirmed for that.",
+      tip: `Total tCO₂e across the ${feedstockName} batches: gross carbon stored minus the emissions from haulage and pyrolysis. Not yet issued — see Sink-Confirmed for that. Scoped to the feedstock selected on the CORC graph.`,
     },
     {
       label: "Batches Tracked",
-      value: fmt(feedstock.length),
+      value: fmt(scopedBatches.length),
       icon: BarChart3,
-      tip: "Every feedstock batch on record, whatever custody stage it sits in.",
+      tip: `Every ${feedstockName} batch on record, whatever custody stage it sits in.`,
     },
     {
       label: "CORC-Eligible",
       value: fmt(agg.eligible),
       icon: Zap,
-      tip: "Batches that pass the eligibility rules (measured yield, carbon content and permanence) and can be put forward for issuance.",
+      tip: `${feedstockName} batches that pass the eligibility rules (measured yield, carbon content and permanence) and can be put forward for issuance.`,
     },
     {
       label: "Verified Batches",
       value: fmt(agg.verified),
       icon: Activity,
-      tip: "Batches marked Verified after lab sampling and document checks.",
+      tip: `${feedstockName} batches marked Verified after lab sampling and document checks.`,
     },
   ];
+
+  const timeNote =
+    view === "Timeline"
+      ? ""
+      : "These views use measured records only — the workbook model is a single daily row with no timestamps to window by.";
+
+  const chartTitle =
+    view === "Timeline"
+      ? `${mode} Feedstock Tonnes by Custody Stage`
+      : view === "Accumulative"
+        ? `${mode} Feedstock Tonnes by Custody Stage — Accumulative`
+        : `${mode} Feedstock Tonnes by Custody Stage — ${view}`;
 
   return (
     <div className="relative p-6 lg:p-8 space-y-6">
@@ -133,9 +210,9 @@ export default function Dashboard() {
           {/* CORC credit visibility */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {[
-              { label: "Sink-Confirmed", value: agg.credited, color: "text-primary", tip: "Potential CORC from batches with a Carbon Sink record behind them — durably removed, but still not issued until a registry verifies and certifies it (Carbon Certification stage)." },
-              { label: "In Submission (Application)", value: agg.inSubmission, color: "text-cyan-400", tip: "Potential CORC from batches whose furthest linked record is an Application entry, applied to soil and awaiting registry sign-off." },
-              { label: "Pending Pipeline", value: agg.pending, color: "text-amber-400", tip: "Everything whose records stop short of Application: collection, pre-processing, conversion, sampling and storage — plus batches with no linked record at all." },
+              { label: "Sink-Confirmed", value: agg.credited, color: "text-primary", tip: `Potential CORC from ${feedstockName} batches with a Carbon Sink record behind them — durably removed, but still not issued until a registry verifies and certifies it (Carbon Certification stage).` },
+              { label: "In Submission (Application)", value: agg.inSubmission, color: "text-cyan-400", tip: `Potential CORC from ${feedstockName} batches whose furthest linked record is an Application entry, applied to soil and awaiting registry sign-off.` },
+              { label: "Pending Pipeline", value: agg.pending, color: "text-amber-400", tip: `Everything whose records stop short of Application: collection, delivery, pre-processing and conversion — plus ${feedstockName} batches with no linked record at all.` },
             ].map((c, i) => (
               <BentoCard key={c.label} delay={0.2 + i * 0.06}>
                 <p className="text-xs text-muted-foreground flex items-center gap-1.5">{c.label} <InfoTip text={c.tip} /></p>
@@ -149,16 +226,29 @@ export default function Dashboard() {
             <BentoCard className="lg:col-span-3" delay={0.3}>
               <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
                 <h3 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
-                  {mode} CORC by Custody Stage
+                  {chartTitle}
                   <InfoTip
                     text={
                       mode === "Potential"
-                        ? "The planning model from Value Chain Evaluation.xlsx: the workbook's own daily throughput carried down the chain (pre-processing ×0.5, conversion ×0.2, biochar→CORC ×2). Flat by design — the same material is worth the same CORC whichever stage you look at it from. Nothing here comes from live records."
-                        : `Recorded mass at each stage — receiving weight, good feedstock, biochar produced, quantity stored, applied and sunk — carried to CORC through the same workbook factors, so it can be read against Potential. These are flows, not stock: the bars are not meant to sum. Carbon Certification shows the registry's certified figure as-is.${chart && chart.batchesWithoutRecords > 0 ? ` ${chart.batchesWithoutRecords} batch(es) of this feedstock have no linked record and appear nowhere below, though they still count in Potential CORC above.` : ""}`
+                        ? view === "Timeline"
+                          ? "The planning model from Value Chain Evaluation.xlsx: the workbook's own daily throughput carried down the chain (delivery ×1, pre-processing ×0.5, conversion ×0.2) — the tonnes of feedstock the model expects at each stage. Nothing here comes from live records."
+                          : "The planning model from Value Chain Evaluation.xlsx shown in full — the workbook is a single daily row with no timestamps to window by, so the model's stage bars are the same in every view."
+                        : view === "Accumulative"
+                          ? `Feedstock tonnes recorded for every ${feedstockName} batch at its furthest recorded stage, from all records since the first one was added — the stage bars cover the whole pipeline to date.${timeNote ? ` ${timeNote}` : ""}`
+                          : view === "Yearly" || view === "Monthly"
+                            ? `Feedstock tonnes recorded for every ${feedstockName} batch at its furthest recorded stage, from records captured in the latest ${view.toLowerCase().slice(0, -2)} on file.${timeNote ? ` ${timeNote}` : ""}`
+                            : `Recorded feedstock mass at each stage — receiving weight, good feedstock, biochar produced, applied and sunk — in tonnes, read against the same chain as Potential. These are flows, not stock: the bars are not meant to sum. Carbon Certification shows the registry's certified figure as-is, in tCO₂e — it records no mass.${chart && chart.batchesWithoutRecords > 0 ? ` ${chart.batchesWithoutRecords} batch(es) of this feedstock have no linked record and appear nowhere below, though they still count in Potential above.` : ""}`
                     }
                   />
                 </h3>
                 <div className="flex items-center gap-2">
+                  {/* "Timeline" is the dropdown's title; the options are the time views. */}
+                  <Select value={view} onValueChange={(v) => setView(v as View)}>
+                    <SelectTrigger className="h-8 w-[150px] text-xs"><SelectValue placeholder="Timeline" /></SelectTrigger>
+                    <SelectContent>
+                      {VIEW_OPTIONS.map((m) => <SelectItem key={m} value={m} className="text-xs">{m}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
                   <Select value={mode} onValueChange={(v) => setMode(v as ChartMode)}>
                     <SelectTrigger className="h-8 w-[130px] text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
@@ -180,21 +270,21 @@ export default function Dashboard() {
               </div>
               {chart ? (
                 <ChartContainer
-                  config={{ corc: { label: "CORC", color: "hsl(160, 64%, 40%)" } }}
+                  config={{ tonnes: { label: "Feedstock (t)", color: "hsl(160, 64%, 40%)" } }}
                   className="h-56 w-full aspect-auto"
                 >
                   <BarChart data={chart.points}>
                     <XAxis dataKey="label" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} interval={0} angle={-20} textAnchor="end" height={50} />
-                    <YAxis tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 12 }} axisLine={false} tickLine={false} unit=" t" />
                     <ChartTooltip
                       content={
                         <ChartTooltipContent
                           formatter={(value, _name, item) => {
-                            const p = item.payload as { batches: number; tonnes: number };
+                            const p = item.payload as { corc: number; batches: number };
                             return (
                               <span className="text-foreground">
-                                {fmt(Number(value), 2)} tCO₂e
-                                {p.tonnes > 0 && ` · ${fmt(p.tonnes, 2)} t`}
+                                {fmt(Number(value), 2)} t feedstock
+                                {p.corc > 0 && ` · ${fmt(p.corc, 2)} tCO₂e`}
                                 {p.batches > 0 && ` · ${p.batches} batch${p.batches === 1 ? "" : "es"}`}
                               </span>
                             );
@@ -202,7 +292,7 @@ export default function Dashboard() {
                         />
                       }
                     />
-                    <Bar dataKey="corc" name="CORC" fill="var(--color-corc)" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="tonnes" name="Feedstock (t)" fill="var(--color-tonnes)" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ChartContainer>
               ) : (

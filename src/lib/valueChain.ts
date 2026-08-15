@@ -7,8 +7,15 @@
  *
  * The chain, per tonne of delivered feedstock:
  *
- *   DELIVERY --x0.5 preproc--> PRE-PROCESSING --x0.2 conversion--> CONVERSION
- *     --x1 CDR--> APPLICATION --x1 app/storage--> STORAGE --x2--> ACCOUNTING (tCO2e)
+ *   COLLECTION --x1 delivery--> DELIVERY --x0.5 preproc--> PRE-PROCESSING
+ *     --x0.2 conversion--> CONVERSION --x1 app/storage--> APPLICATION
+ *     --x1--> CARBON SINK --x2--> CARBON CERTIFICATION (tCO2e)
+ *
+ * Sampling and Warehouse (Storage) were removed from the widget on the owner's
+ * instruction: they are still custody stages on the batch chain (see
+ * CUSTODY_STAGES in feedstock.ts) but no longer get a bar here. Delivery was
+ * split out after Collection — it carries the same material, so it uses
+ * Collection's multiplier and the workbook's DELIVERY column rate.
  *
  * Not to be confused with `corcMetrics` in feedstock.ts, which is the
  * Puro-aligned lab measurement (yield x carbon% x 44/12, permanence, minus
@@ -17,13 +24,29 @@
  */
 
 import {
-  CUSTODY_STAGES,
   parseLeadingNumber,
   wpEntriesForBatch,
-  type CustodyStage,
 } from "./feedstock";
 import { dispatchIndex, type BatchAllocation, type WorkProcessEntry } from "./workProcess";
 import type { Feedstock } from "./types";
+
+/**
+ * The widget's stage chain — the workbook's value columns minus Sampling and
+ * Warehouse, with Delivery split out after Collection. Deliberately separate
+ * from CUSTODY_STAGES: the batch custody chain still tracks all eight stages,
+ * the dashboard widget shows these seven.
+ */
+export const CORC_WIDGET_STAGES = [
+  "Feedstock Collection",
+  "Feedstock Delivery",
+  "Feedstock Pre-Processing",
+  "Material Conversion",
+  "Application",
+  "Carbon Sink",
+  "Carbon Certification",
+] as const;
+
+export type CorcWidgetStage = (typeof CORC_WIDGET_STAGES)[number];
 
 /** One row of the workbook's per-source table: tonnes ex-source and tonnes delivered. */
 export interface WorkbookSource {
@@ -91,45 +114,74 @@ export function workbookFeedstock(name: string): WorkbookFeedstock | undefined {
  * tCO2e of CORC per tonne of material sitting at a custody stage — the product
  * of every factor still downstream of it.
  *
- * Written per stage rather than as a running product over CUSTODY_STAGES on
+ * Written per stage rather than as a running product over the chain on
  * purpose: the workbook runs APPLICATION before STORAGE and the app runs
  * Storage before Application. Under this basis both ratios are 1 so the two
  * orderings give the same number, but a cumulative product would silently swap
- * them the day a ratio stops being 1. Sampling has no workbook column — it
- * doesn't transform mass, so it carries Conversion's multiplier.
+ * them the day a ratio stops being 1. Delivery transforms no mass, so it
+ * carries Collection's multiplier.
  */
-export function stageCorcMultiplier(stage: CustodyStage, b: ValueChainBasis): number {
+export function stageCorcMultiplier(stage: CorcWidgetStage, b: ValueChainBasis): number {
   switch (stage) {
     case "Feedstock Collection":
+    case "Feedstock Delivery":
       return b.preProcessingEfficiency * b.conversionEfficiency * b.biocharCorcConversion;
     case "Feedstock Pre-Processing":
       return b.conversionEfficiency * b.biocharCorcConversion;
     case "Application":
       return b.applicationStorageRatio * b.biocharCorcConversion;
     case "Material Conversion":
-    case "Sampling":
-    case "Storage":
     case "Carbon Sink":
     case "Carbon Certification":
       return b.biocharCorcConversion;
   }
 }
 
+/**
+ * RM value per tonne (or per MTe of certified CORC for Carbon Certification) at
+ * each custody stage. Collection and Pre-Processing keep the workbook rates
+ * (Value Chain Evaluation.xlsx Sheet1: row 36 ÷ row 29). Delivery is the
+ * workbook's DELIVERY column (900 / 30 delivered). Material Conversion,
+ * Application, Carbon Sink and Carbon Certification use the rates set by the
+ * owner (RM2500/MT and RM600/MT respectively), which supersede the workbook.
+ */
+export const STAGE_RM_PER_TONNE: Partial<Record<CorcWidgetStage, number>> = {
+  "Feedstock Collection": 60, // VALUE 1800 / 30 delivered
+  "Feedstock Delivery": 30, // VALUE 900 / 30 delivered
+  "Feedstock Pre-Processing": 60, // VALUE 900 / 15
+  "Material Conversion": 2500, // owner rate: RM2500/MT
+  Application: 2500, // owner rate: RM2500/MT
+  "Carbon Sink": 600, // owner rate: RM600/MT
+  "Carbon Certification": 600, // owner rate: RM600 per certified MTe
+};
+
+/** RM value at a stage: tonnes × per-tonne rate, or certified MTe × rate for Certification. */
+function rmForStage(stage: CorcWidgetStage, tonnes: number, corcTco2e: number): number {
+  const rate = STAGE_RM_PER_TONNE[stage];
+  if (!rate) return 0;
+  return stage === "Carbon Certification" ? corcTco2e * rate : tonnes * rate;
+}
+
 /** One bar on the chart. */
 export interface StagePoint {
-  stage: CustodyStage;
-  /** Axis label — CUSTODY_STAGES with the redundant "Feedstock " prefix dropped. */
+  stage: CorcWidgetStage;
+  /** Axis label — the stage name with the redundant "Feedstock " prefix dropped. */
   label: string;
   /** Tonnes of material observed (or modelled) at this stage. 0 where the stage records CORC directly. */
   tonnes: number;
   /** Those tonnes carried through the remaining chain, in tCO2e. */
   corc: number;
+  /** Value in RM: tonnes × the stage rate (or certified CORC × rate). */
+  rm: number;
   /** Batches contributing. Always 0 for the modelled series — it has no batches. */
   batches: number;
 }
 
-function shortLabel(stage: CustodyStage): string {
-  return stage.replace("Feedstock ", "");
+function shortLabel(stage: CorcWidgetStage): string {
+  const base = stage.replace("Feedstock ", "");
+  // The chart shows the stage the owner calls it: "Material Conversion" reads
+  // as "Conversion" on the axis.
+  return base === "Material Conversion" ? "Conversion" : base;
 }
 
 /**
@@ -146,16 +198,18 @@ export function potentialByStage(feedstock: WorkbookFeedstock): StagePoint[] | n
   const preProcessed = delivered * b.preProcessingEfficiency;
   const biochar = preProcessed * b.conversionEfficiency;
 
-  return CUSTODY_STAGES.map((stage) => {
+  return CORC_WIDGET_STAGES.map((stage) => {
     const tonnes =
-      stage === "Feedstock Collection" ? delivered
+      stage === "Feedstock Collection" || stage === "Feedstock Delivery" ? delivered
       : stage === "Feedstock Pre-Processing" ? preProcessed
       : biochar;
+    const corc = tonnes * stageCorcMultiplier(stage, b);
     return {
       stage,
       label: shortLabel(stage),
       tonnes,
-      corc: tonnes * stageCorcMultiplier(stage, b),
+      corc,
+      rm: rmForStage(stage, tonnes, corc),
       batches: 0,
     };
   });
@@ -166,16 +220,18 @@ export function potentialByStage(feedstock: WorkbookFeedstock): StagePoint[] | n
  * the ones massBalance() (feedstock.ts) and CONSUMED_FIELD (massBalance.ts)
  * already read, so a stage cannot mean one weight here and another there.
  *
- * Sampling records no quantity — it inspects what Conversion produced.
- * Certification is the one stage that records CORC rather than mass: the
- * registry's own certified tCO2e, which is a measured fact and not something to
- * re-derive from a model factor, so it is taken at face value.
+ * Delivery records no separate quantity — the receiving form IS the delivery
+ * document (DO number, route, transport), so it reads the same weight as
+ * Collection. Certification is the one stage that records CORC rather than
+ * mass: the registry's own certified tCO2e, which is a measured fact and not
+ * something to re-derive from a model factor, so it is taken at face value.
  */
 const STAGE_QUANTITY: Record<
-  CustodyStage,
+  CorcWidgetStage,
   { stageKeys: string[]; field: string; unit: "kg" | "tco2e" } | null
 > = {
   "Feedstock Collection": { stageKeys: ["receiving"], field: "weight", unit: "kg" },
+  "Feedstock Delivery": { stageKeys: ["receiving"], field: "weight", unit: "kg" },
   "Feedstock Pre-Processing": {
     stageKeys: ["isolation"],
     field: "good_feedstock_quantity",
@@ -186,9 +242,7 @@ const STAGE_QUANTITY: Record<
     field: "final_biochar_amount",
     unit: "kg",
   },
-  "Sampling": null,
-  "Storage": { stageKeys: ["warehouse"], field: "quantity", unit: "kg" },
-  "Application": { stageKeys: ["application"], field: "quantity_applied", unit: "kg" },
+  Application: { stageKeys: ["application"], field: "quantity_applied", unit: "kg" },
   "Carbon Sink": { stageKeys: ["carbon_sink"], field: "quantity", unit: "kg" },
   "Carbon Certification": { stageKeys: ["certification"], field: "certified_corc", unit: "tco2e" },
 };
@@ -223,8 +277,8 @@ export function actualByStage(
   const b = feedstock.basis;
   if (!b) return null;
 
-  const totals = new Map<CustodyStage, number>();
-  const batchIds = new Map<CustodyStage, Set<string>>();
+  const totals = new Map<CorcWidgetStage, number>();
+  const batchIds = new Map<CorcWidgetStage, Set<string>>();
   let batchesWithoutRecords = 0;
 
   for (const batch of batches) {
@@ -233,7 +287,7 @@ export function actualByStage(
       batchesWithoutRecords++;
       continue;
     }
-    for (const stage of CUSTODY_STAGES) {
+    for (const stage of CORC_WIDGET_STAGES) {
       const spec = STAGE_QUANTITY[stage];
       if (!spec) continue;
       let amount = 0;
@@ -250,18 +304,122 @@ export function actualByStage(
     }
   }
 
-  const points = CUSTODY_STAGES.map((stage) => {
+  const points = CORC_WIDGET_STAGES.map((stage) => {
     const spec = STAGE_QUANTITY[stage];
     const amount = totals.get(stage) ?? 0;
     const tonnes = spec?.unit === "kg" ? amount / 1000 : 0;
+    const corc = spec?.unit === "tco2e" ? amount : tonnes * stageCorcMultiplier(stage, b);
     return {
       stage,
       label: shortLabel(stage),
       tonnes,
-      corc: spec?.unit === "tco2e" ? amount : tonnes * stageCorcMultiplier(stage, b),
+      corc,
+      rm: rmForStage(stage, tonnes, corc),
       batches: batchIds.get(stage)?.size ?? 0,
     };
   });
 
   return { points, batchesWithoutRecords };
+}
+
+export type TimeBucketUnit = "year" | "month" | "day";
+
+function bucketKey(ts: string, unit: TimeBucketUnit): string | null {
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return null;
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  if (unit === "year") return String(y);
+  if (unit === "month") return `${y}-${m}`;
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * The measured series aggregated into time buckets (year / month / day) instead
+ * of custody stages. Each batch is valued exactly as in actualByStage — same
+ * stage, same factor chain, same RM rate — at its FURTHEST recorded stage (one
+ * value per batch, no double counting), then dropped into the bucket of that
+ * record's timestamp. With `cumulative`, the buckets become a running total
+ * since the first record — the "Accumulative" view of the Timeline dropdown.
+ */
+export function actualByTimeBucket(
+  feedstock: WorkbookFeedstock,
+  batches: Feedstock[],
+  wpAll: WorkProcessEntry[],
+  unit: TimeBucketUnit,
+  cumulative = false,
+  dispatch: Map<string, BatchAllocation[]> = dispatchIndex(wpAll)
+): StagePoint[] | null {
+  const b = feedstock.basis;
+  if (!b) return null;
+
+  // bucket -> accumulated { tonnes, corc, rm } + distinct batch ids.
+  const totals = new Map<
+    string,
+    { tonnes: number; corc: number; rm: number; ids: Set<string> }
+  >();
+
+  for (const batch of batches) {
+    const entries = wpEntriesForBatch(batch.Title ?? "", wpAll, dispatch);
+    if (!entries.length) continue;
+    // The furthest stage with a record — the batch's value counts once, at the
+    // stage its custody actually reached, same rule as the credit cards.
+    let best: { stage: CorcWidgetStage; amount: number; ts: string } | null = null;
+    for (const stage of CORC_WIDGET_STAGES) {
+      const spec = STAGE_QUANTITY[stage];
+      if (!spec) continue;
+      let amount = 0;
+      let ts = "";
+      for (const e of entries) {
+        if (!spec.stageKeys.includes(e.StageKey)) continue;
+        amount += parseLeadingNumber(e.Values?.[spec.field]);
+        if ((e.Timestamp ?? "") > ts) ts = e.Timestamp ?? "";
+      }
+      if (amount > 0) best = { stage, amount, ts };
+    }
+    if (!best) continue;
+    const key = bucketKey(best.ts, unit);
+    if (!key) continue;
+    const spec = STAGE_QUANTITY[best.stage];
+    const tonnes = spec?.unit === "kg" ? best.amount / 1000 : 0;
+    const corc =
+      spec?.unit === "tco2e" ? best.amount : tonnes * stageCorcMultiplier(best.stage, b);
+    const rm = rmForStage(best.stage, tonnes, corc);
+    const hit = totals.get(key) ?? { tonnes: 0, corc: 0, rm: 0, ids: new Set<string>() };
+    hit.tonnes += tonnes;
+    hit.corc += corc;
+    hit.rm += rm;
+    hit.ids.add(batch.id);
+    totals.set(key, hit);
+  }
+
+  const points = [...totals.entries()]
+    .sort(([a], [c]) => a.localeCompare(c))
+    .map(([key, hit]) => ({
+      // The bucket is the axis label; `stage` is unused by the chart but part
+      // of StagePoint's shape, so pin it to the first stage of the chain.
+      stage: "Feedstock Collection" as CorcWidgetStage,
+      label: key,
+      tonnes: hit.tonnes,
+      corc: hit.corc,
+      rm: hit.rm,
+      batches: hit.ids.size,
+    }));
+
+  if (cumulative) {
+    let tonnes = 0;
+    let corc = 0;
+    let rm = 0;
+    for (const p of points) {
+      tonnes += p.tonnes;
+      corc += p.corc;
+      rm += p.rm;
+      p.tonnes = tonnes;
+      p.corc = corc;
+      p.rm = rm;
+    }
+  }
+
+  return points;
 }
