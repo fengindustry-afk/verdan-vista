@@ -226,7 +226,7 @@ export function potentialByStage(feedstock: WorkbookFeedstock): StagePoint[] | n
  * mass: the registry's own certified tCO2e, which is a measured fact and not
  * something to re-derive from a model factor, so it is taken at face value.
  */
-const STAGE_QUANTITY: Record<
+export const STAGE_QUANTITY: Record<
   CorcWidgetStage,
   { stageKeys: string[]; field: string; unit: "kg" | "tco2e" } | null
 > = {

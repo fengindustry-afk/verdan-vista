@@ -144,7 +144,7 @@ describe("buildCulaRecords", () => {
     expect(collection.netCorc).toBeTypeOf("number");
     expect(collection.netCorc).toBeGreaterThan(0);
     expect(collection.corcTco2e).toBeCloseTo(5, 10); // 20 t x 0.25
-    expect(collection.rm).toBeCloseTo(600, 10); // 20 t x 30 RM/t
+    expect(collection.rm).toBeCloseTo(1200, 10); // 20 t x 60 RM/t (origin)
   });
 
   it("counts orphan batches", () => {
