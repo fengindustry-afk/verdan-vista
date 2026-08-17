@@ -1,11 +1,11 @@
 import { BentoCard } from "@/components/BentoCard";
 import { InfoTip } from "@/components/InfoTip";
-import { Leaf, Zap, BarChart3, Activity, Loader2 } from "lucide-react";
+import { Leaf, Zap, Loader2 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis } from "recharts";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useFeedstock, useWorkProcessEntries } from "@/hooks/useCollection";
-import { corcMetrics, withMeasuredCorcInputs, evidencedStageIndex, CUSTODY_STAGES, FINAL_STAGE, APPLICATION_STAGE, parseAuditLog } from "@/lib/feedstock";
+import { corcMetrics, withMeasuredCorcInputs, evidencedStageIndex, CUSTODY_STAGES, FINAL_STAGE } from "@/lib/feedstock";
 import { dispatchIndex } from "@/lib/workProcess";
 import {
   WORKBOOK_FEEDSTOCKS,
@@ -16,6 +16,7 @@ import {
 } from "@/lib/valueChain";
 import { fmt } from "@/lib/format";
 import { useMemo, useState } from "react";
+import { CulaExportPanel } from "./CulaAdmin";
 
 const CHART_MODES = ["Actual", "Potential"] as const;
 type ChartMode = (typeof CHART_MODES)[number];
@@ -62,7 +63,7 @@ export default function Dashboard() {
   const { data: wpAll = [] } = useWorkProcessEntries();
 
   const [mode, setMode] = useState<ChartMode>("Actual");
-  const [view, setView] = useState<View>("Timeline");
+  const [view, setView] = useState<View>("Accumulative");
   const [feedstockName, setFeedstockName] = useState(WORKBOOK_FEEDSTOCKS[0].name);
 
   const wf = workbookFeedstock(feedstockName);
@@ -89,14 +90,9 @@ export default function Dashboard() {
     const credited = metrics
       .filter((x) => x.stage === FINAL_STAGE)
       .reduce((s, x) => s + x.m.netCorc, 0);
-    const inSubmission = metrics
-      .filter((x) => x.stage === APPLICATION_STAGE)
-      .reduce((s, x) => s + x.m.netCorc, 0);
-    const pending = netCorc - credited - inSubmission;
     const eligible = metrics.filter((x) => x.m.isCorcEligible).length;
-    const verified = scopedBatches.filter((f) => (f.Status ?? "").toLowerCase() === "verified").length;
 
-    return { netCorc, credited, inSubmission, pending, eligible, verified };
+    return { netCorc, credited, eligible };
   }, [scopedBatches, wpAll]);
 
   /**
@@ -130,12 +126,6 @@ export default function Dashboard() {
     return { points: series.points, batchesWithoutRecords: 0 };
   }, [mode, view, wf, feedstock, wpAll]);
 
-  const recentActivity = useMemo(() => {
-    const entries = feedstock.flatMap((f) =>
-      parseAuditLog(f).map((e) => ({ ...e, batch: f.Title }))
-    );
-    return entries.slice(-6).reverse();
-  }, [feedstock]);
 
   const stats = [
     {
@@ -145,22 +135,10 @@ export default function Dashboard() {
       tip: `Total tCO₂e across the ${feedstockName} batches: gross carbon stored minus the emissions from haulage and pyrolysis. Not yet issued — see Sink-Confirmed for that. Scoped to the feedstock selected on the CORC graph.`,
     },
     {
-      label: "Batches Tracked",
-      value: fmt(scopedBatches.length),
-      icon: BarChart3,
-      tip: `Every ${feedstockName} batch on record, whatever custody stage it sits in.`,
-    },
-    {
       label: "CORC-Eligible",
       value: fmt(agg.eligible),
       icon: Zap,
       tip: `${feedstockName} batches that pass the eligibility rules (measured yield, carbon content and permanence) and can be put forward for issuance.`,
-    },
-    {
-      label: "Verified Batches",
-      value: fmt(agg.verified),
-      icon: Activity,
-      tip: `${feedstockName} batches marked Verified after lab sampling and document checks.`,
     },
   ];
 
@@ -194,7 +172,7 @@ export default function Dashboard() {
         <>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {stats.map((stat, i) => (
-              <BentoCard key={stat.label} delay={i * 0.08}>
+              <BentoCard key={stat.label} delay={i * 0.08} className="col-span-1 sm:col-span-1 lg:col-span-2">
                 <div className="flex items-start justify-between">
                   <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
                     <stat.icon className="h-4 w-4 text-primary" />
@@ -208,11 +186,9 @@ export default function Dashboard() {
           </div>
 
           {/* CORC credit visibility */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
             {[
               { label: "Sink-Confirmed", value: agg.credited, color: "text-primary", tip: `Potential CORC from ${feedstockName} batches with a Carbon Sink record behind them — durably removed, but still not issued until a registry verifies and certifies it (Carbon Certification stage).` },
-              { label: "In Submission (Application)", value: agg.inSubmission, color: "text-cyan-400", tip: `Potential CORC from ${feedstockName} batches whose furthest linked record is an Application entry, applied to soil and awaiting registry sign-off.` },
-              { label: "Pending Pipeline", value: agg.pending, color: "text-amber-400", tip: `Everything whose records stop short of Application: collection, delivery, pre-processing and conversion — plus ${feedstockName} batches with no linked record at all.` },
             ].map((c, i) => (
               <BentoCard key={c.label} delay={0.2 + i * 0.06}>
                 <p className="text-xs text-muted-foreground flex items-center gap-1.5">{c.label} <InfoTip text={c.tip} /></p>
@@ -222,8 +198,8 @@ export default function Dashboard() {
             ))}
           </div>
 
-          <div className="grid lg:grid-cols-5 gap-4">
-            <BentoCard className="lg:col-span-3" delay={0.3}>
+          <div className="grid lg:grid-cols-4 gap-4">
+            <BentoCard className="lg:col-span-4" delay={0.3}>
               <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
                 <h3 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
                   {chartTitle}
@@ -306,28 +282,12 @@ export default function Dashboard() {
               )}
             </BentoCard>
 
-            <BentoCard className="lg:col-span-2" delay={0.4}>
-              <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-1.5">
-                Recent Activity
-                <InfoTip text="The last six entries from batch audit logs: what changed, on which batch, by whom and when." />
-              </h3>
-              <div className="space-y-3">
-                {recentActivity.length === 0 && (
-                  <p className="text-xs text-muted-foreground">No activity recorded yet.</p>
-                )}
-                {recentActivity.map((item, i) => (
-                  <div key={i} className="flex items-start gap-3 group">
-                    <div className="mt-1 h-2 w-2 rounded-full shrink-0 bg-primary" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-foreground truncate">{item.Action}</p>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {item.batch} · {item.Actor} · {item.Timestamp}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </BentoCard>
+          </div>
+
+          {/* CULA Export sub-page */}
+          <div>
+            <h2 className="text-xl font-bold text-foreground mb-4">CULA Export</h2>
+            <CulaExportPanel />
           </div>
         </>
       )}

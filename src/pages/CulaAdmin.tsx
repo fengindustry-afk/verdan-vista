@@ -58,7 +58,7 @@ function loadConfig(): SavedConfig {
   return def;
 }
 
-export default function CulaAdmin() {
+export function CulaExportPanel() {
   const { data: feedstock = [], isLoading } = useFeedstock();
   const { data: wpAll = [] } = useWorkProcessEntries();
   const [config, setConfig] = useState<SavedConfig>(loadConfig);
@@ -144,15 +144,7 @@ export default function CulaAdmin() {
   };
 
   return (
-    <div className="relative p-6 lg:p-8 space-y-6">
-      <div className="glow-orb w-96 h-96 -top-48 -right-48 animate-pulse-glow" />
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">CULA Export</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Adjust the value-chain configuration and the export records, then push clean data to CULA.
-        </p>
-      </div>
-
+    <div className="space-y-6">
       {isLoading ? (
         <div className="flex items-center gap-2 text-muted-foreground text-sm py-20 justify-center">
           <Loader2 className="h-4 w-4 animate-spin" /> Loading data…
@@ -294,6 +286,25 @@ export default function CulaAdmin() {
           </BentoCard>
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * Standalone page (route /cula): page chrome around the shared CulaExportPanel.
+ * Dashboard embeds <CulaExportPanel /> directly without this header/glow-orb.
+ */
+export default function CulaAdmin() {
+  return (
+    <div className="relative p-6 lg:p-8 space-y-6">
+      <div className="glow-orb w-96 h-96 -top-48 -right-48 animate-pulse-glow" />
+      <div>
+        <h1 className="text-2xl font-bold text-foreground">CULA Export</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Adjust the value-chain configuration and the export records, then push clean data to CULA.
+        </p>
+      </div>
+      <CulaExportPanel />
     </div>
   );
 }
