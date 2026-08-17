@@ -20,6 +20,7 @@ import FeedstockHoneypot from "./pages/FeedstockHoneypot";
 import FeedstockDetail from "./pages/FeedstockDetail";
 import Workflow from "./pages/Workflow";
 import CorcCalculator from "./pages/CorcCalculator";
+import CulaAdmin from "./pages/CulaAdmin";
 import Assets from "./pages/Assets";
 import TestingPlot from "./pages/TestingPlot";
 import TreeDetail from "./pages/TreeDetail";
@@ -122,6 +123,7 @@ const App = () => (
             <Route path="/receipts" element={<Navigate to="/cost-tracker?tab=receipts" replace />} />
             <Route path="/users" element={<Users />} />
             <Route path="/reports" element={<Suspense fallback={<PageFallback />}><Reports /></Suspense>} />
+            <Route path="/cula" element={<CulaAdmin />} />
             <Route path="/audit-trail" element={<AuditTrail />} />
             <Route path="/settings" element={<Settings />} />
           </Route>

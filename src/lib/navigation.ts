@@ -1,4 +1,4 @@
-import { LayoutDashboard, Activity, Workflow, Calculator, MapPin, Video, TreePine, Wallet, ShieldCheck, Shield, FileText, Settings, type LucideIcon } from "lucide-react";
+import { LayoutDashboard, Activity, Workflow, Calculator, MapPin, Video, TreePine, Wallet, ShieldCheck, Shield, FileText, Settings, CloudUpload, type LucideIcon } from "lucide-react";
 import { Permission } from "./rbac";
 
 /**
@@ -56,6 +56,7 @@ export const navSections: NavSection[] = [
     children: [
       { title: "Reports", url: "/reports", icon: FileText, permission: Permission.ViewDashboard },
       { title: "Audit Trail", url: "/audit-trail", icon: Shield, permission: Permission.ViewUsers },
+      { title: "CULA Export", url: "/cula", icon: CloudUpload, permission: Permission.ExportData },
     ],
   },
   {
@@ -108,5 +109,6 @@ export const routePermissions: Record<string, Permission> = {
   "/users": Permission.ViewUsers,
   "/reports": Permission.ViewDashboard,
   "/audit-trail": Permission.ViewUsers,
+  "/cula": Permission.ExportData,
   "/settings": Permission.ViewSettings,
 };

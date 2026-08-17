@@ -30,6 +30,7 @@ export const Collections = {
   receipts: "receipts",
   sensorDevices: "sensor_devices",
   sensorReadings: "sensor_readings",
+  culaExportLog: "cula_export_log",
   readiness: "readiness_status",
   apiKeys: "api_keys",
   opsEvents: "ops_events",
