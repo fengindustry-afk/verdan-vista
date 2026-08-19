@@ -1,11 +1,11 @@
 import { BentoCard } from "@/components/BentoCard";
 import { InfoTip } from "@/components/InfoTip";
-import { Leaf, Zap, Loader2 } from "lucide-react";
+import { Leaf, Loader2, Package, Sprout, ShieldCheck, ClipboardCheck, BadgeCheck, CircleDollarSign, Layers } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis } from "recharts";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useFeedstock, useWorkProcessEntries } from "@/hooks/useCollection";
-import { corcMetrics, withMeasuredCorcInputs, evidencedStageIndex, CUSTODY_STAGES, FINAL_STAGE } from "@/lib/feedstock";
+import { corcMetrics, withMeasuredCorcInputs, evidencedStageIndex, CUSTODY_STAGES, FINAL_STAGE, APPLICATION_STAGE, parseLeadingNumber, wpEntriesForBatch } from "@/lib/feedstock";
 import { dispatchIndex } from "@/lib/workProcess";
 import {
   WORKBOOK_FEEDSTOCKS,
@@ -16,7 +16,6 @@ import {
 } from "@/lib/valueChain";
 import { fmt } from "@/lib/format";
 import { useMemo, useState } from "react";
-import { CulaExportPanel } from "./CulaAdmin";
 
 const CHART_MODES = ["Actual", "Potential"] as const;
 type ChartMode = (typeof CHART_MODES)[number];
@@ -92,7 +91,45 @@ export default function Dashboard() {
       .reduce((s, x) => s + x.m.netCorc, 0);
     const eligible = metrics.filter((x) => x.m.isCorcEligible).length;
 
-    return { netCorc, credited, eligible };
+    // Mass + registry figures for the merged pipeline cards. Summed per batch
+    // over the same entry fields actualByStage reads (kg everywhere except
+    // certified_corc, which is tCO2e at face value — never /1000).
+    let producedKg = 0;
+    let appliedKg = 0;
+    let sinkedKg = 0;
+    let certifiedTco2e = 0;
+    for (const f of scopedBatches) {
+      for (const e of wpEntriesForBatch(f.Title ?? "", wpAll, dispatch)) {
+        const v = e.Values ?? {};
+        if (e.StageKey === "production_05" || e.StageKey === "production_10") {
+          producedKg += parseLeadingNumber(v.final_biochar_amount);
+        } else if (e.StageKey === "application") {
+          appliedKg += parseLeadingNumber(v.quantity_applied);
+        } else if (e.StageKey === "carbon_sink") {
+          sinkedKg += parseLeadingNumber(v.quantity);
+        } else if (e.StageKey === "certification") {
+          certifiedTco2e += parseLeadingNumber(v.certified_corc);
+        }
+      }
+    }
+    // In the MRV queue: measured, eligible, sitting at Application or Carbon
+    // Sink — sink-confirmed but not yet registry-certified. Sink-Confirmed is
+    // a subset of this number, not a separate bucket.
+    const preAssess = metrics
+      .filter((x) => x.stage === APPLICATION_STAGE || x.stage === FINAL_STAGE)
+      .reduce((s, x) => s + x.m.netCorc, 0);
+
+    return {
+      netCorc,
+      credited,
+      eligible,
+      biocharProducedT: producedKg / 1000,
+      biocharAppliedT: appliedKg / 1000,
+      biocharSinkedT: sinkedKg / 1000,
+      biocharAvailableT: Math.max(0, (producedKg - sinkedKg) / 1000),
+      certifiedTco2e,
+      preAssess,
+    };
   }, [scopedBatches, wpAll]);
 
   /**
@@ -127,32 +164,17 @@ export default function Dashboard() {
   }, [mode, view, wf, feedstock, wpAll]);
 
 
-  const stats = [
-    {
-      label: "Potential CORC",
-      value: fmt(agg.netCorc, 2),
-      icon: Leaf,
-      tip: `Total tCO₂e across the ${feedstockName} batches: gross carbon stored minus the emissions from haulage and pyrolysis. Not yet issued — see Sink-Confirmed for that. Scoped to the feedstock selected on the CORC graph.`,
-    },
-    {
-      label: "CORC-Eligible",
-      value: fmt(agg.eligible),
-      icon: Zap,
-      tip: `${feedstockName} batches that pass the eligibility rules (measured yield, carbon content and permanence) and can be put forward for issuance.`,
-    },
-  ];
-
   const timeNote =
     view === "Timeline"
       ? ""
       : "These views use measured records only — the workbook model is a single daily row with no timestamps to window by.";
 
-  const chartTitle =
-    view === "Timeline"
-      ? `${mode} Feedstock Tonnes by Custody Stage`
-      : view === "Accumulative"
-        ? `${mode} Feedstock Tonnes by Custody Stage — Accumulative`
-        : `${mode} Feedstock Tonnes by Custody Stage — ${view}`;
+  const chartTitle = `Custody Stage · ${mode}${view === "Timeline" ? "" : ` — ${view}`}`;
+
+  // Full custody-stage chain: feedstock stages (Collection, Delivery,
+  // Pre-Processing) and biochar stages (Conversion, Application, Sink,
+  // Certification) shown together, in material tonnes.
+  const chartPoints = chart ? chart.points : [];
 
   return (
     <div className="relative p-6 lg:p-8 space-y-6">
@@ -170,33 +192,114 @@ export default function Dashboard() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            {stats.map((stat, i) => (
-              <BentoCard key={stat.label} delay={i * 0.08} className="col-span-1 sm:col-span-1 lg:col-span-2">
-                <div className="flex items-start justify-between">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
-                    <stat.icon className="h-4 w-4 text-primary" />
-                  </div>
-                  <InfoTip text={stat.tip} />
+          {/* Merged value-chain pipeline: biochar mass side + CORC credit side */}
+          <BentoCard className="w-full" delay={0.15}>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+              <h3 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+                Value-Chain Pipeline
+                <span className="text-[10px] font-normal text-muted-foreground">
+                  biochar mass (t) → CORC credits (tCO₂e) · scoped to {feedstockName}
+                </span>
+              </h3>
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Lane 1 — Biochar side: mass (tonnes) */}
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-primary mb-2 flex items-center gap-1.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-primary" /> Biochar side · mass (t)
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {[
+                    {
+                      label: "Available",
+                      value: fmt(agg.biocharAvailableT, 2),
+                      unit: "t in stock",
+                      icon: Package,
+                      tip: `Biochar produced via Material Conversion minus what has reached Carbon Sink. Biochar applied to soil stays counted as Available until it is recorded as a durable sink, across the ${feedstockName} batches.`,
+                    },
+                    {
+                      label: "Applied",
+                      value: fmt(agg.biocharAppliedT, 2),
+                      unit: "t applied",
+                      icon: Sprout,
+                      tip: `Feedstock tonnes recorded at the Application stage (quantity_applied) for ${feedstockName} batches.`,
+                    },
+                    {
+                      label: "Sinked",
+                      value: fmt(agg.biocharSinkedT, 2),
+                      unit: "t durably sunk",
+                      icon: ShieldCheck,
+                      tip: `Feedstock tonnes recorded at the Carbon Sink stage — durably removed. The mass behind the Sink-Confirmed credit figure.`,
+                    },
+                  ].map((c) => (
+                    <div key={c.label} className="rounded-xl border border-border/70 bg-card/40 p-3">
+                      <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 mb-2">
+                        <c.icon className="h-3.5 w-3.5 text-primary" />
+                      </div>
+                      <p className="text-lg font-bold text-foreground leading-none">{c.value}</p>
+                      <p className="text-[11px] text-muted-foreground mt-1 flex items-center gap-1">{c.label} <InfoTip text={c.tip} /></p>
+                      <p className="text-[10px] text-muted-foreground/70 mt-0.5">{c.unit}</p>
+                    </div>
+                  ))}
                 </div>
-                <p className="text-2xl font-bold text-foreground mt-3">{stat.value}</p>
-                <p className="text-xs text-muted-foreground mt-1">{stat.label}</p>
-              </BentoCard>
-            ))}
-          </div>
+              </div>
 
-          {/* CORC credit visibility */}
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-            {[
-              { label: "Sink-Confirmed", value: agg.credited, color: "text-primary", tip: `Potential CORC from ${feedstockName} batches with a Carbon Sink record behind them — durably removed, but still not issued until a registry verifies and certifies it (Carbon Certification stage).` },
-            ].map((c, i) => (
-              <BentoCard key={c.label} delay={0.2 + i * 0.06}>
-                <p className="text-xs text-muted-foreground flex items-center gap-1.5">{c.label} <InfoTip text={c.tip} /></p>
-                <p className={`text-2xl font-bold mt-2 ${c.color}`}>{fmt(Math.max(0, c.value), 2)}</p>
-                <p className="text-[10px] text-muted-foreground mt-1">tCO₂e CORC</p>
-              </BentoCard>
-            ))}
-          </div>
+              {/* Lane 2 — CORC credit side: tCO₂e */}
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-primary mb-2 flex items-center gap-1.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-primary" /> CORC credit side · tCO₂e
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {[
+                    {
+                      label: "Potential",
+                      value: fmt(agg.netCorc, 2),
+                      unit: "tCO₂e",
+                      icon: Leaf,
+                      tip: `Total tCO₂e across the ${feedstockName} batches: gross carbon stored minus the emissions from haulage and pyrolysis.`,
+                    },
+                    {
+                      label: "Pre-assess (MRV)",
+                      value: fmt(agg.preAssess, 2),
+                      unit: "tCO₂e in MRV queue",
+                      icon: ClipboardCheck,
+                      tip: `Net CORC from ${feedstockName} batches evidenced at Application or Carbon Sink — measured and eligible, awaiting registry verification. Sink-Confirmed is part of this queue, not a separate bucket.`,
+                    },
+                    {
+                      label: "Certified (Puro)",
+                      value: fmt(agg.certifiedTco2e, 2),
+                      unit: "tCO₂e registry-issued",
+                      icon: BadgeCheck,
+                      tip: `The registry's own certified figure from Carbon Certification records (certified_corc), taken at face value, summed across ${feedstockName} batches.`,
+                    },
+                    {
+                      label: "Sold",
+                      value: fmt(1000, 2),
+                      unit: "tCO₂e placeholder",
+                      icon: CircleDollarSign,
+                      tip: `Hard-coded at 1000 until a sales ledger is wired up — the placeholder value to be replaced by real offtake / sales records when that data lands.`,
+                    },
+                    {
+                      label: "Available",
+                      value: fmt(agg.certifiedTco2e - 1000, 2),
+                      unit: "tCO₂e unsold",
+                      icon: Layers,
+                      tip: `Certified (Puro) minus Sold. Computed as certified_corc − 1000 (Sold is currently a hard-coded placeholder) until a sales ledger is wired up.`,
+                    },
+                  ].map((c) => (
+                    <div key={c.label} className="rounded-xl border border-border/70 bg-card/40 p-3">
+                      <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 mb-2">
+                        <c.icon className="h-3.5 w-3.5 text-primary" />
+                      </div>
+                      <p className="text-lg font-bold text-foreground leading-none">{c.value}</p>
+                      <p className="text-[11px] text-muted-foreground mt-1 flex items-center gap-1">{c.label} <InfoTip text={c.tip} /></p>
+                      <p className="text-[10px] text-muted-foreground/70 mt-0.5">{c.unit}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </BentoCard>
 
           <div className="grid lg:grid-cols-4 gap-4">
             <BentoCard className="lg:col-span-4" delay={0.3}>
@@ -249,7 +352,7 @@ export default function Dashboard() {
                   config={{ tonnes: { label: "Feedstock (t)", color: "hsl(160, 64%, 40%)" } }}
                   className="h-56 w-full aspect-auto"
                 >
-                  <BarChart data={chart.points}>
+                  <BarChart data={chartPoints}>
                     <XAxis dataKey="label" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} interval={0} angle={-20} textAnchor="end" height={50} />
                     <YAxis tick={{ fontSize: 12 }} axisLine={false} tickLine={false} unit=" t" />
                     <ChartTooltip
@@ -282,12 +385,6 @@ export default function Dashboard() {
               )}
             </BentoCard>
 
-          </div>
-
-          {/* CULA Export sub-page */}
-          <div>
-            <h2 className="text-xl font-bold text-foreground mb-4">CULA Export</h2>
-            <CulaExportPanel />
           </div>
         </>
       )}
